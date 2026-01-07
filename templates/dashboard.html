@@ -3,265 +3,371 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pro Algo</title>
+    <title>Algo Terminal V2</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
-        body { background: #eef2f6; font-family: sans-serif; padding-bottom: 80px; }
-        .ticker { background: #000; color: #fff; padding: 5px; white-space: nowrap; overflow:hidden; font-size: 0.9rem; }
-        .ticker span { margin-right: 15px; font-weight: bold; }
-        .card { border-radius: 12px; border:none; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 15px; }
-        .btn-check:checked + .btn-outline-primary { background: #0d6efd; color: #fff; }
-        .form-control, .form-select { border-radius: 8px; font-size: 16px; background:#fff; }
-        .risk-val { text-align: center; font-weight: bold; }
-        .nav-pills .nav-link { border-radius: 20px; font-weight: 600; }
+        body { background-color: #f8f9fa; font-family: sans-serif; padding-bottom: 80px; }
+        
+        /* TICKER */
+        .ticker-bar { background: #000; color: #fff; padding: 8px; font-size: 0.9rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; }
+        .ticker-item { margin-right: 20px; font-weight: bold; }
+        .val-up { color: #2ecc71; } .val-down { color: #e74c3c; }
+
+        /* CARDS */
+        .custom-card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); background: #fff; margin-bottom: 15px; overflow: hidden; }
+        .card-head { padding: 15px; font-weight: bold; border-bottom: 1px solid #eee; background: #fff; }
+        .card-body { padding: 15px; }
+
+        /* TABS */
+        .nav-tabs { border: none; background: #fff; padding: 10px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .nav-btn { flex: 1; text-align: center; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: 600; color: #6c757d; border: 1px solid transparent; margin: 0 5px; background: transparent; }
+        .nav-btn.active { background-color: #0d6efd; color: #fff; box-shadow: 0 2px 4px rgba(13,110,253,0.3); }
+
+        /* FORMS */
+        .form-control, .form-select { height: 45px; font-size: 16px; border-radius: 8px; background: #f8f9fa; border: 1px solid #e9ecef; }
+        .form-control:focus { background: #fff; border-color: #0d6efd; box-shadow: none; }
+        
+        /* LIVE TOGGLE */
+        .mode-selector { display: flex; gap: 10px; margin-bottom: 15px; }
+        .mode-btn { flex: 1; padding: 15px; border: 2px solid #ddd; border-radius: 10px; text-align: center; cursor: pointer; font-weight: bold; opacity: 0.6; }
+        .mode-btn.selected { opacity: 1; border-color: currentColor; background: rgba(0,0,0,0.03); }
+        .mode-paper { color: #f39c12; border-color: #f39c12; }
+        .mode-live { color: #e74c3c; border-color: #e74c3c; }
+
+        /* HIDDEN SECTIONS */
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
     </style>
 </head>
 <body>
 
-<div class="ticker sticky-top">
-    <span>NIFTY: <span id="n_lp" class="text-warning">0</span></span>
-    <span>BANKNIFTY: <span id="b_lp" class="text-warning">0</span></span>
-    <span>SENSEX: <span id="s_lp" class="text-warning">0</span></span>
+<div class="ticker-bar">
+    <span class="ticker-item">NIFTY: <span id="n_lp">0.00</span></span>
+    <span class="ticker-item">BANKNIFTY: <span id="b_lp">0.00</span></span>
+    <span class="ticker-item">SENSEX: <span id="s_lp">0.00</span></span>
 </div>
 
 <div class="container mt-3">
     {% with messages = get_flashed_messages() %}
-        {% if messages %} <div class="alert alert-success">{{ messages[0] }}</div> {% endif %}
+        {% if messages %} <div class="alert alert-info">{{ messages[0] }}</div> {% endif %}
     {% endwith %}
 
-    <ul class="nav nav-pills nav-fill mb-3 bg-white p-2 rounded">
-        <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#trade">🚀 Trade</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#history">📅 History</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#pos">💼 Pos</button></li>
-    </ul>
+    <div class="nav-tabs">
+        <div class="nav-btn active" onclick="switchTab('trade')">🚀 Trade</div>
+        <div class="nav-btn" onclick="switchTab('history')">📅 History</div>
+        <div class="nav-btn" onclick="switchTab('pos')">💼 Pos</div>
+    </div>
 
-    <div class="tab-content">
-        <div class="tab-pane fade show active" id="trade">
-            <form action="/trade" method="post">
-                <div class="card p-3">
-                    <div class="d-flex justify-content-between mb-2">
-                        <h5 class="fw-bold">New Order</h5>
-                        <span id="inst_ltp" class="badge bg-primary">LTP: 0</span>
-                    </div>
-
+    <div id="trade" class="tab-content active">
+        <form action="/trade" method="post" id="tradeForm">
+            <div class="custom-card">
+                <div class="card-head d-flex justify-content-between align-items-center">
+                    <span>New Order Setup</span>
+                    <span id="inst_ltp" class="badge bg-primary">LTP: 0</span>
+                </div>
+                <div class="card-body">
+                    
                     <div class="mb-3">
-                        <input type="text" id="sym" name="index" class="form-control fw-bold" placeholder="Search Symbol..." list="sym_list" required>
+                        <label class="small text-muted fw-bold">1. SEARCH SYMBOL</label>
+                        <input type="text" id="sym" name="index" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list" required autocomplete="off">
                         <datalist id="sym_list"></datalist>
                     </div>
 
                     <div class="mb-3">
-                        <div class="btn-group w-100" role="group">
-                            <input type="radio" class="btn-check" name="type" id="t1" value="CE" checked>
-                            <label class="btn btn-outline-primary" for="t1">CE</label>
-                            <input type="radio" class="btn-check" name="type" id="t2" value="PE">
-                            <label class="btn btn-outline-primary" for="t2">PE</label>
-                            <input type="radio" class="btn-check" name="type" id="t3" value="FUT">
-                            <label class="btn btn-outline-primary" for="t3">FUT</label>
-                            <input type="radio" class="btn-check" name="type" id="t4" value="EQ">
-                            <label class="btn btn-outline-primary" for="t4">EQ</label>
-                        </div>
-                    </div>
-
-                    <div class="row g-2 mb-3">
-                        <div class="col-6"><select name="expiry" id="exp" class="form-select"></select></div>
-                        <div class="col-6"><select name="strike" id="str" class="form-select"></select></div>
+                        <label class="small text-muted fw-bold">2. INSTRUMENT TYPE</label>
+                        <select name="type" id="type" class="form-select fw-bold">
+                            <option value="CE" selected>Option Call (CE)</option>
+                            <option value="PE">Option Put (PE)</option>
+                            <option value="FUT">Future (FUT)</option>
+                            <option value="EQ">Equity (EQ)</option>
+                        </select>
                     </div>
 
                     <div class="row g-2 mb-3">
                         <div class="col-6">
-                            <label class="small fw-bold text-muted">QTY (Lot:<span id="lot">1</span>)</label>
+                            <label class="small text-muted fw-bold">3. EXPIRY</label>
+                            <select name="expiry" id="exp" class="form-select"></select>
+                        </div>
+                        <div class="col-6">
+                            <label class="small text-muted fw-bold">4. STRIKE</label>
+                            <select name="strike" id="str" class="form-select"></select>
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="small text-muted fw-bold">QTY (Lot: <span id="lot">1</span>)</label>
                             <input type="number" name="qty" id="qty" class="form-control fw-bold" value="1">
                         </div>
                         <div class="col-6">
-                            <label class="small fw-bold text-muted">ORDER</label>
+                            <label class="small text-muted fw-bold">ORDER TYPE</label>
                             <select name="order_type" id="ord" class="form-select fw-bold">
                                 <option value="LIMIT" selected>LIMIT</option>
                                 <option value="MARKET">MARKET</option>
                             </select>
                         </div>
                     </div>
-                    
+
                     <div id="lim_box" class="mb-3">
-                        <label class="small fw-bold text-muted">LIMIT PRICE</label>
-                        <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control text-primary fw-bold">
+                        <label class="small text-muted fw-bold">LIMIT PRICE</label>
+                        <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control text-primary fw-bold" placeholder="0.00">
                     </div>
-                </div>
 
-                <div class="card p-3">
-                    <h6 class="fw-bold mb-3">🛡️ Risk Manager</h6>
+                </div>
+            </div>
+
+            <div class="custom-card">
+                <div class="card-head">🛡️ Risk Manager (Auto-Calc)</div>
+                <div class="card-body">
                     <div class="input-group mb-3">
-                        <span class="input-group-text">SL Pts</span>
-                        <input type="number" id="sl_pts" name="sl_points" class="form-control fw-bold text-center" value="20">
+                        <span class="input-group-text fw-bold">SL Points</span>
+                        <input type="number" id="sl_pts" name="sl_points" class="form-control text-center fw-bold" value="20">
                     </div>
-                    <div class="row g-2">
-                        <div class="col-3"><small>SL</small><input type="number" step="0.05" id="p_sl" class="form-control risk-val text-danger" readonly></div>
-                        <div class="col-3"><small>T1</small><input type="number" step="0.05" id="p_t1" name="t1_price" class="form-control risk-val text-success"></div>
-                        <div class="col-3"><small>T2</small><input type="number" step="0.05" id="p_t2" name="t2_price" class="form-control risk-val text-success"></div>
-                        <div class="col-3"><small>T3</small><input type="number" step="0.05" id="p_t3" name="t3_price" class="form-control risk-val text-success"></div>
+                    <div class="row g-2 text-center">
+                        <div class="col-3"><small class="text-danger fw-bold">SL</small><input type="text" id="p_sl" class="form-control text-center text-danger fw-bold" readonly></div>
+                        <div class="col-3"><small class="text-success fw-bold">T1</small><input type="text" id="p_t1" name="t1_price" class="form-control text-center text-success fw-bold"></div>
+                        <div class="col-3"><small class="text-success fw-bold">T2</small><input type="text" id="p_t2" name="t2_price" class="form-control text-center text-success fw-bold"></div>
+                        <div class="col-3"><small class="text-success fw-bold">T3</small><input type="text" id="p_t3" name="t3_price" class="form-control text-center text-success fw-bold"></div>
                     </div>
                 </div>
+            </div>
 
-                <div class="d-grid gap-2">
-                    <div class="btn-group">
-                        <input type="radio" class="btn-check" name="mode" id="m1" value="PAPER" checked>
-                        <label class="btn btn-outline-warning" for="m1">PAPER</label>
-                        <input type="radio" class="btn-check" name="mode" id="m2" value="LIVE">
-                        <label class="btn btn-outline-danger" for="m2">LIVE</label>
-                    </div>
-                    <button type="submit" class="btn btn-dark btn-lg shadow">⚡ EXECUTE</button>
-                </div>
-            </form>
-        </div>
+            <input type="hidden" name="mode" id="mode_input" value="PAPER">
+            
+            <div class="mode-selector">
+                <div class="mode-btn mode-paper selected" onclick="setMode('PAPER')">📝 PAPER TRADE</div>
+                <div class="mode-btn mode-live" onclick="setMode('LIVE')">🔴 LIVE TRADE</div>
+            </div>
 
-        <div class="tab-pane fade" id="history">
-            <div class="card p-3">
-                <h5 class="fw-bold">History Check</h5>
-                <input type="text" id="h_sym" class="form-control mb-2" placeholder="Symbol" list="sym_list">
-                <div class="row g-2 mb-2">
+            <button type="submit" class="btn btn-dark w-100 py-3 fw-bold rounded-pill shadow">🚀 EXECUTE ORDER</button>
+        </form>
+    </div>
+
+    <div id="history" class="tab-content">
+        <div class="custom-card">
+            <div class="card-head">📅 Historical Check</div>
+            <div class="card-body">
+                <input type="text" id="h_sym" class="form-control mb-3" placeholder="Symbol (e.g. NIFTY)" list="sym_list">
+                
+                <div class="row g-2 mb-3">
                     <div class="col-4">
                         <select id="h_type" class="form-select">
                             <option value="CE">CE</option><option value="PE">PE</option><option value="FUT">FUT</option>
                         </select>
                     </div>
-                    <div class="col-8"><select id="h_exp" class="form-select"></select></div>
+                    <div class="col-8">
+                        <select id="h_exp" class="form-select"><option>Select Symbol</option></select>
+                    </div>
                 </div>
-                <input type="number" id="h_str" class="form-control mb-2" placeholder="Strike">
+                
+                <input type="number" id="h_str" class="form-control mb-3" placeholder="Strike Price">
                 <input type="datetime-local" id="h_time" class="form-control mb-3">
-                <button onclick="checkHistory()" class="btn btn-info w-100 text-white fw-bold">Check</button>
-                <div id="h_res" class="mt-3 p-3 bg-light border rounded" style="display:none"></div>
+                
+                <button onclick="checkHistory()" class="btn btn-info w-100 fw-bold text-white">🔍 Check Price</button>
+                
+                <div id="h_res" class="mt-3 p-3 bg-light border rounded" style="display:none;"></div>
             </div>
         </div>
+    </div>
 
-        <div class="tab-pane fade" id="pos">
-            <div class="card p-2">
+    <div id="pos" class="tab-content">
+        <div class="custom-card">
+            <div class="card-head">💼 Active Positions</div>
+            <div class="card-body p-0">
                 {% for t in trades %}
-                <div class="border-bottom pb-2 mb-2">
+                <div class="p-3 border-bottom">
                     <div class="d-flex justify-content-between">
                         <strong>{{ t.symbol }}</strong>
                         <span class="badge {{ 'bg-danger' if t.mode=='LIVE' else 'bg-warning text-dark' }}">{{ t.mode }}</span>
                     </div>
-                    <div class="d-flex justify-content-between small">
-                        <span>Avg: {{ t.entry_price }}</span>
-                        <span>LTP: {{ t.current_ltp }}</span>
+                    <div class="d-flex justify-content-between small text-muted mt-1">
+                        <span>Entry: {{ t.entry_price }}</span>
+                        <span class="text-dark fw-bold">LTP: {{ t.current_ltp }}</span>
                     </div>
-                    <div class="text-end mt-1">
-                        <span class="badge bg-light text-dark border">{{ t.status }}</span>
-                        {% if t.mode=='PAPER' %}<a href="/promote/{{ t.id }}" class="btn btn-sm btn-danger py-0">Go Live</a>{% endif %}
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                        <span class="badge bg-secondary">{{ t.status }}</span>
+                        {% if t.mode == 'PAPER' %}
+                        <a href="/promote/{{ t.id }}" class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold">Promote Live</a>
+                        {% endif %}
                     </div>
                 </div>
                 {% else %}
-                <p class="text-center text-muted mt-3">No Active Trades</p>
+                <div class="text-center p-5 text-muted">No active trades found.</div>
                 {% endfor %}
             </div>
         </div>
     </div>
+
 </div>
 
 <script>
-    let curLTP = 0;
-    
-    // Ticker
-    setInterval(() => {
-        $.get('/api/indices', d => {
-            $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); $('#s_lp').text(d.SENSEX);
-        });
-    }, 2000);
-
-    // Search & Memory
-    $('#sym').on('input', function() {
-        let v = $(this).val();
-        if(v.length < 2) return;
-        $.get('/api/search?q='+v, d => {
-            $('#sym_list').empty(); d.forEach(s => $('#sym_list').append(`<option value="${s}">`));
-        });
-    });
-
-    $('#sym').change(function() {
-        let s = $(this).val(); if(!s) return;
-        let memSL = localStorage.getItem('sl_'+s);
-        if(memSL) $('#sl_pts').val(memSL);
-
-        $.get('/api/details?symbol='+s, d => {
-            $('#lot').text(d.lot_size); $('#qty').val(d.lot_size);
-            window.fut = d.fut_expiries; window.opt = d.opt_expiries;
-            fillExp('#exp', 'input[name="type"]:checked');
-        });
-    });
-
-    $('input[name="type"]').change(() => fillExp('#exp', 'input[name="type"]:checked'));
-    $('#exp').change(fillChain);
-    $('#str').change(fetchLTP);
-    $('#sl_pts').on('input', function() {
-        localStorage.setItem('sl_'+$('#sym').val(), $(this).val());
-        calcRisk();
-    });
-    
-    // Order Type Toggle
-    $('#ord').change(function() { $('#lim_box').toggle($(this).val() === 'LIMIT'); });
-
-    function fillExp(target, typeSrc) {
-        let t = $(typeSrc).val(), $e = $(target).empty();
-        let l = (t === 'FUT') ? window.fut : window.opt;
-        if(t === 'EQ') l = ['N/A'];
+    // --- TAB SWITCHER LOGIC ---
+    function switchTab(tabId) {
+        // Remove active class from all tabs and buttons
+        document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
         
-        if(l) l.forEach((d,i) => $e.append(`<option value="${d}" ${i===0?'selected':''}>${d}</option>`));
-        if(target === '#exp') fillChain();
+        // Add active class to selected
+        document.getElementById(tabId).style.display = 'block';
+        event.currentTarget.classList.add('active');
     }
 
-    function fillChain() {
-        let s = $('#sym').val(), e = $('#exp').val(), t = $('input[name="type"]:checked').val();
-        if(t === 'FUT' || t === 'EQ') { $('#str').html('<option value="0">N/A</option>'); fetchLTP(); return; }
+    // --- MODE SWITCHER LOGIC ---
+    function setMode(mode) {
+        document.getElementById('mode_input').value = mode;
+        document.querySelectorAll('.mode-btn').forEach(el => el.classList.remove('selected'));
+        if(mode === 'PAPER') document.querySelector('.mode-paper').classList.add('selected');
+        else document.querySelector('.mode-live').classList.add('selected');
+    }
+
+    // --- MAIN TRADING LOGIC ---
+    let curLTP = 0;
+
+    // 1. Ticker
+    function updateTicker() {
+        $.get('/api/indices', function(data) {
+            $('#n_lp').text(data.NIFTY);
+            $('#b_lp').text(data.BANKNIFTY);
+            $('#s_lp').text(data.SENSEX);
+        });
+    }
+    setInterval(updateTicker, 2000);
+    updateTicker(); // Init
+
+    // 2. Symbol Search
+    $('#sym').on('input', function() {
+        let val = $(this).val();
+        if(val.length < 2) return;
+        $.get('/api/search?q=' + val, function(data) {
+            let $list = $('#sym_list').empty();
+            data.forEach(s => $list.append(`<option value="${s}">`));
+        });
+    });
+
+    // 3. Populate Details
+    $('#sym').change(function() {
+        let s = $(this).val();
+        if(!s) return;
         
-        let spot = parseFloat($('#n_lp').text()) || 0; // Use Nifty as proxy for ATM calc
-        $.get(`/api/chain?symbol=${s}&expiry=${e}&type=${t}&ltp=${spot}`, d => {
-            let $k = $('#str').empty();
-            d.forEach(r => {
-                let st = r.label.includes('ATM') ? 'color:red;font-weight:bold' : '';
-                $k.append(`<option value="${r.strike}" style="${st}" ${r.label.includes('ATM')?'selected':''}>${r.strike} ${r.label}</option>`);
+        // Memory SL
+        let memSL = localStorage.getItem('sl_' + s);
+        if(memSL) $('#sl_pts').val(memSL);
+
+        $.get('/api/details?symbol=' + s, function(data) {
+            $('#lot').text(data.lot_size);
+            $('#qty').val(data.lot_size);
+            window.fut = data.fut_expiries;
+            window.opt = data.opt_expiries;
+            fillExp();
+        });
+    });
+
+    $('#type').change(fillExp);
+    
+    function fillExp() {
+        let t = $('#type').val();
+        let list = (t === 'FUT') ? window.fut : window.opt;
+        if(t === 'EQ') list = ['N/A'];
+        
+        let $e = $('#exp').empty();
+        if(list && list.length > 0) {
+            list.forEach((d, i) => $e.append(`<option value="${d}" ${i===0?'selected':''}>${d}</option>`));
+            fillChain();
+        } else {
+            $e.append('<option>Loading...</option>');
+        }
+    }
+
+    $('#exp').change(fillChain);
+
+    function fillChain() {
+        let s = $('#sym').val(), e = $('#exp').val(), t = $('#type').val();
+        if(t === 'FUT' || t === 'EQ') { 
+            $('#str').html('<option value="0">N/A</option>'); 
+            fetchLTP(); 
+            return; 
+        }
+
+        let spot = parseFloat($('#n_lp').text()) || 0;
+        $.get(`/api/chain?symbol=${s}&expiry=${e}&type=${t}&ltp=${spot}`, function(data) {
+            let $str = $('#str').empty();
+            data.forEach(r => {
+                let style = r.label.includes("ATM") ? "color:red; font-weight:bold" : "";
+                $str.append(`<option value="${r.strike}" style="${style}" ${r.label.includes("ATM")?'selected':''}>${r.strike} ${r.label}</option>`);
             });
             fetchLTP();
         });
     }
 
+    $('#str').change(fetchLTP);
+
     function fetchLTP() {
-        let s = $('#sym').val(), e = $('#exp').val(), k = $('#str').val(), t = $('input[name="type"]:checked').val();
+        let s = $('#sym').val(), e = $('#exp').val(), k = $('#str').val(), t = $('#type').val();
         if(!s) return;
-        $.get(`/api/specific_ltp?symbol=${s}&expiry=${e}&strike=${k}&type=${t}`, d => {
-            curLTP = d.ltp;
-            $('#inst_ltp').text("LTP: "+curLTP);
+        
+        $.get(`/api/specific_ltp?symbol=${s}&expiry=${e}&strike=${k}&type=${t}`, function(data) {
+            curLTP = data.ltp;
+            $('#inst_ltp').text("LTP: " + curLTP);
             $('#lim_pr').val(curLTP);
             calcRisk();
         });
     }
 
+    // 4. Risk Calc
+    $('#sl_pts').on('input', function() {
+        localStorage.setItem('sl_' + $('#sym').val(), $(this).val());
+        calcRisk();
+    });
+
     function calcRisk() {
         let pts = parseFloat($('#sl_pts').val()) || 0;
         if(curLTP > 0) {
             $('#p_sl').val((curLTP - pts).toFixed(2));
-            $('#p_t1').val((curLTP + pts*0.5).toFixed(2));
-            $('#p_t2').val((curLTP + pts*1.0).toFixed(2));
-            $('#p_t3').val((curLTP + pts*2.0).toFixed(2));
+            $('#p_t1').val((curLTP + pts * 0.5).toFixed(2));
+            $('#p_t2').val((curLTP + pts * 1.0).toFixed(2));
+            $('#p_t3').val((curLTP + pts * 2.0).toFixed(2));
         }
     }
 
-    // History
+    // 5. Order Type
+    $('#ord').change(function() {
+        if($(this).val() === 'LIMIT') $('#lim_box').show();
+        else $('#lim_box').hide();
+    });
+
+    // 6. History Logic
     $('#h_sym').change(function() {
-        $.get('/api/details?symbol='+$(this).val(), d => {
+        $.get('/api/details?symbol=' + $(this).val(), function(d) {
             window.hFut = d.fut_expiries; window.hOpt = d.opt_expiries;
-            fillExp('#h_exp', '#h_type');
+            fillHExp();
         });
     });
-    $('#h_type').change(() => fillExp('#h_exp', '#h_type'));
+    $('#h_type').change(fillHExp);
+
+    function fillHExp() {
+        let t = $('#h_type').val();
+        let list = (t === 'FUT') ? window.hFut : window.hOpt;
+        let $e = $('#h_exp').empty();
+        if(list) list.forEach(d => $e.append(`<option value="${d}">${d}</option>`));
+    }
 
     window.checkHistory = function() {
-        let d = { symbol:$('#h_sym').val(), type:$('#h_type').val(), expiry:$('#h_exp').val(), strike:$('#h_str').val(), time:$('#h_time').val() };
-        $('#h_res').show().text('Checking...');
-        $.get('/api/history_check', d, r => {
-            if(r.status==='success') $('#h_res').html(`<b>${r.symbol}</b><br>${r.data.date}<br>O:${r.data.open} H:${r.data.high} L:${r.data.low} C:${r.data.close}`);
-            else $('#h_res').text(r.message);
+        let d = {
+            symbol: $('#h_sym').val(), type: $('#h_type').val(),
+            expiry: $('#h_exp').val(), strike: $('#h_str').val(),
+            time: $('#h_time').val()
+        };
+        $('#h_res').show().text("Checking...");
+        $.get('/api/history_check', d, function(r) {
+            if(r.status === 'success') {
+                $('#h_res').html(`<b>${r.symbol}</b><br>${r.data.date}<br>Open: ${r.data.open} <br>High: ${r.data.high} <br>Low: ${r.data.low} <br>Close: ${r.data.close}`);
+            } else {
+                $('#h_res').text(r.message);
+            }
         });
     };
 </script>
+
 </body>
 </html>

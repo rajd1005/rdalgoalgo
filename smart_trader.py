@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Global Cache
+# Global Instrument Cache
 instrument_dump = None 
 
 def fetch_instruments(kite):

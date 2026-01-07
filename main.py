@@ -2,6 +2,7 @@ import threading
 import time
 import os
 import logging
+import smart_trader
 from flask import Flask, request, redirect
 from kiteconnect import KiteConnect
 

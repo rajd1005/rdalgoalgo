@@ -17,28 +17,33 @@ def fetch_instruments(kite):
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
 
+def get_indices_ltp(kite):
+    """Fetches Live Spot Prices for Major Indices"""
+    tokens = {
+        "NSE:NIFTY 50": "NIFTY",
+        "NSE:NIFTY BANK": "BANKNIFTY",
+        "BSE:SENSEX": "SENSEX"
+    }
+    try:
+        quotes = kite.quote(list(tokens.keys()))
+        return {tokens[k]: quotes[k]['last_price'] for k in quotes}
+    except:
+        return {"NIFTY": 0, "BANKNIFTY": 0, "SENSEX": 0}
+
 def get_zerodha_symbol(common_name):
-    """
-    Prevents HDFCBANK -> BANKNIFTY mix-up.
-    """
+    """Prevents stock/index mix-ups"""
     upper = common_name.upper()
-    
-    # Strict matching for Indices
-    if upper == "BANKNIFTY" or upper == "NIFTY BANK": return "BANKNIFTY"
-    if upper == "NIFTY" or upper == "NIFTY 50": return "NIFTY"
-    if upper == "FINNIFTY": return "FINNIFTY"
-    
-    # Only map generic "BANK" to index if "NIFTY" is also present, or if it's strictly "BANK"
-    # Otherwise treat "AXISBANK", "HDFCBANK" as stocks.
+    if upper in ["BANKNIFTY", "NIFTY BANK"]: return "BANKNIFTY"
+    if upper in ["NIFTY", "NIFTY 50"]: return "NIFTY"
+    if upper == "SENSEX": return "SENSEX"
     if "BANK" in upper and "NIFTY" in upper: return "BANKNIFTY"
-    
     return upper
 
 def search_symbols(keyword):
     global instrument_dump
     if instrument_dump is None: return []
     keyword = keyword.upper()
-    
+    # Search Futures & Equities
     mask = (
         ((instrument_dump['segment'] == 'NFO-FUT') | (instrument_dump['segment'] == 'NSE')) & 
         (instrument_dump['name'].str.startswith(keyword))
@@ -58,18 +63,18 @@ def get_symbol_details(kite, symbol):
         quote_sym = f"NSE:{clean_symbol}"
         if clean_symbol == "NIFTY": quote_sym = "NSE:NIFTY 50"
         if clean_symbol == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
+        if clean_symbol == "SENSEX": quote_sym = "BSE:SENSEX"
         ltp = kite.quote(quote_sym)[quote_sym]['last_price']
     except:
         ltp = 0
 
-    # 2. Get Lot Size
+    # 2. Get Lot Size & Expiries
     lot_size = 1
     futs = instrument_dump[(instrument_dump['name'] == clean_symbol) & (instrument_dump['segment'] == 'NFO-FUT')]
     
     if not futs.empty:
         lot_size = int(futs.iloc[0]['lot_size'])
     
-    # 3. Expiries
     fut_exps = sorted(futs[futs['expiry_date'] >= today]['expiry_str'].unique().tolist())
     
     opts = instrument_dump[(instrument_dump['name'] == clean_symbol) & (instrument_dump['instrument_type'] == 'CE')]
@@ -84,44 +89,33 @@ def get_symbol_details(kite, symbol):
     }
 
 def get_chain_data(symbol, expiry_date, option_type, ltp):
+    """Calculates ATM/ITM/OTM"""
     global instrument_dump
     chain = instrument_dump[(instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
-    if chain.empty: return []
     
+    if chain.empty: return []
     strikes = sorted(chain['strike'].unique().tolist())
     if not strikes: return []
     
     atm_strike = min(strikes, key=lambda x: abs(x - ltp))
+    
     result = []
     for s in strikes:
-        label = ""
-        if s == atm_strike: label = "🔴 ATM"
-        elif option_type == "CE": label = "ITM" if ltp > s else "OTM"
-        elif option_type == "PE": label = "ITM" if ltp < s else "OTM"
-        result.append({"strike": s, "label": label})
+        label = "OTM"
+        style = "color:gray"
+        
+        if s == atm_strike:
+            label = "🔴 ATM"
+            style = "color:red; font-weight:bold"
+        elif option_type == "CE":
+            label = "ITM" if ltp > s else "OTM"
+            if label == "ITM": style = "color:green"
+        elif option_type == "PE":
+            label = "ITM" if ltp < s else "OTM"
+            if label == "ITM": style = "color:green"
+            
+        result.append({"strike": s, "label": label, "style": style})
     return result
-
-def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
-    global instrument_dump
-    tradingsymbol, exchange = "", "NFO"
-    
-    if inst_type == "EQ":
-        tradingsymbol = symbol
-        exchange = "NSE"
-    elif inst_type == "FUT":
-        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
-        if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
-    else:
-        if not strike: return 0
-        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == inst_type)
-        if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
-
-    if not tradingsymbol: return 0
-    try:
-        key = f"{exchange}:{tradingsymbol}"
-        return kite.quote(key)[key]['last_price']
-    except:
-        return 0
 
 def get_exact_symbol(symbol, expiry, strike, option_type):
     global instrument_dump
@@ -136,15 +130,21 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
     if not mask.any(): return None
     return instrument_dump[mask].iloc[0]['tradingsymbol']
 
+def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
+    global instrument_dump
+    tradingsymbol = get_exact_symbol(symbol, expiry, strike, inst_type)
+    if not tradingsymbol: return 0
+    try:
+        key = f"NFO:{tradingsymbol}" if inst_type != "EQ" else f"NSE:{tradingsymbol}"
+        return kite.quote(key)[key]['last_price']
+    except:
+        return 0
+
 def fetch_historical_check(kite, symbol, expiry, strike, type_, timestamp_str):
-    """
-    Fetches the OHLC of a specific minute in the past.
-    """
     symbol = get_zerodha_symbol(symbol)
     tradingsymbol = get_exact_symbol(symbol, expiry, strike, type_)
     
-    if not tradingsymbol: 
-        return {"status": "error", "message": f"Symbol Not Found. check Expiry/Strike"}
+    if not tradingsymbol: return {"status": "error", "message": "Symbol Not Found"}
     
     global instrument_dump
     token_row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
@@ -154,13 +154,10 @@ def fetch_historical_check(kite, symbol, expiry, strike, type_, timestamp_str):
     try:
         query_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M")
         data = kite.historical_data(token, query_time, query_time + timedelta(minutes=1), "minute")
-        
         if data:
             candle = data[0]
-            if 'date' in candle:
-                candle['date'] = candle['date'].strftime('%Y-%m-%d %H:%M:%S')
+            candle['date'] = candle['date'].strftime('%Y-%m-%d %H:%M')
             return {"status": "success", "data": candle, "symbol": tradingsymbol}
-        else:
-            return {"status": "error", "message": "No Data Found for this Time"}
+        return {"status": "error", "message": "No Data"}
     except Exception as e:
         return {"status": "error", "message": str(e)}

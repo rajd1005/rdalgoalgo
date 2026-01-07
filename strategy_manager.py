@@ -16,57 +16,49 @@ def save_trades(trades):
 
 def get_exchange(symbol):
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
-    if symbol in ["NIFTY", "BANKNIFTY", "FINNIFTY", "NIFTY 50", "NIFTY BANK"]: return "NSE"
     return "NSE"
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0):
     trades = load_trades()
     entry_price = 0.0
-    exchange_type = get_exchange(specific_symbol)
+    exchange = get_exchange(specific_symbol)
     
-    # EXECUTION
+    # 1. EXECUTION
     if mode == "LIVE":
         try:
-            kite_order_type = kite.ORDER_TYPE_MARKET if order_type == "MARKET" else kite.ORDER_TYPE_LIMIT
+            k_type = kite.ORDER_TYPE_MARKET if order_type == "MARKET" else kite.ORDER_TYPE_LIMIT
             price = 0 if order_type == "MARKET" else limit_price
             
-            order_id = kite.place_order(
+            kite.place_order(
                 tradingsymbol=specific_symbol,
-                exchange=exchange_type,
+                exchange=exchange,
                 transaction_type=kite.TRANSACTION_TYPE_BUY,
                 quantity=quantity,
-                order_type=kite_order_type,
+                order_type=k_type,
                 price=price,
                 product=kite.PRODUCT_MIS
             )
-            
-            # For records, assume limit price or fetch LTP
             entry_price = float(limit_price) if order_type == "LIMIT" else 0.0
             if entry_price == 0:
                  try:
-                    quote = kite.quote(f"{exchange_type}:{specific_symbol}")
-                    entry_price = quote[f"{exchange_type}:{specific_symbol}"]["last_price"]
+                    entry_price = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
                  except: entry_price = 100.0
-
         except Exception as e:
             return {"status": "error", "message": str(e)}
     else:
         # Paper
-        if order_type == "LIMIT":
-             entry_price = float(limit_price)
-        else:
+        entry_price = float(limit_price) if order_type == "LIMIT" else 0.0
+        if entry_price == 0:
             try:
-                quote = kite.quote(f"{exchange_type}:{specific_symbol}")
-                entry_price = quote[f"{exchange_type}:{specific_symbol}"]["last_price"]
-            except:
-                entry_price = 100.0
+                entry_price = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
+            except: entry_price = 100.0
 
-    # TARGETS
+    # 2. TARGETS (Only 3 now)
     targets = []
-    if custom_targets and len(custom_targets) >= 2:
+    if custom_targets and len(custom_targets) == 3:
         targets = custom_targets
-        while len(targets) < 5: targets.append(targets[-1] * 1.05)
     else:
+        # Auto Calc: 0.5x, 1x, 2x
         targets = [
             entry_price + (sl_points * 0.5),
             entry_price + (sl_points * 1.0),
@@ -76,7 +68,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     trade_record = {
         "id": int(time.time()),
         "symbol": specific_symbol,
-        "exchange": exchange_type,
+        "exchange": exchange,
         "mode": mode,
         "order_type": order_type,
         "status": "OPEN",
@@ -84,6 +76,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "quantity": quantity,
         "sl": entry_price - sl_points,
         "targets": targets,
+        "t1_hit": False,
         "current_ltp": entry_price
     }
     
@@ -108,26 +101,24 @@ def promote_to_live(kite, trade_id):
                 trade['status'] = "PROMOTED_LIVE" 
                 save_trades(trades)
                 return True
-            except Exception as e:
-                return False
+            except: return False
     return False
 
 def update_risk_engine(kite):
     trades = load_trades()
     updated = False
-    
     for trade in trades:
         if trade['status'] in ['OPEN', 'PROMOTED_LIVE']:
-            exchange = trade.get('exchange', 'NFO')
+            exch = trade.get('exchange', 'NFO')
             try:
-                quote = kite.quote(f"{exchange}:{trade['symbol']}")
-                ltp = quote[f"{exchange}:{trade['symbol']}"]["last_price"]
+                ltp = kite.quote(f"{exch}:{trade['symbol']}")[f"{exch}:{trade['symbol']}"]["last_price"]
+                trade['current_ltp'] = ltp
+                updated = True
+                
+                if ltp <= trade['sl']: trade['status'] = "SL_HIT"
+                if ltp >= trade['targets'][0] and not trade['t1_hit']:
+                    trade['t1_hit'] = True
+                    trade['sl'] = trade['entry_price']
+                if ltp >= trade['targets'][2]: trade['status'] = "T3_HIT" # 3rd Target Final
             except: continue
-
-            trade['current_ltp'] = ltp
-            updated = True
-            
-            if ltp <= trade['sl']: trade['status'] = "SL_HIT"
-            if len(trade['targets']) > 0 and ltp >= trade['targets'][0]: trade['status'] = "T1_HIT"
-
     if updated: save_trades(trades)

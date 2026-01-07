@@ -6,6 +6,7 @@ instrument_dump = None
 
 def fetch_instruments(kite):
     global instrument_dump
+    # If already downloaded, skip to save time/bandwidth
     if instrument_dump is not None: return
 
     print("📥 Downloading Instrument List...")
@@ -16,6 +17,7 @@ def fetch_instruments(kite):
         print("✅ Instruments Downloaded.")
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
+        # Keep it None so we can retry later
 
 def get_indices_ltp(kite):
     """Fetches Live Spot Prices for Major Indices"""
@@ -32,6 +34,7 @@ def get_indices_ltp(kite):
 
 def get_zerodha_symbol(common_name):
     """Prevents stock/index mix-ups"""
+    if not common_name: return ""
     upper = common_name.upper()
     if upper in ["BANKNIFTY", "NIFTY BANK"]: return "BANKNIFTY"
     if upper in ["NIFTY", "NIFTY 50"]: return "NIFTY"
@@ -41,7 +44,9 @@ def get_zerodha_symbol(common_name):
 
 def search_symbols(keyword):
     global instrument_dump
+    # SAFETY CHECK: If dump is None, return empty list
     if instrument_dump is None: return []
+    
     keyword = keyword.upper()
     # Search Futures & Equities
     mask = (
@@ -52,7 +57,9 @@ def search_symbols(keyword):
 
 def get_symbol_details(kite, symbol):
     global instrument_dump
+    # SAFETY CHECK: Fetch if missing
     if instrument_dump is None: fetch_instruments(kite)
+    if instrument_dump is None: return {} # Return empty if still failed
     
     clean_symbol = get_zerodha_symbol(symbol)
     today = datetime.now().date()
@@ -91,34 +98,47 @@ def get_symbol_details(kite, symbol):
 def get_chain_data(symbol, expiry_date, option_type, ltp):
     """Calculates ATM/ITM/OTM"""
     global instrument_dump
-    chain = instrument_dump[(instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
-    
-    if chain.empty: return []
-    strikes = sorted(chain['strike'].unique().tolist())
-    if not strikes: return []
-    
-    atm_strike = min(strikes, key=lambda x: abs(x - ltp))
-    
-    result = []
-    for s in strikes:
-        label = "OTM"
-        style = "color:gray"
+    # SAFETY CHECK 1: If dump is None, return empty list immediately
+    if instrument_dump is None: return []
+
+    # SAFETY CHECK 2: If inputs are missing
+    if not symbol or not expiry_date: return []
+
+    try:
+        chain = instrument_dump[(instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
         
-        if s == atm_strike:
-            label = "🔴 ATM"
-            style = "color:red; font-weight:bold"
-        elif option_type == "CE":
-            label = "ITM" if ltp > s else "OTM"
-            if label == "ITM": style = "color:green"
-        elif option_type == "PE":
-            label = "ITM" if ltp < s else "OTM"
-            if label == "ITM": style = "color:green"
+        if chain.empty: return []
+        strikes = sorted(chain['strike'].unique().tolist())
+        if not strikes: return []
+        
+        atm_strike = min(strikes, key=lambda x: abs(x - ltp))
+        
+        result = []
+        for s in strikes:
+            label = "OTM"
+            style = "color:gray"
             
-        result.append({"strike": s, "label": label, "style": style})
-    return result
+            if s == atm_strike:
+                label = "🔴 ATM"
+                style = "color:red; font-weight:bold"
+            elif option_type == "CE":
+                label = "ITM" if ltp > s else "OTM"
+                if label == "ITM": style = "color:green"
+            elif option_type == "PE":
+                label = "ITM" if ltp < s else "OTM"
+                if label == "ITM": style = "color:green"
+                
+            result.append({"strike": s, "label": label, "style": style})
+        return result
+    except Exception as e:
+        print(f"Chain Error: {e}")
+        return []
 
 def get_exact_symbol(symbol, expiry, strike, option_type):
     global instrument_dump
+    # SAFETY CHECK
+    if instrument_dump is None: return None
+
     if option_type == "EQ": return symbol
     
     if option_type == "FUT":
@@ -132,6 +152,8 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
 
 def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     global instrument_dump
+    if instrument_dump is None: return 0 # SAFETY CHECK
+
     tradingsymbol = get_exact_symbol(symbol, expiry, strike, inst_type)
     if not tradingsymbol: return 0
     try:
@@ -147,6 +169,9 @@ def fetch_historical_check(kite, symbol, expiry, strike, type_, timestamp_str):
     if not tradingsymbol: return {"status": "error", "message": "Symbol Not Found"}
     
     global instrument_dump
+    # SAFETY CHECK
+    if instrument_dump is None: return {"status": "error", "message": "System Not Ready"}
+
     token_row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
     if token_row.empty: return {"status": "error", "message": "Token Not Found"}
     token = token_row.iloc[0]['instrument_token']

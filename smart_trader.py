@@ -111,6 +111,8 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
         if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
     else:
+        # Safety check for empty strike
+        if not strike: return 0
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == inst_type)
         if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
 
@@ -128,6 +130,10 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
     if option_type == "FUT":
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
     else:
+        # CRITICAL FIX: Handle empty strike safely
+        if not strike or strike == "":
+            return None
+            
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == option_type)
         
     if not mask.any(): return None
@@ -138,24 +144,36 @@ def fetch_historical_check(kite, symbol, expiry, strike, type_, timestamp_str):
     Fetches the OHLC of a specific minute in the past.
     timestamp_str format: "2023-10-27 09:15"
     """
-    tradingsymbol = get_exact_symbol(symbol, expiry, strike, type_)
-    if not tradingsymbol: return {"status": "error", "message": "Symbol Not Found"}
+    # 1. Clean Symbol Name
+    symbol = get_zerodha_symbol(symbol)
     
-    # Get Token
+    # 2. Get Trading Symbol (with safe inputs)
+    tradingsymbol = get_exact_symbol(symbol, expiry, strike, type_)
+    
+    if not tradingsymbol: 
+        return {"status": "error", "message": f"Symbol Not Found (Check Expiry/Strike for {symbol})"}
+    
+    # 3. Get Token
     global instrument_dump
     token_row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
     if token_row.empty: return {"status": "error", "message": "Token Not Found"}
     token = token_row.iloc[0]['instrument_token']
     
     try:
+        # 4. Fetch Data
         query_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M")
         # Fetch 1 minute candle
         data = kite.historical_data(token, query_time, query_time + timedelta(minutes=1), "minute")
         
         if data:
-            return {"status": "success", "data": data[0], "symbol": tradingsymbol}
+            # Format the date for JSON
+            candle = data[0]
+            if 'date' in candle:
+                candle['date'] = candle['date'].strftime('%Y-%m-%d %H:%M:%S')
+                
+            return {"status": "success", "data": candle, "symbol": tradingsymbol}
         else:
-            return {"status": "error", "message": "No Data Found for Time"}
+            return {"status": "error", "message": "No Data Found for this Time"}
             
     except Exception as e:
         return {"status": "error", "message": str(e)}

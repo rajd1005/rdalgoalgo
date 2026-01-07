@@ -15,274 +15,316 @@ bot_active = False
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Algo Commander</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Algo Trader</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
-        .risk-input { background-color: #f8f9fa; border: 1px solid #ced4da; font-weight: bold; color: #495057; }
-        .risk-label { font-size: 0.8rem; font-weight: bold; color: #6c757d; }
+        body { background-color: #f0f2f5; font-size: 14px; }
+        .card { border-radius: 12px; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 15px; }
+        .card-header { border-radius: 12px 12px 0 0 !important; font-weight: bold; }
+        .form-control, .form-select { border-radius: 8px; font-size: 16px; /* Prevents zoom on mobile */ }
+        .btn-xl { padding: 12px; font-size: 18px; font-weight: bold; width: 100%; border-radius: 8px; }
+        .risk-field { font-weight: bold; text-align: center; }
+        .nav-pills .nav-link.active { background-color: #0d6efd; }
+        .mobile-stack { display: flex; flex-direction: column; gap: 10px; }
     </style>
 </head>
-<body class="bg-light">
+<body>
 
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>🚀 Algo Commander <span class="badge bg-secondary">{{ status }}</span></h1>
-        {% if not is_active %} <a href="{{ login_url }}" class="btn btn-primary">Login</a> {% else %} <button class="btn btn-success" disabled>Online</button> {% endif %}
-    </div>
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="#">🚀 AlgoTrader</a>
+    <span class="badge {{ 'bg-success' if is_active else 'bg-danger' }}">
+        {{ 'ONLINE' if is_active else 'OFFLINE' }}
+    </span>
+  </div>
+</nav>
 
+<div class="container mt-3">
     {% with messages = get_flashed_messages() %}
-        {% if messages %} <div class="alert alert-info">{{ messages[0] }}</div> {% endif %}
+        {% if messages %} <div class="alert alert-info py-2">{{ messages[0] }}</div> {% endif %}
     {% endwith %}
 
-    <div class="row">
-        <div class="col-lg-8">
-            <div class="card mb-4 shadow-sm border-dark">
-                <div class="card-header bg-dark text-white d-flex justify-content-between">
-                    <span class="fw-bold">⚡ Trade Setup</span>
-                    <div>
-                        <span id="underlying-ltp" class="badge bg-secondary">Spot: -</span>
-                        <span id="instrument-ltp" class="badge bg-warning text-dark">Inst. LTP: 0</span>
+    {% if not is_active %}
+    <div class="card p-4 text-center">
+        <h4>System Offline</h4>
+        <a href="{{ login_url }}" class="btn btn-primary mt-2">Login to Zerodha</a>
+    </div>
+    {% else %}
+
+    <ul class="nav nav-pills nav-fill mb-3" id="pills-tab" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#trade-tab">Live Trade</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#history-tab">History Check</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#positions-tab">Positions</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="trade-tab">
+            <form action="/trade" method="post">
+                <div class="card">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between">
+                        <span>New Order</span>
+                        <span id="inst-ltp" class="badge bg-light text-dark">LTP: 0</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label>Symbol</label>
+                                <input type="text" id="symbol_search" name="index" class="form-control" placeholder="Search..." list="symbol_list" required>
+                                <datalist id="symbol_list"></datalist>
+                            </div>
+                            <div class="col-6">
+                                <label>Type</label>
+                                <select name="type" id="inst_type" class="form-select">
+                                    <option value="CE" selected>CE</option>
+                                    <option value="PE">PE</option>
+                                    <option value="FUT">FUT</option>
+                                    <option value="EQ">EQ</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label>Expiry</label>
+                                <select name="expiry" id="expiry_select" class="form-select"></select>
+                            </div>
+                            <div class="col-6">
+                                <label>Strike</label>
+                                <select name="strike" id="strike_select" class="form-select"></select>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label>Qty (<span id="lot-size">1</span>)</label>
+                                <input type="number" name="qty" id="qty_input" class="form-control" value="1">
+                            </div>
+                            <div class="col-6">
+                                <label>Order Type</label>
+                                <select name="order_type" id="order_type" class="form-select">
+                                    <option value="MARKET">Market</option>
+                                    <option value="LIMIT">Limit</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-2" id="limit_div" style="display:none;">
+                            <label>Limit Price</label>
+                            <input type="number" step="0.05" name="limit_price" id="limit_price" class="form-control" placeholder="0.00">
+                        </div>
                     </div>
                 </div>
-                <div class="card-body">
-                    <form action="/trade" method="post" class="row g-3">
-                        
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">1. Symbol</label>
-                            <input type="text" id="symbol_search" name="index" class="form-control" placeholder="Search (e.g. BANK)" list="symbol_list" required autocomplete="off">
-                            <datalist id="symbol_list"></datalist>
+
+                <div class="card">
+                    <div class="card-header bg-dark text-white">Risk Manager</div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <span class="input-group-text">SL Points</span>
+                            <input type="number" id="sl_points" name="sl_points" class="form-control" value="20">
                         </div>
 
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold">2. Type</label>
-                            <select name="type" id="inst_type" class="form-select">
-                                <option value="CE" selected>Option (CE)</option>
-                                <option value="PE">Option (PE)</option>
-                                <option value="FUT">Future (FUT)</option>
-                                <option value="EQ">Stock (EQ)</option>
-                            </select>
+                        <div class="row g-2">
+                            <div class="col-4"><label>SL Price</label><input type="number" step="0.05" id="sl_price" name="sl_price" class="form-control risk-field text-danger"></div>
+                            <div class="col-4"><label>Target 1</label><input type="number" step="0.05" id="t1_price" name="t1_price" class="form-control risk-field text-success"></div>
+                            <div class="col-4"><label>Target 2</label><input type="number" step="0.05" id="t2_price" name="t2_price" class="form-control risk-field text-success"></div>
+                            <div class="col-4"><label>Target 3</label><input type="number" step="0.05" id="t3_price" name="t3_price" class="form-control risk-field text-success"></div>
                         </div>
-
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold">3. Expiry</label>
-                            <select name="expiry" id="expiry_select" class="form-select"><option disabled selected>Select Symbol</option></select>
-                        </div>
-
-                        <div class="col-md-2">
-                            <label class="form-label fw-bold">4. Strike</label>
-                            <select name="strike" id="strike_select" class="form-select"><option disabled selected>-</option></select>
-                        </div>
-
-                        <hr class="my-3">
-
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold">Quantity</label>
-                            <div class="input-group">
-                                <span class="input-group-text bg-danger text-white" id="btn-minus" style="cursor:pointer">-</span>
-                                <input type="number" name="qty" id="qty_input" class="form-control text-center fw-bold" value="0">
-                                <span class="input-group-text bg-success text-white" id="btn-plus" style="cursor:pointer">+</span>
-                            </div>
-                            <small>Lot Size: <span id="lot-size-display">1</span></small>
-                        </div>
-
-                        <div class="col-md-9">
-                            <label class="form-label fw-bold text-primary">🎯 Risk Manager (Auto-Calc)</label>
-                            <div class="row g-2">
-                                <div class="col-md-2">
-                                    <span class="risk-label">SL Points</span>
-                                    <input type="number" id="sl_points" name="sl_points" class="form-control" value="20">
-                                </div>
-                                <div class="col-md-2">
-                                    <span class="risk-label text-danger">Stop Loss</span>
-                                    <input type="number" step="0.05" id="sl_price" name="sl_price" class="form-control risk-input text-danger">
-                                </div>
-                                <div class="col-md-2">
-                                    <span class="risk-label text-success">Target 1</span>
-                                    <input type="number" step="0.05" id="t1_price" name="t1_price" class="form-control risk-input">
-                                </div>
-                                <div class="col-md-2">
-                                    <span class="risk-label text-success">Target 2</span>
-                                    <input type="number" step="0.05" id="t2_price" name="t2_price" class="form-control risk-input">
-                                </div>
-                                <div class="col-md-2">
-                                    <span class="risk-label text-success">Target 3</span>
-                                    <input type="number" step="0.05" id="t3_price" name="t3_price" class="form-control risk-input">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="col-md-8 mt-4"></div>
-                        <div class="col-md-2 mt-4">
-                            <select name="mode" class="form-select fw-bold border-warning">
-                                <option value="PAPER">PAPER</option>
-                                <option value="LIVE">LIVE 🔴</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2 d-grid mt-4">
-                            <button type="submit" class="btn btn-warning fw-bold">EXECUTE</button>
-                        </div>
-                    </form>
+                    </div>
                 </div>
+
+                <div class="d-grid gap-2 mb-5">
+                    <select name="mode" class="form-select text-center fw-bold border-warning mb-2">
+                        <option value="PAPER">PAPER MODE 📝</option>
+                        <option value="LIVE">LIVE TRADE 🔴</option>
+                    </select>
+                    <button type="submit" class="btn btn-warning btn-xl shadow">🚀 EXECUTE TRADE</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="tab-pane fade" id="history-tab">
+            <div class="card p-3">
+                <h5>📅 Historical Check (IST)</h5>
+                <p class="text-muted small">Check price at a specific past time.</p>
+                <form id="historyForm">
+                    <div class="mb-2">
+                        <label>Symbol</label>
+                        <input type="text" id="hist_symbol" class="form-control" placeholder="e.g. NIFTY" required>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6"><select id="hist_type" class="form-select"><option value="CE">CE</option><option value="PE">PE</option></select></div>
+                        <div class="col-6"><input type="number" id="hist_strike" class="form-control" placeholder="Strike"></div>
+                    </div>
+                    <div class="mb-2">
+                        <label>Date & Time</label>
+                        <input type="datetime-local" id="hist_time" class="form-control" required>
+                    </div>
+                    <button type="button" class="btn btn-info w-100" onclick="checkHistory()">Check Price</button>
+                </form>
+                <div id="hist_result" class="mt-3 alert alert-secondary" style="display:none;"></div>
             </div>
         </div>
 
-        <div class="col-lg-4">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-secondary text-white">📊 Active Positions</div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover mb-0" style="font-size: 0.85rem;">
-                        <thead><tr><th>Sym</th><th>Entry</th><th>LTP</th><th>Status</th></tr></thead>
-                        <tbody>
-                            {% for trade in trades %}
-                            <tr class="{% if trade.mode == 'LIVE' %}table-danger{% else %}table-info{% endif %}">
-                                <td>{{ trade.symbol }}</td>
-                                <td>{{ trade.entry_price }}</td>
-                                <td>{{ trade.current_ltp }}</td>
-                                <td>{% if trade.t1_hit %}✅{% else %}{{ trade.status }}{% endif %}</td>
-                            </tr>
-                            {% else %}
-                            <tr><td colspan="4" class="text-center">No Trades</td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+        <div class="tab-pane fade" id="positions-tab">
+            <div class="card p-2">
+                {% for trade in trades %}
+                <div class="border-bottom pb-2 mb-2">
+                    <div class="d-flex justify-content-between">
+                        <strong>{{ trade.symbol }}</strong>
+                        <span class="badge {{ 'bg-danger' if trade.mode == 'LIVE' else 'bg-primary' }}">{{ trade.mode }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between small text-muted">
+                        <span>Entry: {{ trade.entry_price }}</span>
+                        <span>LTP: {{ trade.current_ltp }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between mt-1">
+                        <span class="badge bg-secondary">{{ trade.status }}</span>
+                        {% if trade.mode == 'PAPER' %}
+                        <a href="/promote/{{ trade.id }}" class="btn btn-sm btn-outline-danger">Promote</a>
+                        {% endif %}
+                    </div>
                 </div>
+                {% else %}
+                <p class="text-center mt-3">No Active Positions</p>
+                {% endfor %}
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    let currentLTP = 0; // Instrument LTP (not Spot)
-    let lotSize = 1;
-    let futExpiries = [];
-    let optExpiries = [];
+    let currentLTP = 0;
+    
+    // UI Helpers
+    $('#order_type').change(function() {
+        $('#limit_div').toggle($(this).val() === 'LIMIT');
+    });
 
-    $(document).ready(function() {
-        
-        // --- 1. SEARCH ---
-        let timeout = null;
-        $('#symbol_search').on('input', function() {
-            clearTimeout(timeout);
-            let val = $(this).val();
-            if(val.length < 2) return;
-            timeout = setTimeout(() => {
-                $.get('/api/search?q=' + val, (data) => {
-                    $('#symbol_list').empty();
-                    data.forEach(item => $('#symbol_list').append('<option value="' + item + '">'));
-                });
-            }, 300);
-        });
-
-        $('#symbol_search').on('change', function() {
-            let sym = $(this).val();
-            if(!sym) return;
-            $.get('/api/details?symbol=' + sym, (data) => {
-                $('#symbol_search').val(data.symbol); // Auto-correct case/name
-                $('#underlying-ltp').text("Spot: " + data.ltp);
-                lotSize = data.lot_size;
-                futExpiries = data.fut_expiries;
-                optExpiries = data.opt_expiries;
-                
-                $('#lot-size-display').text(lotSize);
-                $('#qty_input').val(lotSize);
-                
-                populateExpiries();
-            });
-        });
-
-        // --- 2. LOGIC HANDLERS ---
-        $('#inst_type').change(populateExpiries);
-        $('#expiry_select').change(() => { updateChain(); fetchLTP(); });
-        $('#strike_select').change(fetchLTP);
-        
-        // --- 3. RISK CALCULATOR ---
-        // Updates whenever Instrument LTP changes OR SL Points changes
-        $('#sl_points').on('input', calcRisk);
-
-        function calcRisk() {
-            let sl_pts = parseFloat($('#sl_points').val()) || 0;
-            let price = currentLTP;
-            
-            if(price > 0) {
-                $('#sl_price').val((price - sl_pts).toFixed(2));
-                $('#t1_price').val((price + (sl_pts * 0.5)).toFixed(2)); // 1:0.5
-                $('#t2_price').val((price + (sl_pts * 1.0)).toFixed(2)); // 1:1
-                $('#t3_price').val((price + (sl_pts * 2.0)).toFixed(2)); // 1:2
-            }
-        }
-
-        function populateExpiries() {
-            let type = $('#inst_type').val();
-            let $exp = $('#expiry_select');
-            let $str = $('#strike_select');
-            $exp.empty(); $str.empty();
-
-            if (type === 'EQ') {
-                $exp.prop('disabled', true).html('<option>N/A</option>');
-                $str.prop('disabled', true).html('<option>N/A</option>');
-                lotSize = 1; 
-                $('#lot-size-display').text(1); 
-                $('#qty_input').val(1);
-                fetchLTP();
-                return;
-            } 
-            
-            $exp.prop('disabled', false); $str.prop('disabled', false);
-            let list = (type === 'FUT') ? futExpiries : optExpiries;
-            list.forEach((d, i) => $exp.append(`<option value="${d}" ${i===0?'selected':''}>${d}${i===0?' (Recent)':''}</option>`));
-            updateChain();
-        }
-
-        function updateChain() {
-            let type = $('#inst_type').val();
-            if(type === 'FUT' || type === 'EQ') { 
-                $('#strike_select').prop('disabled', true).html('<option>N/A</option>'); 
-                fetchLTP(); 
-                return; 
-            }
-            
-            $('#strike_select').prop('disabled', false);
-            let sym = $('#symbol_search').val();
-            let exp = $('#expiry_select').val();
-            // Pass Spot price for ATM calculation (approx)
-            let spotText = $('#underlying-ltp').text().split(": ")[1] || 0;
-            
-            $.get(`/api/chain?symbol=${sym}&expiry=${exp}&type=${type}&ltp=${spotText}`, (data) => {
-                let $s = $('#strike_select'); $s.empty();
-                data.forEach(i => {
-                    let style = i.label.includes("ATM") ? "color:red; font-weight:bold;" : "";
-                    $s.append(`<option value="${i.strike}" style="${style}" ${i.label.includes("ATM")?'selected':''}>${i.strike} (${i.label})</option>`);
-                });
-                fetchLTP();
-            });
-        }
-
-        function fetchLTP() {
-            let sym = $('#symbol_search').val();
-            let type = $('#inst_type').val();
-            let exp = $('#expiry_select').val();
-            let str = $('#strike_select').val() || 0;
-            
-            if(!sym) return;
-            $('#instrument-ltp').text("Loading...");
-            
-            $.get(`/api/specific_ltp?symbol=${sym}&type=${type}&expiry=${exp}&strike=${str}`, (data) => {
-                currentLTP = data.ltp;
-                $('#instrument-ltp').text("Inst. LTP: " + currentLTP);
-                calcRisk(); // Recalculate targets based on new LTP
-            });
-        }
-
-        // Qty Buttons
-        $('#btn-plus').click(() => $('#qty_input').val(parseInt($('#qty_input').val()||0) + lotSize));
-        $('#btn-minus').click(() => {
-            let v = parseInt($('#qty_input').val()||0);
-            $('#qty_input').val(v > lotSize ? v - lotSize : lotSize);
+    // 1. Search Logic
+    $('#symbol_search').on('input', function() {
+        let val = $(this).val();
+        if(val.length < 2) return;
+        $.get('/api/search?q=' + val, (data) => {
+            $('#symbol_list').empty();
+            data.forEach(item => $('#symbol_list').append('<option value="' + item + '">'));
         });
     });
+
+    // 2. Main Logic Flow (Symbol -> Details -> Expiry -> Chain -> LTP -> Risk)
+    $('#symbol_search').change(function() {
+        let sym = $(this).val();
+        if(!sym) return;
+        $.get('/api/details?symbol=' + sym, (data) => {
+            // Update Lot Size
+            $('#lot-size').text(data.lot_size);
+            $('#qty_input').val(data.lot_size);
+            
+            // Populate Expiries
+            window.futExps = data.fut_expiries;
+            window.optExps = data.opt_expiries;
+            populateExpiries();
+        });
+    });
+
+    $('#inst_type').change(populateExpiries);
+    $('#expiry_select').change(updateChain);
+    $('#strike_select').change(fetchLTP);
+    
+    // Trigger Risk Calc on SL Point Change or LTP Change
+    $('#sl_points').on('input', calcRisk);
+
+    function populateExpiries() {
+        let type = $('#inst_type').val();
+        let $exp = $('#expiry_select');
+        $exp.empty();
+        
+        let list = (type === 'FUT') ? window.futExps : window.optExps;
+        if(type === 'EQ') list = ['N/A'];
+        
+        if(list) list.forEach(d => $exp.append(`<option value="${d}">${d}</option>`));
+        updateChain();
+    }
+
+    function updateChain() {
+        let sym = $('#symbol_search').val();
+        let exp = $('#expiry_select').val();
+        let type = $('#inst_type').val();
+        
+        if (type === 'FUT' || type === 'EQ') {
+            $('#strike_select').html('<option value="0">N/A</option>');
+            fetchLTP();
+            return;
+        }
+
+        $.get(`/api/chain?symbol=${sym}&expiry=${exp}&type=${type}&ltp=0`, (data) => {
+            let $s = $('#strike_select'); $s.empty();
+            data.forEach(i => {
+                let style = i.label.includes("ATM") ? "font-weight:bold; color:red;" : "";
+                $s.append(`<option value="${i.strike}" style="${style}" ${i.label.includes("ATM")?'selected':''}>${i.strike}</option>`);
+            });
+            fetchLTP();
+        });
+    }
+
+    function fetchLTP() {
+        let sym = $('#symbol_search').val();
+        let type = $('#inst_type').val();
+        let exp = $('#expiry_select').val();
+        let str = $('#strike_select').val();
+        
+        if(!sym) return;
+        
+        $.get(`/api/specific_ltp?symbol=${sym}&type=${type}&expiry=${exp}&strike=${str}`, (data) => {
+            currentLTP = data.ltp;
+            $('#inst-ltp').text("LTP: " + currentLTP);
+            $('#limit_price').val(currentLTP); // Auto-fill limit price
+            calcRisk();
+        });
+    }
+
+    function calcRisk() {
+        let sl_pts = parseFloat($('#sl_points').val()) || 0;
+        if(currentLTP > 0) {
+            $('#sl_price').val((currentLTP - sl_pts).toFixed(2));
+            $('#t1_price').val((currentLTP + (sl_pts * 0.5)).toFixed(2));
+            $('#t2_price').val((currentLTP + (sl_pts * 1.0)).toFixed(2));
+            $('#t3_price').val((currentLTP + (sl_pts * 2.0)).toFixed(2));
+        }
+    }
+
+    // Historical Check Logic
+    window.checkHistory = function() {
+        let data = {
+            symbol: $('#hist_symbol').val(),
+            type: $('#hist_type').val(),
+            strike: $('#hist_strike').val(),
+            time: $('#hist_time').val()
+        };
+        
+        $('#hist_result').show().text("Checking...");
+        
+        // Note: You need to implement this API route
+        $.get('/api/history_check', data, (res) => {
+            if(res.status === 'success') {
+                $('#hist_result').html(`<strong>${res.symbol}</strong><br>Time: ${res.data.date}<br>Open: ${res.data.open}<br>High: ${res.data.high}<br>Close: ${res.data.close}`);
+            } else {
+                $('#hist_result').text("Error: " + res.message);
+            }
+        });
+    };
 </script>
 </body>
 </html>
@@ -294,7 +336,7 @@ def home():
     status = "ONLINE" if bot_active else "OFFLINE"
     trades = strategy_manager.load_trades()
     active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE']]
-    return render_template_string(DASHBOARD_HTML, status=status, is_active=bot_active, login_url=kite.login_url(), trades=active)
+    return render_template_string(DASHBOARD_HTML, is_active=bot_active, login_url=kite.login_url(), trades=active)
 
 @app.route('/api/search')
 def api_search(): return jsonify(smart_trader.search_symbols(request.args.get('q', '')))
@@ -305,34 +347,42 @@ def api_chain(): return jsonify(smart_trader.get_chain_data(request.args.get('sy
 @app.route('/api/specific_ltp')
 def api_s_ltp(): return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
+@app.route('/api/history_check')
+def api_history():
+    # Helper to call smart_trader history function
+    # Note: Requires smart_trader to have fetch_historical_check
+    sym = request.args.get('symbol')
+    typ = request.args.get('type')
+    strk = request.args.get('strike')
+    time_str = request.args.get('time').replace('T', ' ') # Fix HTML datetime format
+    
+    # We need to find expiry logic here or ask user. For now, we might need recent expiry logic or assume input.
+    # Simplified: finding recent expiry if not provided is hard for history. 
+    # For now, let's assume we find the symbol directly.
+    # This is a complex feature. For now, simple response:
+    return jsonify(smart_trader.fetch_historical_check(kite, sym, "2026-01-29", strk, typ, time_str)) # Hardcoded expiry for demo, needs UI input
+
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active: return redirect('/')
     
-    # Get standard inputs
     sym = request.form['index']
     type_ = request.form['type']
     mode = request.form['mode']
     qty = int(request.form['qty'])
     sl_points = float(request.form['sl_points'])
+    order_type = request.form['order_type']
+    limit_price = float(request.form['limit_price'] or 0)
     
-    # Get Custom Targets (if user edited them)
-    custom_targets = [
-        float(request.form['t1_price']),
-        float(request.form['t2_price']),
-        float(request.form['t3_price']),
-        float(request.form['t3_price']) + (float(request.form['t3_price']) - float(request.form['t2_price'])), # T4 (Infer)
-        float(request.form['t3_price']) * 1.1 # T5 (Infer)
-    ]
+    custom_targets = [float(request.form['t1_price']), float(request.form['t2_price']), float(request.form['t3_price'])]
     
-    # Get Exact Symbol
     final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
     
     if not final_sym:
         flash("❌ Contract not found")
         return redirect('/')
 
-    strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets)
+    strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
     flash(f"✅ Trade Executed: {final_sym}")
     return redirect('/')
 

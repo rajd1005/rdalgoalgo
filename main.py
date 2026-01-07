@@ -1,86 +1,136 @@
-import threading
-import time
 import os
+import time
+import threading
 import logging
-import smart_trader
-from flask import Flask, request, redirect
+from flask import Flask, request, redirect, render_template_string
 from kiteconnect import KiteConnect
+import smart_trader  # Import your custom logic module
 
 # --- CONFIGURATION ---
 app = Flask(__name__)
 
-# Get these from Railway Environment Variables later
+# Load keys from Railway Variables
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 
-# Global Variables
+# Global State Variables
 kite = KiteConnect(api_key=API_KEY)
 access_token = None
 bot_active = False
+latest_log = "Waiting for login..."
 
-# --- TRADING BOT ENGINE (Runs in Background) ---
+# Setup Logging to console (Railway Logs)
+logging.basicConfig(level=logging.INFO)
+
+# --- TRADING ENGINE (Runs in Background) ---
 def start_trading_engine():
-    global bot_active, access_token
+    global bot_active, access_token, latest_log
     
-    # 1. Setup Kite
+    # 1. Initialize Kite Session
     kite.set_access_token(access_token)
-    print("🚀 Trading Engine Started!")
+    logging.info("🚀 Trading Engine Started Successfully!")
+    latest_log = "🚀 Engine Started. Downloading Instruments..."
     
-    # 2. The Infinite Loop
+    # 2. Setup: Download Instrument Master List (Once per session)
+    try:
+        smart_trader.fetch_instruments(kite)
+        latest_log = "✅ Instruments Downloaded. Scanning Market..."
+    except Exception as e:
+        latest_log = f"❌ Setup Failed: {e}"
+        logging.error(latest_log)
+        return # Stop if setup fails
+
+    # 3. The Infinite Loop
     while bot_active:
         try:
-            # --- PLACE YOUR TRADING LOGIC HERE ---
-            # example: smart_trader.check_market()
-            # example: strategy_manager.monitor_risks()
+            # --- CORE TRADING LOGIC ---
             
-            print("Running scheduled checks...")
-            time.sleep(5) # Wait 5 seconds between checks
+            # Example: Find ATM Call Option for NIFTY
+            # (In a real scenario, you'd check this every minute, not 10s)
+            logging.info("🔎 Scanning for Opportunities...")
             
-        except Exception as e:
-            print(f"⚠️ Bot Error: {e}")
-            time.sleep(5)
+            # Simulate a market price (Replace with live LTP later)
+            opportunity = smart_trader.find_option_symbol(kite, underlying="NIFTY", ltp=24200)
+            
+            if opportunity:
+                msg = f"🎯 Found Trade: {opportunity['tradingsymbol']} (Strike: {opportunity['strike']})"
+                print(msg)
+                latest_log = msg
+            else:
+                latest_log = "⚠️ No matching contracts found."
 
-# --- WEB SERVER ROUTES ---
+            # Sleep to prevent high CPU usage (e.g., check every 10 seconds)
+            time.sleep(10)
+
+        except Exception as e:
+            latest_log = f"⚠️ Loop Error: {e}"
+            logging.error(latest_log)
+            time.sleep(5) # Wait before retrying
+
+# --- WEB SERVER ROUTES (The User Interface) ---
 
 @app.route('/')
 def home():
-    """Shows the Status and Login Link"""
-    if access_token:
-        return "<h1>✅ Bot is Running</h1><p>Trading engine is active in the background.</p>"
-    else:
-        login_url = kite.login_url()
-        return f'<h1>🔴 Bot Stopped</h1><a href="{login_url}"><h2>👉 Click here to Login to Zerodha</h2></a>'
+    """The Dashboard: Shows status and Login Button"""
+    global access_token, bot_active, latest_log
+    
+    # Simple HTML Template
+    html = """
+    <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+        <h1>🤖 Zerodha Algo Bot</h1>
+        <hr>
+        <h3>Status: {{ status }}</h3>
+        <p style="background: #f4f4f4; padding: 10px; border-radius: 5px;">📝 Log: {{ log }}</p>
+        
+        {% if not is_active %}
+            <br>
+            <a href="{{ login_url }}" style="background: #3498db; color: white; padding: 15px 30px; text-decoration: none; font-weight: bold; border-radius: 5px;">
+                👉 Login to Zerodha
+            </a>
+        {% else %}
+            <h2 style="color: green;">✅ Engine Running</h2>
+        {% endif %}
+    </div>
+    """
+    
+    status_text = "🟢 ACTIVE" if bot_active else "🔴 STOPPED (Login Required)"
+    
+    return render_template_string(html, 
+                                  status=status_text, 
+                                  log=latest_log, 
+                                  is_active=bot_active,
+                                  login_url=kite.login_url())
 
 @app.route('/callback')
 def callback():
-    """Handles the redirect from Zerodha"""
-    global access_token, bot_active
+    """Handles the redirect from Zerodha after login"""
+    global access_token, bot_active, latest_log
     
-    # 1. Get request_token from the URL
     request_token = request.args.get("request_token")
     
     if not request_token:
-        return "Error: No token received."
+        return redirect('/')
 
     try:
-        # 2. Generate Access Token
+        # 1. Exchange 'request_token' for 'access_token'
         data = kite.generate_session(request_token, api_secret=API_SECRET)
         access_token = data["access_token"]
         
-        # 3. Start the Bot in a Background Thread
+        # 2. Start the background thread if not already running
         if not bot_active:
             bot_active = True
             t = threading.Thread(target=start_trading_engine)
-            t.daemon = True # Ensures thread dies if main app crashes
+            t.daemon = True # Ensures thread dies if app crashes
             t.start()
             
         return redirect('/')
         
     except Exception as e:
-        return f"Login Failed: {e}"
+        latest_log = f"Login Failed: {e}"
+        return redirect('/')
 
-# --- RUN SERVER ---
+# --- START SERVER ---
 if __name__ == "__main__":
-    # Railway provides a PORT variable, default to 5000 if not found
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    # Threaded=True is important for Flask to handle the background loop + web requests
+    app.run(host='0.0.0.0', port=port, threaded=True)

@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Global cache
+# Global Instrument Cache
 instrument_dump = None 
 
 def fetch_instruments(kite):
@@ -19,7 +19,7 @@ def fetch_instruments(kite):
 
 def get_zerodha_symbol(common_name):
     """
-    Smart mapping that avoids confusing HDFCBANK with BANKNIFTY
+    Prevents HDFCBANK -> BANKNIFTY mix-up.
     """
     upper = common_name.upper()
     
@@ -28,7 +28,8 @@ def get_zerodha_symbol(common_name):
     if upper == "NIFTY" or upper == "NIFTY 50": return "NIFTY"
     if upper == "FINNIFTY": return "FINNIFTY"
     
-    # If user types "BANK", assume Index, but let specific stocks pass
+    # Only map generic "BANK" to index if "NIFTY" is also present, or if it's strictly "BANK"
+    # Otherwise treat "AXISBANK", "HDFCBANK" as stocks.
     if "BANK" in upper and "NIFTY" in upper: return "BANKNIFTY"
     
     return upper
@@ -61,7 +62,7 @@ def get_symbol_details(kite, symbol):
     except:
         ltp = 0
 
-    # 2. Get Lot Size (Priority: Futures -> Equity)
+    # 2. Get Lot Size
     lot_size = 1
     futs = instrument_dump[(instrument_dump['name'] == clean_symbol) & (instrument_dump['segment'] == 'NFO-FUT')]
     
@@ -111,7 +112,6 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
         if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
     else:
-        # Safety check for empty strike
         if not strike: return 0
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == inst_type)
         if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
@@ -130,10 +130,7 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
     if option_type == "FUT":
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
     else:
-        # CRITICAL FIX: Handle empty strike safely
-        if not strike or strike == "":
-            return None
-            
+        if not strike: return None
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == option_type)
         
     if not mask.any(): return None
@@ -142,38 +139,28 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
 def fetch_historical_check(kite, symbol, expiry, strike, type_, timestamp_str):
     """
     Fetches the OHLC of a specific minute in the past.
-    timestamp_str format: "2023-10-27 09:15"
     """
-    # 1. Clean Symbol Name
     symbol = get_zerodha_symbol(symbol)
-    
-    # 2. Get Trading Symbol (with safe inputs)
     tradingsymbol = get_exact_symbol(symbol, expiry, strike, type_)
     
     if not tradingsymbol: 
-        return {"status": "error", "message": f"Symbol Not Found (Check Expiry/Strike for {symbol})"}
+        return {"status": "error", "message": f"Symbol Not Found. check Expiry/Strike"}
     
-    # 3. Get Token
     global instrument_dump
     token_row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
     if token_row.empty: return {"status": "error", "message": "Token Not Found"}
     token = token_row.iloc[0]['instrument_token']
     
     try:
-        # 4. Fetch Data
         query_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M")
-        # Fetch 1 minute candle
         data = kite.historical_data(token, query_time, query_time + timedelta(minutes=1), "minute")
         
         if data:
-            # Format the date for JSON
             candle = data[0]
             if 'date' in candle:
                 candle['date'] = candle['date'].strftime('%Y-%m-%d %H:%M:%S')
-                
             return {"status": "success", "data": candle, "symbol": tradingsymbol}
         else:
             return {"status": "error", "message": "No Data Found for this Time"}
-            
     except Exception as e:
         return {"status": "error", "message": str(e)}

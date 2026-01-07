@@ -30,7 +30,6 @@ DASHBOARD_HTML = """
         .btn-xl { padding: 12px; font-size: 18px; font-weight: bold; width: 100%; border-radius: 8px; }
         .risk-field { font-weight: bold; text-align: center; }
         .nav-pills .nav-link.active { background-color: #0d6efd; }
-        .mobile-stack { display: flex; flex-direction: column; gap: 10px; }
     </style>
 </head>
 <body>
@@ -133,12 +132,10 @@ DASHBOARD_HTML = """
                             <span class="input-group-text">SL Points</span>
                             <input type="number" id="sl_points" name="sl_points" class="form-control" value="20">
                         </div>
-
                         <div class="row g-2">
                             <div class="col-4"><label>SL Price</label><input type="number" step="0.05" id="sl_price" name="sl_price" class="form-control risk-field text-danger"></div>
                             <div class="col-4"><label>Target 1</label><input type="number" step="0.05" id="t1_price" name="t1_price" class="form-control risk-field text-success"></div>
                             <div class="col-4"><label>Target 2</label><input type="number" step="0.05" id="t2_price" name="t2_price" class="form-control risk-field text-success"></div>
-                            <div class="col-4"><label>Target 3</label><input type="number" step="0.05" id="t3_price" name="t3_price" class="form-control risk-field text-success"></div>
                         </div>
                     </div>
                 </div>
@@ -156,15 +153,26 @@ DASHBOARD_HTML = """
         <div class="tab-pane fade" id="history-tab">
             <div class="card p-3">
                 <h5>📅 Historical Check (IST)</h5>
-                <p class="text-muted small">Check price at a specific past time.</p>
                 <form id="historyForm">
                     <div class="mb-2">
                         <label>Symbol</label>
-                        <input type="text" id="hist_symbol" class="form-control" placeholder="e.g. NIFTY" required>
+                        <input type="text" id="hist_symbol" class="form-control" placeholder="e.g. NIFTY" list="symbol_list" required>
+                    </div>
+                    <div class="mb-2">
+                        <label>Type</label>
+                        <select id="hist_type" class="form-select">
+                            <option value="CE">CE</option><option value="PE">PE</option><option value="FUT">FUT</option>
+                        </select>
                     </div>
                     <div class="row g-2 mb-2">
-                        <div class="col-6"><select id="hist_type" class="form-select"><option value="CE">CE</option><option value="PE">PE</option></select></div>
-                        <div class="col-6"><input type="number" id="hist_strike" class="form-control" placeholder="Strike"></div>
+                        <div class="col-6">
+                            <label>Expiry</label>
+                            <select id="hist_expiry" class="form-select"><option>Select Symbol</option></select>
+                        </div>
+                        <div class="col-6">
+                            <label>Strike</label>
+                            <input type="number" id="hist_strike" class="form-control" placeholder="Price">
+                        </div>
                     </div>
                     <div class="mb-2">
                         <label>Date & Time</label>
@@ -209,11 +217,9 @@ DASHBOARD_HTML = """
     let currentLTP = 0;
     
     // UI Helpers
-    $('#order_type').change(function() {
-        $('#limit_div').toggle($(this).val() === 'LIMIT');
-    });
+    $('#order_type').change(function() { $('#limit_div').toggle($(this).val() === 'LIMIT'); });
 
-    // 1. Search Logic
+    // 1. Symbol Search
     $('#symbol_search').on('input', function() {
         let val = $(this).val();
         if(val.length < 2) return;
@@ -223,39 +229,34 @@ DASHBOARD_HTML = """
         });
     });
 
-    // 2. Main Logic Flow (Symbol -> Details -> Expiry -> Chain -> LTP -> Risk)
+    // 2. Trade Tab Logic
     $('#symbol_search').change(function() {
         let sym = $(this).val();
         if(!sym) return;
         $.get('/api/details?symbol=' + sym, (data) => {
-            // Update Lot Size
             $('#lot-size').text(data.lot_size);
             $('#qty_input').val(data.lot_size);
-            
-            // Populate Expiries
             window.futExps = data.fut_expiries;
             window.optExps = data.opt_expiries;
-            populateExpiries();
+            populateExpiries('#inst_type', '#expiry_select');
         });
     });
 
-    $('#inst_type').change(populateExpiries);
+    $('#inst_type').change(() => populateExpiries('#inst_type', '#expiry_select'));
     $('#expiry_select').change(updateChain);
     $('#strike_select').change(fetchLTP);
-    
-    // Trigger Risk Calc on SL Point Change or LTP Change
     $('#sl_points').on('input', calcRisk);
 
-    function populateExpiries() {
-        let type = $('#inst_type').val();
-        let $exp = $('#expiry_select');
+    function populateExpiries(typeId, targetId) {
+        let type = $(typeId).val();
+        let $exp = $(targetId);
         $exp.empty();
         
         let list = (type === 'FUT') ? window.futExps : window.optExps;
         if(type === 'EQ') list = ['N/A'];
         
         if(list) list.forEach(d => $exp.append(`<option value="${d}">${d}</option>`));
-        updateChain();
+        if(targetId === '#expiry_select') updateChain();
     }
 
     function updateChain() {
@@ -284,13 +285,11 @@ DASHBOARD_HTML = """
         let type = $('#inst_type').val();
         let exp = $('#expiry_select').val();
         let str = $('#strike_select').val();
-        
         if(!sym) return;
-        
         $.get(`/api/specific_ltp?symbol=${sym}&type=${type}&expiry=${exp}&strike=${str}`, (data) => {
             currentLTP = data.ltp;
             $('#inst-ltp').text("LTP: " + currentLTP);
-            $('#limit_price').val(currentLTP); // Auto-fill limit price
+            $('#limit_price').val(currentLTP);
             calcRisk();
         });
     }
@@ -301,22 +300,39 @@ DASHBOARD_HTML = """
             $('#sl_price').val((currentLTP - sl_pts).toFixed(2));
             $('#t1_price').val((currentLTP + (sl_pts * 0.5)).toFixed(2));
             $('#t2_price').val((currentLTP + (sl_pts * 1.0)).toFixed(2));
-            $('#t3_price').val((currentLTP + (sl_pts * 2.0)).toFixed(2));
         }
     }
 
-    // Historical Check Logic
+    // --- 3. History Tab Logic (FIXED) ---
+    $('#hist_symbol').change(function() {
+        let sym = $(this).val();
+        if(!sym) return;
+        $.get('/api/details?symbol=' + sym, (data) => {
+            window.histFutExps = data.fut_expiries;
+            window.histOptExps = data.opt_expiries;
+            populateExpiries('#hist_type', '#hist_expiry');
+        });
+    });
+
+    $('#hist_type').change(() => {
+        // Switch between FUT/OPT expiries based on type
+        let type = $('#hist_type').val();
+        let $exp = $('#hist_expiry');
+        $exp.empty();
+        let list = (type === 'FUT') ? window.histFutExps : window.histOptExps;
+        if(list) list.forEach(d => $exp.append(`<option value="${d}">${d}</option>`));
+    });
+
     window.checkHistory = function() {
         let data = {
             symbol: $('#hist_symbol').val(),
             type: $('#hist_type').val(),
             strike: $('#hist_strike').val(),
+            expiry: $('#hist_expiry').val(), // NEW: Pass Expiry
             time: $('#hist_time').val()
         };
         
         $('#hist_result').show().text("Checking...");
-        
-        // Note: You need to implement this API route
         $.get('/api/history_check', data, (res) => {
             if(res.status === 'success') {
                 $('#hist_result').html(`<strong>${res.symbol}</strong><br>Time: ${res.data.date}<br>Open: ${res.data.open}<br>High: ${res.data.high}<br>Close: ${res.data.close}`);
@@ -349,18 +365,13 @@ def api_s_ltp(): return jsonify({"ltp": smart_trader.get_specific_ltp(kite, requ
 
 @app.route('/api/history_check')
 def api_history():
-    # Helper to call smart_trader history function
-    # Note: Requires smart_trader to have fetch_historical_check
     sym = request.args.get('symbol')
     typ = request.args.get('type')
     strk = request.args.get('strike')
-    time_str = request.args.get('time').replace('T', ' ') # Fix HTML datetime format
+    expiry = request.args.get('expiry') # Fixed: Now receiving Expiry
+    time_str = request.args.get('time').replace('T', ' ')
     
-    # We need to find expiry logic here or ask user. For now, we might need recent expiry logic or assume input.
-    # Simplified: finding recent expiry if not provided is hard for history. 
-    # For now, let's assume we find the symbol directly.
-    # This is a complex feature. For now, simple response:
-    return jsonify(smart_trader.fetch_historical_check(kite, sym, "2026-01-29", strk, typ, time_str)) # Hardcoded expiry for demo, needs UI input
+    return jsonify(smart_trader.fetch_historical_check(kite, sym, expiry, strk, typ, time_str))
 
 @app.route('/trade', methods=['POST'])
 def place_trade():
@@ -374,7 +385,7 @@ def place_trade():
     order_type = request.form['order_type']
     limit_price = float(request.form['limit_price'] or 0)
     
-    custom_targets = [float(request.form['t1_price']), float(request.form['t2_price']), float(request.form['t3_price'])]
+    custom_targets = [float(request.form['t1_price']), float(request.form['t2_price'])]
     
     final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
     

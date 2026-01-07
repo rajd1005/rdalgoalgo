@@ -35,6 +35,9 @@
         .mode-paper { color: #f39c12; border-color: #f39c12; }
         .mode-live { color: #e74c3c; border-color: #e74c3c; }
 
+        /* LOGIN SCREEN */
+        .login-card { max-width: 400px; margin: 100px auto; text-align: center; padding: 40px; }
+
         /* HIDDEN SECTIONS */
         .tab-content { display: none; }
         .tab-content.active { display: block; }
@@ -42,16 +45,25 @@
 </head>
 <body>
 
-<div class="ticker-bar">
-    <span class="ticker-item">NIFTY: <span id="n_lp">0.00</span></span>
-    <span class="ticker-item">BANKNIFTY: <span id="b_lp">0.00</span></span>
-    <span class="ticker-item">SENSEX: <span id="s_lp">0.00</span></span>
-</div>
-
 <div class="container mt-3">
     {% with messages = get_flashed_messages() %}
         {% if messages %} <div class="alert alert-info">{{ messages[0] }}</div> {% endif %}
     {% endwith %}
+
+    {% if not is_active %}
+    <div class="custom-card login-card shadow-lg">
+        <h3 class="mb-3">🔌 System Offline</h3>
+        <p class="text-muted mb-4">Please authenticate with Zerodha Kite to initialize the trading engine.</p>
+        <a href="{{ login_url }}" class="btn btn-primary btn-lg w-100 fw-bold shadow">Login to Zerodha</a>
+    </div>
+
+    {% else %}
+    
+    <div class="ticker-bar rounded mb-3">
+        <span class="ticker-item">NIFTY: <span id="n_lp">Loading...</span></span>
+        <span class="ticker-item">BANKNIFTY: <span id="b_lp">Loading...</span></span>
+        <span class="ticker-item">SENSEX: <span id="s_lp">Loading...</span></span>
+    </div>
 
     <div class="nav-tabs">
         <div class="nav-btn active" onclick="switchTab('trade')">🚀 Trade</div>
@@ -199,18 +211,21 @@
         </div>
     </div>
 
-</div>
+    {% endif %} </div>
 
 <script>
     // --- TAB SWITCHER LOGIC ---
     function switchTab(tabId) {
-        // Remove active class from all tabs and buttons
         document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
         
-        // Add active class to selected
         document.getElementById(tabId).style.display = 'block';
-        event.currentTarget.classList.add('active');
+        
+        // Find button that triggered this or match by text content logic
+        // Simple hack: loop and find matching onclick
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            if(btn.getAttribute('onclick').includes(tabId)) btn.classList.add('active');
+        });
     }
 
     // --- MODE SWITCHER LOGIC ---
@@ -224,8 +239,9 @@
     // --- MAIN TRADING LOGIC ---
     let curLTP = 0;
 
-    // 1. Ticker
+    // 1. Ticker (Only runs if elements exist)
     function updateTicker() {
+        if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', function(data) {
             $('#n_lp').text(data.NIFTY);
             $('#b_lp').text(data.BANKNIFTY);
@@ -233,7 +249,7 @@
         });
     }
     setInterval(updateTicker, 2000);
-    updateTicker(); // Init
+    updateTicker(); 
 
     // 2. Symbol Search
     $('#sym').on('input', function() {
@@ -250,7 +266,6 @@
         let s = $(this).val();
         if(!s) return;
         
-        // Memory SL
         let memSL = localStorage.getItem('sl_' + s);
         if(memSL) $('#sl_pts').val(memSL);
 
@@ -275,7 +290,7 @@
             list.forEach((d, i) => $e.append(`<option value="${d}" ${i===0?'selected':''}>${d}</option>`));
             fillChain();
         } else {
-            $e.append('<option>Loading...</option>');
+            $e.append('<option>Loading/No Expiry</option>');
         }
     }
 

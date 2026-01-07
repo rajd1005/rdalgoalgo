@@ -15,6 +15,7 @@ def save_trades(trades):
     with open(TRADES_FILE, 'w') as f: json.dump(trades, f, default=str, indent=4)
 
 def get_exchange(symbol):
+    # Logic: if symbol ends with CE/PE/FUT -> NFO, else NSE
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
     return "NSE"
 
@@ -38,33 +39,30 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
                 price=price,
                 product=kite.PRODUCT_MIS
             )
+            # Assume entry for record (real apps wait for callback)
             entry_price = float(limit_price) if order_type == "LIMIT" else 0.0
-            if entry_price == 0:
-                 try:
-                    entry_price = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
-                 except: entry_price = 100.0
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    else:
-        # Paper
-        entry_price = float(limit_price) if order_type == "LIMIT" else 0.0
-        if entry_price == 0:
-            try:
-                entry_price = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
-            except: entry_price = 100.0
+    
+    # 2. FETCH PRICE (If Market Order or Paper)
+    if entry_price == 0:
+        try:
+            entry_price = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
+        except: entry_price = 100.0 # Safety fallback
 
-    # 2. TARGETS (Only 3 now)
+    # 3. SET TARGETS (Exactly 3)
     targets = []
     if custom_targets and len(custom_targets) == 3:
         targets = custom_targets
     else:
-        # Auto Calc: 0.5x, 1x, 2x
+        # Auto-Calc (0.5x, 1x, 2x)
         targets = [
             entry_price + (sl_points * 0.5),
             entry_price + (sl_points * 1.0),
             entry_price + (sl_points * 2.0)
         ]
 
+    # 4. SAVE TRADE
     trade_record = {
         "id": int(time.time()),
         "symbol": specific_symbol,
@@ -103,22 +101,3 @@ def promote_to_live(kite, trade_id):
                 return True
             except: return False
     return False
-
-def update_risk_engine(kite):
-    trades = load_trades()
-    updated = False
-    for trade in trades:
-        if trade['status'] in ['OPEN', 'PROMOTED_LIVE']:
-            exch = trade.get('exchange', 'NFO')
-            try:
-                ltp = kite.quote(f"{exch}:{trade['symbol']}")[f"{exch}:{trade['symbol']}"]["last_price"]
-                trade['current_ltp'] = ltp
-                updated = True
-                
-                if ltp <= trade['sl']: trade['status'] = "SL_HIT"
-                if ltp >= trade['targets'][0] and not trade['t1_hit']:
-                    trade['t1_hit'] = True
-                    trade['sl'] = trade['entry_price']
-                if ltp >= trade['targets'][2]: trade['status'] = "T3_HIT" # 3rd Target Final
-            except: continue
-    if updated: save_trades(trades)

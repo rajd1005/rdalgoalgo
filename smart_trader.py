@@ -9,107 +9,131 @@ def fetch_instruments(kite):
     if instrument_dump is not None:
         return
 
-    print("📥 Downloading Instrument List (Master Dump)...")
+    print("📥 Downloading Instrument List...")
     try:
         instrument_dump = pd.DataFrame(kite.instruments("NFO"))
-        instrument_dump['expiry'] = pd.to_datetime(instrument_dump['expiry']).dt.date
-        print("✅ Instruments Downloaded & Parsed.")
+        # Ensure expiry is a string YYYY-MM-DD for JSON compatibility
+        instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry']).dt.strftime('%Y-%m-%d')
+        instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry']).dt.date
+        print("✅ Instruments Downloaded.")
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
 
-def get_atm_strike(ltp, step=50):
-    return round(ltp / step) * step
+def get_zerodha_symbol(common_name):
+    """Normalizes names (e.g. 'NIFTY 50' -> 'NIFTY')"""
+    common_name = common_name.upper()
+    if "BANK" in common_name: return "BANKNIFTY"
+    if "NIFTY" in common_name and "50" in common_name: return "NIFTY"
+    if "NIFTY" in common_name: return "NIFTY"
+    return common_name
 
 def search_symbols(keyword):
-    """Returns a list of unique trading symbols matching the keyword"""
     global instrument_dump
-    if instrument_dump is None:
-        return []
-    
+    if instrument_dump is None: return []
     keyword = keyword.upper()
-    # Filter unique names that start with the keyword (e.g., "INFY")
-    # We filter for FUTURES to get the underlying names easily
     mask = (instrument_dump['segment'] == 'NFO-FUT') & (instrument_dump['name'].str.startswith(keyword))
-    unique_names = instrument_dump[mask]['name'].unique().tolist()
-    return unique_names[:10] # Return top 10 matches
+    return instrument_dump[mask]['name'].unique().tolist()[:10]
 
-def get_matrix_data(kite, symbol):
-    """
-    Returns: { "ltp": 24000, "atm": 24000, "strikes": [23000, ... 25000] }
-    """
+def get_symbol_details(kite, symbol):
+    """Returns Expiry List, Lot Size, and LTP"""
     global instrument_dump
-    if instrument_dump is None:
-        fetch_instruments(kite)
-
-    # 1. Get LTP (Spot Price)
-    try:
-        # Try fetching spot from NSE (e.g., NSE:RELIANCE)
-        quote_symbol = f"NSE:{symbol}"
-        if symbol in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
-            # Index symbols map differently
-            idx_map = {"NIFTY": "NIFTY 50", "BANKNIFTY": "NIFTY BANK", "FINNIFTY": "NIFTY FIN SERVICE"}
-            quote_symbol = f"NSE:{idx_map.get(symbol, symbol)}"
-
-        quote = kite.quote(quote_symbol)
-        ltp = quote[quote_symbol]['last_price']
-    except:
-        print(f"⚠️ Could not fetch LTP for {symbol}. Using Dummy.")
-        ltp = 24200 if "NIFTY" in symbol else 1000 # Dummy Fallback
-
-    # 2. Determine Step Size (Index vs Stock)
-    step = 100 if "BANK" in symbol else 50
-    # For stocks, step sizes vary (e.g. 5, 10, 20). 
-    # Logic: Get all available strikes for this expiry and find the closest ones.
-
-    # 3. Filter Option Chain for Nearest Expiry
-    today = datetime.now().date()
+    if instrument_dump is None: fetch_instruments(kite)
     
-    # Get all options for this symbol
-    opts = instrument_dump[
+    symbol = get_zerodha_symbol(symbol)
+    today = datetime.now().date()
+
+    # 1. Get Expiries & Lot Size from Futures (most reliable)
+    futs = instrument_dump[
         (instrument_dump['name'] == symbol) & 
-        (instrument_dump['instrument_type'] == 'CE') & # Just need strikes, type doesn't matter
-        (instrument_dump['expiry'] >= today)
+        (instrument_dump['segment'] == 'NFO-FUT') &
+        (instrument_dump['expiry_date'] >= today)
     ]
     
-    if opts.empty:
-        return {"ltp": ltp, "atm": 0, "strikes": []}
+    if futs.empty:
+        # Fallback to Options if no futures (rare for major indices)
+        futs = instrument_dump[
+            (instrument_dump['name'] == symbol) & 
+            (instrument_dump['instrument_type'] == 'CE') &
+            (instrument_dump['expiry_date'] >= today)
+        ]
 
-    # Find nearest expiry
-    nearest_expiry = opts.sort_values('expiry').iloc[0]['expiry']
-    
-    # Get all strikes for this expiry
-    expiry_opts = opts[opts['expiry'] == nearest_expiry]
-    all_strikes = sorted(expiry_opts['strike'].unique().tolist())
+    if futs.empty: return None
 
-    # 4. Find ATM (Closest Strike to LTP)
-    atm_strike = min(all_strikes, key=lambda x: abs(x - ltp))
+    # Sort expiries
+    expiries = sorted(futs['expiry_str'].unique().tolist())
+    lot_size = int(futs.iloc[0]['lot_size'])
 
-    # 5. Return a slice of strikes (e.g., 10 above and 10 below ATM)
+    # 2. Get LTP
     try:
-        atm_index = all_strikes.index(atm_strike)
-        start = max(0, atm_index - 10)
-        end = min(len(all_strikes), atm_index + 11)
-        relevant_strikes = all_strikes[start:end]
+        quote_sym = f"NSE:{symbol} 50" if symbol == "NIFTY" else f"NSE:{symbol}"
+        if symbol == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
+        # For stocks, it's just NSE:SYMBOL
+        if symbol not in ["NIFTY", "BANKNIFTY"]: quote_sym = f"NSE:{symbol}"
+        
+        ltp = kite.quote(quote_sym)[quote_sym]['last_price']
     except:
-        relevant_strikes = all_strikes[:20]
+        ltp = 0
 
     return {
+        "symbol": symbol,
         "ltp": ltp,
-        "atm": atm_strike,
-        "strikes": relevant_strikes
+        "lot_size": lot_size,
+        "expiries": expiries
     }
 
-def get_exact_symbol(symbol, strike, option_type):
-    """Reconstructs the specific trading symbol"""
+def get_chain_data(symbol, expiry_date, option_type, ltp):
+    """Returns list of strikes with ITM/OTM labels for a specific expiry"""
     global instrument_dump
-    today = datetime.now().date()
     
-    relevant = instrument_dump[
+    # Filter for symbol, expiry, and type
+    chain = instrument_dump[
         (instrument_dump['name'] == symbol) &
-        (instrument_dump['strike'] == float(strike)) &
-        (instrument_dump['instrument_type'] == option_type) &
-        (instrument_dump['expiry'] >= today)
+        (instrument_dump['expiry_str'] == expiry_date) &
+        (instrument_dump['instrument_type'] == option_type)
     ]
     
+    if chain.empty: return []
+
+    strikes = sorted(chain['strike'].unique().tolist())
+    
+    # Calculate ATM (Closest strike to LTP)
+    if not strikes: return []
+    atm_strike = min(strikes, key=lambda x: abs(x - ltp))
+    
+    result = []
+    for s in strikes:
+        label = "OTM"
+        if s == atm_strike:
+            label = "ATM"
+        elif option_type == "CE":
+            label = "ITM" if ltp > s else "OTM"
+        elif option_type == "PE":
+            label = "ITM" if ltp < s else "OTM"
+            
+        result.append({"strike": s, "label": label})
+        
+    return result
+
+def get_exact_symbol(symbol, expiry, strike, option_type):
+    """Reconstructs the Tradingsymbol"""
+    global instrument_dump
+    
+    # Logic for FUT
+    if option_type == "FUT":
+        mask = (
+            (instrument_dump['name'] == symbol) &
+            (instrument_dump['expiry_str'] == expiry) &
+            (instrument_dump['instrument_type'] == "FUT")
+        )
+    else:
+        # Logic for CE/PE
+        mask = (
+            (instrument_dump['name'] == symbol) &
+            (instrument_dump['expiry_str'] == expiry) &
+            (instrument_dump['strike'] == float(strike)) &
+            (instrument_dump['instrument_type'] == option_type)
+        )
+
+    relevant = instrument_dump[mask]
     if relevant.empty: return None
-    return relevant.sort_values('expiry').iloc[0]['tradingsymbol']
+    return relevant.iloc[0]['tradingsymbol']

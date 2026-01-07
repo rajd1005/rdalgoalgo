@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Global cache
 instrument_dump = None 
@@ -19,30 +19,28 @@ def fetch_instruments(kite):
 
 def get_zerodha_symbol(common_name):
     """
-    Robust mapping for Indices.
+    Smart mapping that avoids confusing HDFCBANK with BANKNIFTY
     """
-    upper_name = common_name.upper()
+    upper = common_name.upper()
     
-    # 1. Handle BANKNIFTY variations
-    if "BANK" in upper_name:
-        return "BANKNIFTY"
+    # Strict matching for Indices
+    if upper == "BANKNIFTY" or upper == "NIFTY BANK": return "BANKNIFTY"
+    if upper == "NIFTY" or upper == "NIFTY 50": return "NIFTY"
+    if upper == "FINNIFTY": return "FINNIFTY"
     
-    # 2. Handle NIFTY variations
-    if "NIFTY" in upper_name:
-        if "FIN" in upper_name: return "FINNIFTY"
-        return "NIFTY" # Defaults to Nifty 50
-        
-    return upper_name
+    # If user types "BANK", assume Index, but let specific stocks pass
+    if "BANK" in upper and "NIFTY" in upper: return "BANKNIFTY"
+    
+    return upper
 
 def search_symbols(keyword):
     global instrument_dump
     if instrument_dump is None: return []
     keyword = keyword.upper()
     
-    # Search in Futures (NFO) OR Stocks (NSE)
     mask = (
         ((instrument_dump['segment'] == 'NFO-FUT') | (instrument_dump['segment'] == 'NSE')) & 
-        (instrument_dump['name'].str.contains(keyword, na=False)) # 'contains' is better than 'startswith' for "Nifty Bank"
+        (instrument_dump['name'].str.startswith(keyword))
     )
     return instrument_dump[mask]['name'].unique().tolist()[:10]
 
@@ -50,61 +48,48 @@ def get_symbol_details(kite, symbol):
     global instrument_dump
     if instrument_dump is None: fetch_instruments(kite)
     
-    # Normalize Name (e.g. "Nifty Bank" -> "BANKNIFTY")
     clean_symbol = get_zerodha_symbol(symbol)
     today = datetime.now().date()
 
-    # 1. Get Underlying LTP (Spot Price)
+    # 1. Get LTP
     ltp = 0
     try:
-        quote_sym = ""
+        quote_sym = f"NSE:{clean_symbol}"
         if clean_symbol == "NIFTY": quote_sym = "NSE:NIFTY 50"
-        elif clean_symbol == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
-        elif clean_symbol == "FINNIFTY": quote_sym = "NSE:NIFTY FIN SERVICE"
-        else: quote_sym = f"NSE:{clean_symbol}" # Stocks
-        
+        if clean_symbol == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
         ltp = kite.quote(quote_sym)[quote_sym]['last_price']
     except:
-        ltp = 0 # Fallback
+        ltp = 0
 
-    # 2. Get Lot Size & Expiries from FUTURES
-    lot_size = 1 # Default for Equity
-    fut_exps = []
-    
-    # Filter for the cleaned symbol in Futures
-    futs = instrument_dump[
-        (instrument_dump['name'] == clean_symbol) & 
-        (instrument_dump['segment'] == 'NFO-FUT')
-    ]
+    # 2. Get Lot Size (Priority: Futures -> Equity)
+    lot_size = 1
+    futs = instrument_dump[(instrument_dump['name'] == clean_symbol) & (instrument_dump['segment'] == 'NFO-FUT')]
     
     if not futs.empty:
         lot_size = int(futs.iloc[0]['lot_size'])
-        fut_exps = sorted(futs[futs['expiry_date'] >= today]['expiry_str'].unique().tolist())
     
-    # 3. Get Option Expiries
-    opts = instrument_dump[
-        (instrument_dump['name'] == clean_symbol) & 
-        (instrument_dump['instrument_type'] == 'CE')
-    ]
+    # 3. Expiries
+    fut_exps = sorted(futs[futs['expiry_date'] >= today]['expiry_str'].unique().tolist())
+    
+    opts = instrument_dump[(instrument_dump['name'] == clean_symbol) & (instrument_dump['instrument_type'] == 'CE')]
     opt_exps = sorted(opts[opts['expiry_date'] >= today]['expiry_str'].unique().tolist())
 
     return {
-        "symbol": clean_symbol, # Send back the cleaned name
+        "symbol": clean_symbol,
         "ltp": ltp,
         "lot_size": lot_size,
         "fut_expiries": fut_exps,
         "opt_expiries": opt_exps
     }
 
-# ... (Keep get_chain_data, get_specific_ltp, get_exact_symbol as they were) ...
-# Copy them from previous response if needed, no changes required there.
 def get_chain_data(symbol, expiry_date, option_type, ltp):
-    """Returns strikes with labels"""
     global instrument_dump
     chain = instrument_dump[(instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
     if chain.empty: return []
+    
     strikes = sorted(chain['strike'].unique().tolist())
     if not strikes: return []
+    
     atm_strike = min(strikes, key=lambda x: abs(x - ltp))
     result = []
     for s in strikes:
@@ -117,20 +102,19 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
 
 def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     global instrument_dump
-    tradingsymbol = ""
-    exchange = "NFO"
+    tradingsymbol, exchange = "", "NFO"
+    
     if inst_type == "EQ":
         tradingsymbol = symbol
         exchange = "NSE"
     elif inst_type == "FUT":
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
-        if not mask.any(): return 0
-        tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
+        if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
     else:
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == inst_type)
-        if not mask.any(): return 0
-        tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
+        if mask.any(): tradingsymbol = instrument_dump[mask].iloc[0]['tradingsymbol']
 
+    if not tradingsymbol: return 0
     try:
         key = f"{exchange}:{tradingsymbol}"
         return kite.quote(key)[key]['last_price']
@@ -140,9 +124,38 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
 def get_exact_symbol(symbol, expiry, strike, option_type):
     global instrument_dump
     if option_type == "EQ": return symbol
+    
     if option_type == "FUT":
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
     else:
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == option_type)
+        
     if not mask.any(): return None
     return instrument_dump[mask].iloc[0]['tradingsymbol']
+
+def fetch_historical_check(kite, symbol, expiry, strike, type_, timestamp_str):
+    """
+    Fetches the OHLC of a specific minute in the past.
+    timestamp_str format: "2023-10-27 09:15"
+    """
+    tradingsymbol = get_exact_symbol(symbol, expiry, strike, type_)
+    if not tradingsymbol: return {"status": "error", "message": "Symbol Not Found"}
+    
+    # Get Token
+    global instrument_dump
+    token_row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
+    if token_row.empty: return {"status": "error", "message": "Token Not Found"}
+    token = token_row.iloc[0]['instrument_token']
+    
+    try:
+        query_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M")
+        # Fetch 1 minute candle
+        data = kite.historical_data(token, query_time, query_time + timedelta(minutes=1), "minute")
+        
+        if data:
+            return {"status": "success", "data": data[0], "symbol": tradingsymbol}
+        else:
+            return {"status": "error", "message": "No Data Found for Time"}
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

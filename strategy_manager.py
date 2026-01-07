@@ -21,6 +21,20 @@ def save_trades(trades):
     with open(TRADES_FILE, 'w') as f:
         json.dump(trades, f, default=str, indent=4)
 
+# --- HELPER: EXCHANGE DETECTION ---
+def get_exchange(symbol):
+    """
+    Determines if the symbol belongs to NSE (Stocks) or NFO (F&O).
+    Logic: options/futures usually end with CE/PE/FUT or have specific naming formats.
+    """
+    if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol:
+        return "NFO"
+    # Basic check: NIFTY/BANKNIFTY are indices, but if passed as pure symbol without suffix, handle carefully
+    if symbol in ["NIFTY", "BANKNIFTY"]: 
+        return "NSE" 
+    # Default to NSE for normal stocks like RELIANCE, INFY
+    return "NSE"
+
 # --- TRADING LOGIC ---
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points):
@@ -28,15 +42,17 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points):
     Executes a trade (Paper or Live) for a specific symbol passed from the dashboard.
     """
     trades = load_trades()
-    
     entry_price = 0.0
+    exchange_type = get_exchange(specific_symbol)
     
+    # 1. EXECUTION (LIVE OR PAPER)
     if mode == "LIVE":
         try:
-            # 1. Place the Order on Zerodha
+            # Place the Order on Zerodha
+            # Note: kite.EXCHANGE_NFO is a string "NFO", kite.EXCHANGE_NSE is "NSE"
             order_id = kite.place_order(
                 tradingsymbol=specific_symbol,
-                exchange=kite.EXCHANGE_NFO,
+                exchange=exchange_type,
                 transaction_type=kite.TRANSACTION_TYPE_BUY,
                 quantity=quantity,
                 order_type=kite.ORDER_TYPE_MARKET,
@@ -44,25 +60,30 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points):
             )
             print(f"✅ LIVE Order Placed: {order_id}")
             
-            # 2. Fetch Entry Price (Simplified: getting LTP immediately)
-            # In production, you might want to fetch the actual average execution price
+            # Fetch Entry Price immediately for record keeping
+            # In a high-speed system, you would wait for order update via WebSocket.
+            # Here we fetch the current LTP as a proxy for the entry price.
             try:
-                quote = kite.quote(f"NFO:{specific_symbol}")
-                entry_price = quote[f"NFO:{specific_symbol}"]["last_price"]
+                instrument_key = f"{exchange_type}:{specific_symbol}"
+                quote = kite.quote(instrument_key)
+                entry_price = quote[instrument_key]["last_price"]
             except:
-                entry_price = 100.0 # Fallback if fetch fails quickly
+                entry_price = 100.0 # Fallback safety
                 
         except Exception as e:
             return {"status": "error", "message": str(e)}
     else:
         # PAPER MODE: Fetch real price to make simulation realistic
         try:
-            quote = kite.quote(f"NFO:{specific_symbol}")
-            entry_price = quote[f"NFO:{specific_symbol}"]["last_price"]
+            instrument_key = f"{exchange_type}:{specific_symbol}"
+            quote = kite.quote(instrument_key)
+            entry_price = quote[instrument_key]["last_price"]
         except:
-            entry_price = 100.0 # Default fallback
+            entry_price = 100.0 # Default fallback if API fails
             
-    # Calculate Risk Targets
+    # 2. RISK CALCULATION (5 TARGETS)
+    # Target 1: 0.5x Risk (Safe Exit)
+    # Target 5: 3.0x Risk (Moonshot)
     targets = [
         entry_price + (sl_points * 0.5), # T1
         entry_price + (sl_points * 1.0), # T2
@@ -74,6 +95,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points):
     trade_record = {
         "id": int(time.time()),
         "symbol": specific_symbol,
+        "exchange": exchange_type,
         "mode": mode,
         "status": "OPEN",
         "entry_price": entry_price,
@@ -97,12 +119,14 @@ def promote_to_live(kite, trade_id):
                 # EXECUTE REAL ORDER
                 kite.place_order(
                     tradingsymbol=trade['symbol'],
-                    exchange=kite.EXCHANGE_NFO,
+                    exchange=trade.get('exchange', 'NFO'), # Default to NFO if missing
                     transaction_type=kite.TRANSACTION_TYPE_BUY,
                     quantity=trade['quantity'],
                     order_type=kite.ORDER_TYPE_MARKET,
                     product=kite.PRODUCT_MIS
                 )
+                
+                # Update State
                 trade['mode'] = "LIVE"
                 trade['status'] = "PROMOTED_LIVE" 
                 save_trades(trades)
@@ -120,32 +144,40 @@ def update_risk_engine(kite):
     updated = False
     
     for trade in trades:
+        # Only check trades that are OPEN or LIVE
         if trade['status'] in ['OPEN', 'PROMOTED_LIVE']:
+            
             # 1. Get Live Price
+            exchange = trade.get('exchange', 'NFO')
+            instrument_key = f"{exchange}:{trade['symbol']}"
+            
             try:
-                quote = kite.quote(f"NFO:{trade['symbol']}")
-                ltp = quote[f"NFO:{trade['symbol']}"]["last_price"]
+                quote = kite.quote(instrument_key)
+                ltp = quote[instrument_key]["last_price"]
             except Exception:
-                # If API fails, skip update this cycle
+                # If API fails or network issue, skip update this cycle
                 continue
 
             trade['current_ltp'] = ltp
             updated = True
             
-            # 2. Check Stop Loss
+            # 2. Check Stop Loss (SL)
             if ltp <= trade['sl']:
                 trade['status'] = "SL_HIT"
-                # If LIVE, you would place a SELL order here
+                # NOTE: If this was a LIVE trade, you would place a SELL order here automatically.
+                # Example: kite.place_order(transaction_type=kite.TRANSACTION_TYPE_SELL, ...)
                 continue
 
             # 3. Check Target 1 (The Safeguard)
+            # If Price hits Target 1, Move SL to Entry Price (Cost)
             if ltp >= trade['targets'][0] and not trade['t1_hit']:
                 trade['t1_hit'] = True
-                trade['sl'] = trade['entry_price'] # Move SL to Cost
+                trade['sl'] = trade['entry_price'] 
                 
-            # 4. Check Final Target
+            # 4. Check Final Target (T5)
             if ltp >= trade['targets'][4]:
                 trade['status'] = "T5_HIT"
+                # NOTE: If LIVE, place SELL order here.
 
     if updated:
         save_trades(trades)

@@ -1,7 +1,6 @@
 import json
 import os
 import time
-from datetime import datetime
 
 TRADES_FILE = 'active_trades.json'
 
@@ -40,17 +39,15 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
                 price=price,
                 product=kite.PRODUCT_MIS
             )
-            print(f"✅ LIVE Order: {order_id}")
             
-            # If Limit order, entry price is the limit price
-            if order_type == "LIMIT":
-                entry_price = float(limit_price)
-            else:
-                try:
+            # For records, assume limit price or fetch LTP
+            entry_price = float(limit_price) if order_type == "LIMIT" else 0.0
+            if entry_price == 0:
+                 try:
                     quote = kite.quote(f"{exchange_type}:{specific_symbol}")
                     entry_price = quote[f"{exchange_type}:{specific_symbol}"]["last_price"]
-                except:
-                    entry_price = 100.0
+                 except: entry_price = 100.0
+
         except Exception as e:
             return {"status": "error", "message": str(e)}
     else:
@@ -66,17 +63,14 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
 
     # TARGETS
     targets = []
-    if custom_targets and len(custom_targets) >= 3:
+    if custom_targets and len(custom_targets) >= 2:
         targets = custom_targets
         while len(targets) < 5: targets.append(targets[-1] * 1.05)
     else:
-        # Auto Calc if UI didn't send them (Fallback)
         targets = [
             entry_price + (sl_points * 0.5),
             entry_price + (sl_points * 1.0),
-            entry_price + (sl_points * 1.5),
-            entry_price + (sl_points * 2.0),
-            entry_price + (sl_points * 3.0)
+            entry_price + (sl_points * 2.0)
         ]
 
     trade_record = {
@@ -90,7 +84,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "quantity": quantity,
         "sl": entry_price - sl_points,
         "targets": targets,
-        "t1_hit": False,
         "current_ltp": entry_price
     }
     
@@ -116,7 +109,6 @@ def promote_to_live(kite, trade_id):
                 save_trades(trades)
                 return True
             except Exception as e:
-                print(f"Promotion Failed: {e}")
                 return False
     return False
 
@@ -136,9 +128,6 @@ def update_risk_engine(kite):
             updated = True
             
             if ltp <= trade['sl']: trade['status'] = "SL_HIT"
-            if ltp >= trade['targets'][0] and not trade['t1_hit']:
-                trade['t1_hit'] = True
-                trade['sl'] = trade['entry_price'] 
-            if ltp >= trade['targets'][4]: trade['status'] = "T5_HIT"
+            if len(trade['targets']) > 0 and ltp >= trade['targets'][0]: trade['status'] = "T1_HIT"
 
     if updated: save_trades(trades)

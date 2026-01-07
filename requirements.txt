@@ -1,0 +1,4 @@
+kiteconnect
+pandas
+flask
+gunicorn

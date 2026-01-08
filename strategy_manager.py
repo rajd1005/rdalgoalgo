@@ -248,9 +248,13 @@ def update_risk_engine(kite):
             t['current_ltp'] = ltp
             updated = True
             
-            # Update Made High (for all active/monitoring trades)
-            if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
-            if ltp > t['highest_ltp']: t['highest_ltp'] = ltp
+            # --- MADE HIGH LOGIC (Continuous Update) ---
+            if 'highest_ltp' not in t: 
+                t['highest_ltp'] = t['entry_price']
+            
+            # Update Made High if current LTP is higher
+            if ltp > t['highest_ltp']: 
+                t['highest_ltp'] = ltp
             
         except:
             active_list.append(t)
@@ -288,6 +292,8 @@ def update_risk_engine(kite):
 
             if should_activate:
                 t['status'] = "OPEN"
+                # Initialize Made High at Entry
+                t['highest_ltp'] = t['entry_price'] 
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
                 log_event(t, f"Trade Activated/Entered @ {ltp}") 
                 if t['mode'] == 'LIVE':
@@ -314,12 +320,18 @@ def update_risk_engine(kite):
             exit_reason = ""
             exit_p = ltp
             
-            # 1. Check SL
+            # 1. Check SL (Standard OR Cost)
             if ltp <= t['sl']:
-                exit_reason = "SL_HIT"
-                log_event(t, f"SL Hit @ {ltp}")
                 exit_triggered = True
                 exit_p = t['sl']
+                
+                # Check if this was a Cost Exit (SL at Entry) or Loss Exit (SL below Entry)
+                if t['sl'] >= t['entry_price']:
+                    exit_reason = "COST_EXIT"
+                    log_event(t, f"Price returned to Entry/Cost @ {ltp}. Safe Exit triggered.")
+                else:
+                    exit_reason = "SL_HIT"
+                    log_event(t, f"SL Hit @ {ltp}")
 
             # 2. Check Targets
             if not exit_triggered:
@@ -330,7 +342,11 @@ def update_risk_engine(kite):
                         t['targets_hit_indices'].append(i)
                         log_event(t, f"Target {i+1} Hit @ {tgt}")
                         
-                        # --- REMOVED TRAILING SL LOGIC HERE ---
+                        # --- UPDATE SL LOGIC: PROTECT ENTRY AFTER T1 ---
+                        if i == 0:
+                            t['sl'] = t['entry_price']
+                            log_event(t, "T1 Hit. SL Moved to Entry Price (Cost Protection).")
+                        # -----------------------------------------------
                         
                         if i == len(t['targets']) - 1:
                             exit_reason = "TARGET_HIT"
@@ -356,7 +372,7 @@ def update_risk_engine(kite):
                 t['status'] = "MONITORING"
                 t['exit_price'] = exit_p
                 t['exit_type'] = exit_reason
-                log_event(t, f"Trade Exited ({exit_reason}). Monitoring for Made High...")
+                log_event(t, f"Trade Exited ({exit_reason}). Made High was {t.get('highest_ltp', 0)}. Monitoring...")
                 active_list.append(t)
             else:
                 active_list.append(t)

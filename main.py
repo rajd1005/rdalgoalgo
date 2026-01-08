@@ -29,7 +29,7 @@ def save_settings_file(data):
 @app.route('/')
 def home():
     trades = strategy_manager.load_trades()
-    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING']]
+    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
     return render_template('dashboard.html', is_active=bot_active, login_url=kite.login_url(), trades=active)
 
 @app.route('/logout')
@@ -112,10 +112,12 @@ def api_history():
     t3 = float(data.get('t3', 0))
     custom_targets = [t1, t2, t3] if t1 > 0 else []
 
+    # Updated to pass 'qty' to simulate_trade
     result = smart_trader.simulate_trade(
         kite, 
         data['symbol'], data['expiry'], data['strike'], data['type'], 
-        data['time'], sl_points, entry_price, custom_targets
+        data['time'], sl_points, entry_price, custom_targets, 
+        qty 
     )
     
     if result['status'] == 'success':

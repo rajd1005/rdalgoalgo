@@ -15,7 +15,8 @@ def load_trades():
         for r in rows:
             trades.append(json.loads(r.data))
         return trades
-    except:
+    except Exception as e:
+        print(f"Load Trades Error: {e}")
         return []
 
 def save_trades(trades):
@@ -32,7 +33,8 @@ def load_history():
     try:
         rows = TradeHistory.query.order_by(TradeHistory.id.desc()).all()
         return [json.loads(r.data) for r in rows]
-    except:
+    except Exception as e:
+        print(f"Load History Error: {e}")
         return []
 
 def save_history_file(history):
@@ -49,7 +51,6 @@ def delete_trade(trade_id):
         return False
 
 def get_time_str():
-    # Enforce IST for all Logs and Timestamps
     try:
         return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
     except:
@@ -70,7 +71,9 @@ def move_to_history(trade, final_status, exit_price):
          log_event(trade, f"Closed: {final_status} @ {exit_price}")
     
     try:
-        db.session.add(TradeHistory(id=trade['id'], data=json.dumps(trade)))
+        # Use merge to avoid IntegrityError if ID exists (though unlikely for live trades)
+        hist = TradeHistory(id=trade['id'], data=json.dumps(trade))
+        db.session.merge(hist)
         db.session.commit()
     except Exception as e:
         print(f"History Save Error: {e}")
@@ -248,8 +251,14 @@ def inject_simulated_trade(trade_data, is_active):
              trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
              trade_data['exit_price'] = trade_data.get('made_high', 0)
         
+        # FIX: Ensure exit_time is present (critical for Frontend Date Filter)
+        if not trade_data.get('exit_time') or trade_data.get('exit_time') == "":
+             trade_data['exit_time'] = get_time_str()
+
         try:
-            db.session.add(TradeHistory(id=trade_data['id'], data=json.dumps(trade_data)))
+            # Use merge to handle potential ID collisions during rapid clicks
+            hist = TradeHistory(id=trade_data['id'], data=json.dumps(trade_data))
+            db.session.merge(hist)
             db.session.commit()
         except Exception as e:
             print(f"Sim History Save Error: {e}")
@@ -260,7 +269,6 @@ def update_risk_engine(kite):
     active_list = []
     updated = False
     
-    # Use IST for market close check
     now = datetime.now(IST)
     market_closed = (now.hour > 15) or (now.hour == 15 and now.minute >= 30)
 

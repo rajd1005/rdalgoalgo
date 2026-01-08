@@ -199,15 +199,14 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                     continue 
             
             # --- Continuous Made High Logic (Independent of Trade Status) ---
-            # Tracks "Made High" as long as the trade is not PENDING.
-            # This runs even if the trade has exited (via SL or Target) to show full potential up to 3:30,
-            # unless it returns to Entry (Lock Condition).
             if status != "PENDING":
-                if not high_locked:
-                    if curr_high > made_high:
-                        made_high = curr_high
-                    
-                    # Lock Condition: If price reverses to Entry (or lower) and we had some profit
+                # Check 1: Breakout Update (If current > max, update and unlock)
+                if curr_high > made_high:
+                    made_high = curr_high
+                    high_locked = False
+                
+                # Check 2: Lock if Reversal to Entry (Only if not already locked)
+                elif not high_locked:
                     if curr_low <= entry and made_high > entry:
                         high_locked = True
             
@@ -219,7 +218,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                         if sl >= entry:
                             status = "COST_EXIT" # Safe exit at entry
                             logs.append(f"[{c_time}] Price returned to Entry (Cost) @ {sl}. Safe Exit.")
-                            # Ensure locked if it hit entry/cost
                             high_locked = True
                         else:
                             status = "SL_HIT"

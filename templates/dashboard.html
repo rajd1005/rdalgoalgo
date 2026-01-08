@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Algo Terminal V2</title>
+    <title>Algo Terminal V3</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
         body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
         .ticker-bar { background: #111; color: #fff; padding: 8px; font-size: 0.85rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; }
         .ticker-item { margin-right: 15px; font-weight: 600; }
-        .auth-btn { font-size: 0.75rem; padding: 4px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; }
-        .btn-logout { background: #dc3545; color: white; }
+        .auth-btn { font-size: 0.75rem; padding: 4px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; background: #dc3545; color: white; }
         
         .custom-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); background: #fff; margin-bottom: 15px; }
         .card-head { padding: 12px 15px; font-weight: 700; border-bottom: 1px solid #f0f0f0; background: #fff; color: #333; }
@@ -24,8 +23,7 @@
         .pnl-green { color: #198754; } .pnl-red { color: #dc3545; }
         .pos-grid-label { font-size: 0.7rem; color: #888; font-weight: 600; text-transform: uppercase; }
         .pos-grid-val { font-weight: 700; font-size: 0.9rem; }
-        
-        .log-entry { font-size: 0.8rem; border-left: 2px solid #ddd; padding-left: 10px; margin-bottom: 5px; color: #555; }
+        .log-entry { font-size: 0.75rem; border-left: 2px solid #ddd; padding-left: 8px; margin-bottom: 4px; color: #555; }
 
         .tab-content { display: none; } .tab-content.active { display: block; }
     </style>
@@ -49,7 +47,7 @@
             <span class="ticker-item">NIFTY: <span id="n_lp" class="text-warning">...</span></span>
             <span class="ticker-item">BANK: <span id="b_lp" class="text-warning">...</span></span>
         </div>
-        <a href="/logout" class="auth-btn btn-logout">Logout</a>
+        <a href="/logout" class="auth-btn">Logout</a>
     </div>
 
     <div class="nav-tabs">
@@ -129,8 +127,18 @@
             <div class="card-head">📅 Historical Check</div>
             <div class="card-body">
                 <input type="text" id="h_sym" class="form-control mb-3" placeholder="Symbol" list="sym_list">
-                <div class="row g-2 mb-3"><div class="col-4"><select id="h_type" class="form-select"><option>CE</option><option>PE</option></select></div><div class="col-8"><select id="h_exp" class="form-select"></select></div></div>
-                <input type="number" id="h_str" class="form-control mb-3" placeholder="Strike">
+                
+                <div class="row g-2 mb-3">
+                    <div class="col-4">
+                        <select id="h_type" class="form-select fw-bold">
+                            <option value="CE">CE</option><option value="PE">PE</option><option value="FUT">FUT</option>
+                        </select>
+                    </div>
+                    <div class="col-8"><select id="h_exp" class="form-select"></select></div>
+                </div>
+                
+                <select id="h_str" class="form-select mb-3"><option>Select Expiry First</option></select>
+                
                 <input type="datetime-local" id="h_time" class="form-control mb-3">
                 <button onclick="checkHistory()" class="btn btn-info w-100 fw-bold text-white">Check</button>
                 <div id="h_res" class="mt-3 p-3 bg-light border rounded" style="display:none;"></div>
@@ -142,28 +150,24 @@
 </div>
 
 <script>
+    // --- UTILS ---
     function switchTab(id) {
         $('.tab-content').hide(); $(`#${id}`).show();
         $('.nav-btn').removeClass('active'); $(event.target).addClass('active');
-        if(id === 'closed') loadClosedTrades(); // Load history when tab clicked
+        if(id === 'closed') loadClosedTrades();
     }
-
     function setMode(el, mode) {
         $('#mode_input').val(mode);
-        $(el).parent().find('.btn').removeClass('active');
-        $(el).addClass('active');
+        $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active');
     }
 
-    // --- DATA FETCHING ---
-    let curLTP = 0;
-
+    // --- DATA ---
+    let curLTP=0;
     function updateData() {
         if(!document.getElementById('n_lp')) return;
         
-        // Indices
         $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); });
 
-        // Active Positions
         $.get('/api/positions', trades => {
             let html = '';
             if(trades.length === 0) html = '<div class="text-center p-4 text-muted">No Active Trades</div>';
@@ -205,17 +209,14 @@
     }
     setInterval(updateData, 2000); updateData();
 
-    // CLOSED TRADES
     function loadClosedTrades() {
         $.get('/api/closed_trades', trades => {
             let html = '';
-            if(trades.length === 0) html = '<div class="text-center p-4 text-muted">No History Found</div>';
+            if(trades.length === 0) html = '<div class="text-center p-4 text-muted">No History</div>';
             else {
                 trades.forEach(t => {
                     let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
-                    // Render Logs
-                    let logHtml = t.logs ? t.logs.map(l => `<div class="log-entry">${l}</div>`).join('') : '';
-                    
+                    let logs = t.logs ? t.logs.map(l => `<div class="log-entry">${l}</div>`).join('') : '';
                     html += `
                     <div class="card mb-3 border shadow-sm">
                         <div class="card-body p-3">
@@ -232,8 +233,7 @@
                                 <h5 class="mb-0 fw-bold ${color}">${t.pnl}</h5>
                             </div>
                             <div class="mt-2 pt-2 border-top bg-light p-2 rounded">
-                                <small class="fw-bold text-muted">Event Logs:</small>
-                                ${logHtml}
+                                <small class="fw-bold text-muted">Logs:</small>${logs}
                             </div>
                         </div>
                     </div>`;
@@ -243,8 +243,7 @@
         });
     }
 
-    // --- STANDARD LOGIC (Search, Calc, etc) ---
-    // (Same logic as previous, compacted for space)
+    // --- LOGIC ---
     $('#sym').on('input', function() { if(this.value.length>1) $.get('/api/search?q='+this.value, d => { $('#sym_list').empty(); d.forEach(s=>$('#sym_list').append(`<option value="${s}">`)) }); });
     $('#sym').change(function() { 
         $.get('/api/details?symbol='+this.value, d => { 
@@ -276,10 +275,37 @@
         $('#p_t2').val((curLTP+p*1).toFixed(2)); $('#p_t3').val((curLTP+p*2).toFixed(2));
     }
     
-    // History Check
-    $('#h_sym').change(function() { $.get('/api/details?symbol='+this.value, d => { window.hFut=d.fut_expiries; window.hOpt=d.opt_expiries; fillHExp(); }); });
+    // --- HISTORY TAB LOGIC (COPIED & ADAPTED) ---
+    // 1. Symbol Change -> Get Expiries
+    $('#h_sym').change(function() { 
+        $.get('/api/details?symbol='+this.value, d => { 
+            window.hFut=d.fut_expiries; window.hOpt=d.opt_expiries; fillHExp(); 
+        }); 
+    });
+    
+    // 2. Type Change -> Update Expiries
     $('#h_type').change(fillHExp);
-    function fillHExp() { let l=$('#h_type').val()=='FUT'?window.hFut:window.hOpt; let $e=$('#h_exp').empty(); if(l) l.forEach(d=>$e.append(`<option value="${d}">${d}</option>`)); }
+    
+    function fillHExp() { 
+        let l=$('#h_type').val()=='FUT'?window.hFut:window.hOpt; 
+        let $e=$('#h_exp').empty(); 
+        if(l) l.forEach(d=>$e.append(`<option value="${d}">${d}</option>`));
+        fillHChain(); // Trigger chain fill
+    }
+
+    // 3. Expiry Change -> Populate Strikes (Using Chain Data)
+    $('#h_exp').change(fillHChain);
+
+    function fillHChain() {
+        let s = $('#h_sym').val(), e = $('#h_exp').val(), t = $('#h_type').val();
+        // Use 0 as LTP since we don't know past LTP, just need strikes
+        $.get(`/api/chain?symbol=${s}&expiry=${e}&type=${t}&ltp=0`, d => {
+            let $s=$('#h_str').empty(); 
+            d.forEach(r => $s.append(`<option value="${r.strike}">${r.strike}</option>`));
+        });
+    }
+
+    // 4. Check Button
     window.checkHistory = function() {
         $.get('/api/history_check', {symbol:$('#h_sym').val(), type:$('#h_type').val(), expiry:$('#h_exp').val(), strike:$('#h_str').val(), time:$('#h_time').val()}, r => {
             if(r.status==='success') $('#h_res').show().html(`<b>${r.symbol}</b><br>${r.data.date}<br>O:${r.data.open} H:${r.data.high} L:${r.data.low} C:${r.data.close}`); else $('#h_res').show().text(r.message);

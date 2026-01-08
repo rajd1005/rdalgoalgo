@@ -9,27 +9,37 @@ HISTORY_FILE = 'trade_history.json'
 # --- FILE OPERATIONS ---
 def load_trades():
     if os.path.exists(TRADES_FILE):
-        try: with open(TRADES_FILE, 'r') as f: return json.load(f)
-        except: return []
+        try:
+            with open(TRADES_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
     return []
 
 def save_trades(trades):
-    with open(TRADES_FILE, 'w') as f: json.dump(trades, f, default=str, indent=4)
+    with open(TRADES_FILE, 'w') as f:
+        json.dump(trades, f, default=str, indent=4)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
-        try: with open(HISTORY_FILE, 'r') as f: return json.load(f)
-        except: return []
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
     return []
 
 def save_history_file(history):
-    with open(HISTORY_FILE, 'w') as f: json.dump(history, f, default=str, indent=4)
+    with open(HISTORY_FILE, 'w') as f:
+        json.dump(history, f, default=str, indent=4)
 
 # --- UTILS ---
-def get_time_str(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def get_time_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def log_event(trade, message):
-    if 'logs' not in trade: trade['logs'] = []
+    if 'logs' not in trade:
+        trade['logs'] = []
     trade['logs'].append(f"[{get_time_str()}] {message}")
 
 def move_to_history(trade, final_status, exit_price):
@@ -37,14 +47,16 @@ def move_to_history(trade, final_status, exit_price):
     trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str()
     trade['pnl'] = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
+    
     log_event(trade, f"Closed: {final_status} @ {exit_price}")
     
-    hist = load_history()
-    hist.insert(0, trade)
-    save_history_file(hist)
+    history = load_history()
+    history.insert(0, trade)
+    save_history_file(history)
 
 def get_exchange(symbol):
-    if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
+    if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol:
+        return "NFO"
     return "NSE"
 
 # --- TRADE LOGIC ---
@@ -58,15 +70,38 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         try:
             k_type = kite.ORDER_TYPE_MARKET if order_type == "MARKET" else kite.ORDER_TYPE_LIMIT
             price = 0 if order_type == "MARKET" else limit_price
-            kite.place_order(tradingsymbol=specific_symbol, exchange=exchange, transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=quantity, order_type=k_type, price=price, product=kite.PRODUCT_MIS)
+            
+            kite.place_order(
+                tradingsymbol=specific_symbol,
+                exchange=exchange,
+                transaction_type=kite.TRANSACTION_TYPE_BUY,
+                quantity=quantity,
+                order_type=k_type,
+                price=price,
+                product=kite.PRODUCT_MIS
+            )
+            # Assume entry for record (real apps wait for callback)
             entry_price = float(limit_price) if order_type == "LIMIT" else 0.0
-        except Exception as e: return {"status": "error", "message": str(e)}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
     
     if entry_price == 0:
-        try: entry_price = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
-        except: entry_price = 100.0
+        try:
+            entry_price = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
+        except:
+            entry_price = 100.0 # Fallback
 
-    targets = custom_targets if len(custom_targets) == 3 else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
+    # Targets logic
+    targets = []
+    if len(custom_targets) == 3:
+        targets = custom_targets
+    else:
+        # Auto-Calc (0.5x, 1x, 2x)
+        targets = [
+            entry_price + (sl_points * 0.5),
+            entry_price + (sl_points * 1.0),
+            entry_price + (sl_points * 2.0)
+        ]
 
     record = {
         "id": int(time.time()),
@@ -93,19 +128,16 @@ def inject_simulated_trade(trade_data, is_active):
     """
     Saves a historical simulation result to the correct file (Active or Closed).
     """
-    # 1. Fill missing fields
     trade_data['id'] = int(time.time())
     trade_data['mode'] = "PAPER" # Historical is always Paper
     trade_data['order_type'] = "SIMULATION"
     trade_data['exchange'] = get_exchange(trade_data['symbol'])
     
     if is_active:
-        # Add to Active Trades
         trades = load_trades()
         trades.append(trade_data)
         save_trades(trades)
     else:
-        # Add to Closed Trades
         trade_data['pnl'] = round((trade_data['exit_price'] - trade_data['entry_price']) * trade_data['quantity'], 2)
         hist = load_history()
         hist.insert(0, trade_data)
@@ -116,38 +148,62 @@ def promote_to_live(kite, trade_id):
     for t in trades:
         if t['id'] == int(trade_id) and t['mode'] == "PAPER":
             try:
-                kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                kite.place_order(
+                    tradingsymbol=t['symbol'],
+                    exchange=t['exchange'],
+                    transaction_type=kite.TRANSACTION_TYPE_BUY,
+                    quantity=t['quantity'],
+                    order_type=kite.ORDER_TYPE_MARKET,
+                    product=kite.PRODUCT_MIS
+                )
                 t['mode'] = "LIVE"
                 t['status'] = "PROMOTED_LIVE"
                 log_event(t, "Promoted to LIVE")
                 save_trades(trades)
                 return True
-            except: return False
+            except:
+                return False
     return False
 
 def close_trade_manual(kite, trade_id):
     trades = load_trades()
-    active, found = [], False
+    new_active = []
+    found = False
+    
     for t in trades:
         if t['id'] == int(trade_id):
             found = True
             exit_p = t['current_ltp']
             if t['mode'] == "LIVE":
-                try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
-                except: pass
+                try:
+                    kite.place_order(
+                        tradingsymbol=t['symbol'],
+                        exchange=t['exchange'],
+                        transaction_type=kite.TRANSACTION_TYPE_SELL,
+                        quantity=t['quantity'],
+                        order_type=kite.ORDER_TYPE_MARKET,
+                        product=kite.PRODUCT_MIS
+                    )
+                except:
+                    pass
             move_to_history(t, "MANUAL_EXIT", exit_p)
-        else: active.append(t)
-    if found: 
-        save_trades(active)
+        else:
+            new_active.append(t)
+            
+    if found:
+        save_trades(new_active)
         return True
     return False
 
 def update_risk_engine(kite):
     trades = load_trades()
-    active, updated = [], False
+    active_list = []
+    updated = False
     
     for t in trades:
-        if t['status'] not in ['OPEN', 'PROMOTED_LIVE']: continue
+        if t['status'] not in ['OPEN', 'PROMOTED_LIVE']:
+            continue
+
         try:
             ltp = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]["last_price"]
             t['current_ltp'] = ltp
@@ -156,6 +212,7 @@ def update_risk_engine(kite):
             done = False
             status = ""
             
+            # Risk Logic
             if ltp <= t['sl']:
                 status = "SL_HIT"
                 log_event(t, f"SL Hit @ {ltp}")
@@ -171,11 +228,22 @@ def update_risk_engine(kite):
             
             if done:
                 if t['mode'] == "LIVE":
-                    try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
-                    except: pass
+                    try:
+                        kite.place_order(
+                            tradingsymbol=t['symbol'],
+                            exchange=t['exchange'],
+                            transaction_type=kite.TRANSACTION_TYPE_SELL,
+                            quantity=t['quantity'],
+                            order_type=kite.ORDER_TYPE_MARKET,
+                            product=kite.PRODUCT_MIS
+                        )
+                    except:
+                        pass
                 move_to_history(t, status, ltp)
             else:
-                active.append(t)
-        except: active.append(t)
+                active_list.append(t)
+        except:
+            active_list.append(t)
         
-    if updated: save_trades(active)
+    if updated:
+        save_trades(active_list)

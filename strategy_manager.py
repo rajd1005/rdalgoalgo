@@ -1,7 +1,3 @@
-{
-type: file
-fileName: rajd1005/rdalgoalgo/rdalgoalgo-0ca1f115f83f1ed3dd36fe9e5f474566c8b8478d/strategy_manager.py
-fullContent:
 import json
 import os
 import time
@@ -300,4 +296,3 @@ def update_risk_engine(kite):
                 
     if updated:
         save_trades(active_list)
-}

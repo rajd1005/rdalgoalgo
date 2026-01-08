@@ -1,5 +1,7 @@
 import os
 
+basedir = os.path.abspath(os.path.dirname(__file__))
+
 # Zerodha Credentials (Set these in your Railway/Environment Variables)
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
@@ -12,8 +14,8 @@ PORT = int(os.environ.get("PORT", 5000))
 DEFAULT_SL_POINTS = 20
 
 # Database Config
-# Fix for Railway's postgres:// vs SQLAlchemy's postgresql://
-uri = os.getenv("DATABASE_URL", "sqlite:///algo.db")
+# Fix: Use absolute path for SQLite to ensure persistence
+uri = os.getenv("DATABASE_URL", "sqlite:///" + os.path.join(basedir, "algo.db"))
 if uri.startswith("postgres://"):
     uri = uri.replace("postgres://", "postgresql://", 1)
 

@@ -198,17 +198,21 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                 else:
                     continue 
             
-            # Trade Management
-            if trade_active:
-                # --- Track Made High Logic ---
+            # --- Continuous Made High Logic (Independent of Trade Status) ---
+            # Tracks "Made High" as long as the trade is not PENDING.
+            # This runs even if the trade has exited (via SL or Target) to show full potential up to 3:30,
+            # unless it returns to Entry (Lock Condition).
+            if status != "PENDING":
                 if not high_locked:
                     if curr_high > made_high:
                         made_high = curr_high
                     
-                    # If Price reverses to Entry (after being higher), Lock the High
+                    # Lock Condition: If price reverses to Entry (or lower) and we had some profit
                     if curr_low <= entry and made_high > entry:
                         high_locked = True
-                
+            
+            # Trade Management (SL/Targets)
+            if trade_active:
                 # 1. Check SL (Standard OR Cost)
                 if status == "OPEN": 
                     if curr_low <= sl:
@@ -242,11 +246,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                     exit_p = t_price
                                     exit_t = c_time
                                     logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
-            
-            # If trade is no longer active, the loop continues to process candles (implied 3:30 limit of data)
-            # The 'made_high' logic above continues to track if 'high_locked' is False.
-            # E.g. If exited at Target 3, and price keeps going up, high_locked is False, so made_high updates.
-            # If exited at Cost, high_locked is True, so made_high freezes.
 
         # After loop finishes
         profit_pts = made_high - entry

@@ -33,7 +33,7 @@ def get_zerodha_symbol(common_name):
     if u in ["BANKNIFTY", "NIFTY BANK", "BANK NIFTY"]: return "BANKNIFTY"
     if u in ["NIFTY", "NIFTY 50", "NIFTY50"]: return "NIFTY"
     if u == "SENSEX": return "SENSEX"
-    if upper == "FINNIFTY": return "FINNIFTY"
+    if u == "FINNIFTY": return "FINNIFTY"
     return u
 
 def search_symbols(keyword):
@@ -64,15 +64,20 @@ def get_symbol_details(kite, symbol):
     # 2. Get Lot Size & Expiries
     lot = 1
     futs = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['segment'] == 'NFO-FUT')]
-    if not futs.empty: lot = int(futs.iloc[0]['lot_size'])
-    
+    if not futs.empty: 
+        lot = int(futs.iloc[0]['lot_size'])
+    else:
+        # Fallback for Options if Futures not found (rare)
+        opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['segment'] == 'NFO-OPT')]
+        if not opts.empty: lot = int(opts.iloc[0]['lot_size'])
+
     f_exp = sorted(futs[futs['expiry_date'] >= today]['expiry_str'].unique().tolist())
     opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'CE')]
     o_exp = sorted(opts[opts['expiry_date'] >= today]['expiry_str'].unique().tolist())
     
     return {
         "symbol": clean, 
-        "ltp": ltp,          # Added LTP here
+        "ltp": ltp,
         "lot_size": lot, 
         "fut_expiries": f_exp, 
         "opt_expiries": o_exp
@@ -88,7 +93,7 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
     strikes = sorted(c['strike'].unique().tolist())
     if not strikes: return []
     
-    # Calculate ATM based on passed LTP
+    # Calculate ATM
     atm = min(strikes, key=lambda x: abs(x - ltp))
     
     res = []
@@ -122,7 +127,7 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
 
-# --- SIMULATION LOGIC ---
+# --- SIMULATION ---
 def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, custom_entry, custom_targets):
     symbol_common = get_zerodha_symbol(symbol)
     tradingsymbol = get_exact_symbol(symbol_common, expiry, strike, type_)

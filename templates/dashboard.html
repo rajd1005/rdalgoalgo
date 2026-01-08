@@ -243,11 +243,17 @@
     
     $(document).ready(function() {
         loadSettings();
+        
+        // Correct Local Time Calculation for Date Picker
         let now = new Date();
-        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-        let dateStr = now.toISOString().slice(0,10);
+        const offset = now.getTimezoneOffset();
+        let localDate = new Date(now.getTime() - (offset*60*1000));
+        let dateStr = localDate.toISOString().slice(0,10);
+        let timeStr = localDate.toISOString().slice(0,16);
+
         $('#hist_date').val(dateStr);
-        $('#h_time').val(now.toISOString().slice(0,16));
+        $('#h_time').val(timeStr);
+        
         $('#hist_date').change(loadClosedTrades);
     });
 
@@ -292,7 +298,7 @@
     function loadClosedTrades() {
         let filterDate = $('#hist_date').val();
         $.get('/api/closed_trades', trades => {
-            allClosedTrades = trades; // Store for Edit function
+            allClosedTrades = trades; 
             let html = '';
             let dayTotal = 0;
             
@@ -339,14 +345,11 @@
         let t = allClosedTrades.find(x => x.id == id);
         if(!t) return;
         
-        // Switch to Simulator
         $('.tab-content').hide(); 
         $('#history').show(); 
         $('.nav-btn').removeClass('active'); 
-        // Find the simulator tab button (last one)
         $('.nav-btn').last().addClass('active');
 
-        // Fill Data
         if(t.raw_params) {
             $('#h_sym').val(t.raw_params.symbol);
             $('#h_entry').val(t.entry_price);
@@ -354,10 +357,8 @@
             $('#h_time').val(t.raw_params.time);
             $('#h_type').val(t.raw_params.type);
             
-            // Trigger load for Symbol to populate dropdowns
             loadDetails('#h_sym', '#h_exp', '#h_type', '#h_qty', '#h_sl_pts');
             
-            // Wait for Dropdowns (Hack for async loading)
             setTimeout(() => {
                  $('#h_exp').val(t.raw_params.expiry).change();
                  setTimeout(() => {
@@ -365,7 +366,6 @@
                  }, 500);
             }, 800);
         } else {
-             // Fallback for old trades
              $('#h_sym').val(t.symbol);
              $('#h_entry').val(t.entry_price);
              $('#h_qty').val(t.quantity);

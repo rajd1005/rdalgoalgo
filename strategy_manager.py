@@ -101,3 +101,32 @@ def promote_to_live(kite, trade_id):
                 return True
             except: return False
     return False
+
+def update_risk_engine(kite):
+    """
+    Background Task: Updates LTP and checks SL/Targets for all active trades.
+    """
+    trades = load_trades()
+    updated = False
+    
+    for trade in trades:
+        # Only check trades that are OPEN or LIVE
+        if trade['status'] in ['OPEN', 'PROMOTED_LIVE']:
+            exch = trade.get('exchange', 'NFO')
+            try:
+                ltp = kite.quote(f"{exch}:{trade['symbol']}")[f"{exch}:{trade['symbol']}"]["last_price"]
+                trade['current_ltp'] = ltp
+                updated = True
+                
+                # Check Risk
+                if ltp <= trade['sl']: 
+                    trade['status'] = "SL_HIT"
+                elif ltp >= trade['targets'][0] and not trade.get('t1_hit', False):
+                    trade['t1_hit'] = True
+                    trade['sl'] = trade['entry_price'] # Move SL to Cost
+                elif ltp >= trade['targets'][2]: 
+                    trade['status'] = "T3_HIT"
+                    
+            except: continue
+
+    if updated: save_trades(trades)

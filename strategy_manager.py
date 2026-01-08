@@ -249,19 +249,19 @@ def update_risk_engine(kite):
             t['current_ltp'] = ltp
             updated = True
             
-            # --- MADE HIGH LOGIC (Refined) ---
-            if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
-            if 'high_locked' not in t: t['high_locked'] = False
-            
-            # If not locked, track the High
-            if not t['high_locked']:
-                if ltp > t['highest_ltp']:
-                    t['highest_ltp'] = ltp
+            # --- MADE HIGH LOGIC (Continuous, unless PENDING) ---
+            if t['status'] != "PENDING":
+                if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
+                if 'high_locked' not in t: t['high_locked'] = False
                 
-                # Check Reversal to Entry: If it comes back to Entry (and had gone up), Lock it.
-                if ltp <= t['entry_price'] and t['highest_ltp'] > t['entry_price']:
-                     t['high_locked'] = True
-                     # Note: We don't log here to avoid spamming, will log final at exit
+                # If not locked (hasn't returned to entry yet), track the High
+                if not t['high_locked']:
+                    if ltp > t['highest_ltp']:
+                        t['highest_ltp'] = ltp
+                    
+                    # Check Reversal to Entry: If it comes back to Entry (and had gone up), Lock it.
+                    if ltp <= t['entry_price'] and t['highest_ltp'] > t['entry_price']:
+                         t['high_locked'] = True
             
         except:
             active_list.append(t)

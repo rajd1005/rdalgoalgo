@@ -14,14 +14,14 @@ bot_active = False
 @app.route('/')
 def home():
     trades = strategy_manager.load_trades()
-    active_trades = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE']]
-    return render_template('dashboard.html', is_active=bot_active, login_url=kite.login_url(), trades=active_trades)
+    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE']]
+    return render_template('dashboard.html', is_active=bot_active, login_url=kite.login_url(), trades=active)
 
 @app.route('/logout')
 def logout():
     global bot_active
     bot_active = False
-    flash("🔌 Disconnected.")
+    flash("🔌 Logout Successful")
     return redirect('/')
 
 @app.route('/callback')
@@ -34,11 +34,11 @@ def callback():
             kite.set_access_token(data["access_token"])
             bot_active = True
             smart_trader.fetch_instruments(kite)
-            flash("✅ System Online.")
+            flash("✅ System Online")
         except Exception as e: flash(f"Login Error: {e}")
     return redirect('/')
 
-# --- API ROUTES ---
+# --- API ---
 @app.route('/api/positions')
 def api_positions():
     if bot_active: strategy_manager.update_risk_engine(kite)
@@ -46,7 +46,6 @@ def api_positions():
 
 @app.route('/api/closed_trades')
 def api_closed_trades():
-    """Returns the history of closed trades"""
     return jsonify(strategy_manager.load_history())
 
 @app.route('/api/indices')
@@ -72,7 +71,7 @@ def api_s_ltp():
 def api_history():
     return jsonify(smart_trader.fetch_historical_check(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'), request.args.get('time')))
 
-# --- ACTIONS ---
+# --- EXECUTION ---
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active: return redirect('/')
@@ -94,20 +93,20 @@ def place_trade():
         if not final_sym: return redirect('/')
 
         strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
-        flash(f"✅ Executed: {final_sym}")
+        flash(f"✅ Trade Open: {final_sym}")
     except Exception as e: flash(f"Error: {e}")
     return redirect('/')
 
 @app.route('/promote/<trade_id>')
 def promote(trade_id):
     if strategy_manager.promote_to_live(kite, trade_id): flash("✅ Promoted!")
-    else: flash("❌ Failed")
+    else: flash("❌ Error")
     return redirect('/')
 
 @app.route('/close_trade/<trade_id>')
 def close_trade(trade_id):
-    if strategy_manager.close_trade_manual(kite, trade_id): flash("✅ Trade Closed & Saved!")
-    else: flash("❌ Failed to Close")
+    if strategy_manager.close_trade_manual(kite, trade_id): flash("✅ Closed")
+    else: flash("❌ Error")
     return redirect('/')
 
 if __name__ == "__main__":

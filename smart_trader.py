@@ -110,7 +110,6 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
     if option_type == "FUT":
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
     else:
-        # Check for invalid strike inputs (null, None, empty)
         if not strike or str(strike).strip().lower() == 'null': 
             return None
             
@@ -166,26 +165,55 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         exit_p = 0
         exit_t = ""
         logs = [f"Simulated Entry @ {entry}"]
-        t1_hit = False
+        
+        # Tracking variables
+        trade_active = True
+        targets_hit_indices = [] # Track which targets are hit
+        made_high = entry
         
         for c in candles:
-            if c['low'] <= sl:
-                status = "SL_HIT"
-                exit_p = sl
-                exit_t = c['date']
-                logs.append(f"[{c['date']}] SL Hit @ {sl}")
-                break
-            if c['high'] >= tgts[0] and not t1_hit:
-                t1_hit = True
-                sl = entry
-                logs.append(f"[{c['date']}] T1 Hit. SL->Entry")
-            if c['high'] >= tgts[2]:
-                status = "TARGET_HIT"
-                exit_p = tgts[2]
-                exit_t = c['date']
-                logs.append(f"[{c['date']}] Target Hit @ {tgts[2]}")
-                break
-        
+            curr_high = c['high']
+            curr_low = c['low']
+            
+            # Always track Made High after entry
+            if curr_high > made_high:
+                made_high = curr_high
+                
+            if trade_active:
+                # 1. Check SL
+                if curr_low <= sl:
+                    status = "SL_HIT"
+                    exit_p = sl
+                    exit_t = c['date']
+                    logs.append(f"[{c['date']}] SL Hit @ {sl}")
+                    trade_active = False # Stop managing trade, but continue loop for Made High
+                    
+                # 2. Check Targets (Iterate all targets)
+                # Only check targets if SL wasn't just hit in this candle (assuming SL hit first for safety, or check logic)
+                if trade_active: 
+                    for i, t_price in enumerate(tgts):
+                        if i not in targets_hit_indices and curr_high >= t_price:
+                            targets_hit_indices.append(i)
+                            logs.append(f"[{c['date']}] Target {i+1} Hit @ {t_price}")
+                            
+                            # T1 Special Logic: Move SL to Entry
+                            if i == 0:
+                                sl = entry
+                                logs.append(f"[{c['date']}] T1 Hit. SL->Entry")
+                            
+                            # Final Target Logic
+                            if i == len(tgts) - 1:
+                                status = "TARGET_HIT"
+                                exit_p = t_price
+                                exit_t = c['date']
+                                logs.append(f"[{c['date']}] Final Target Hit @ {t_price}")
+                                trade_active = False
+                                break
+
+        # After loop finishes (Market Close or Data End)
+        profit = round((made_high - entry), 2)
+        logs.append(f"Made High: {made_high} (Max Potential Pts: {profit})")
+
         active = (status == "OPEN")
         ltp = candles[-1]['close'] if active else exit_p
         
@@ -202,7 +230,8 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                 "exit_price": exit_p,
                 "exit_time": exit_t,
                 "logs": logs,
-                "quantity": 0
+                "quantity": 0,
+                "made_high": made_high
             }
         }
     except Exception as e:

@@ -330,9 +330,7 @@ def update_risk_engine(kite):
                         t['targets_hit_indices'].append(i)
                         log_event(t, f"Target {i+1} Hit @ {tgt}")
                         
-                        if i == 0:
-                            t['sl'] = t['entry_price']
-                            log_event(t, f"T1 Hit. SL Updated to Entry")
+                        # --- REMOVED TRAILING SL LOGIC HERE ---
                         
                         if i == len(t['targets']) - 1:
                             exit_reason = "TARGET_HIT"

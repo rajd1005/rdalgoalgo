@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Algo Terminal V3.9</title>
+    <title>Algo Terminal V4.0</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -254,18 +254,52 @@
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
-        <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="set_qty_mult" class="form-control mb-3" value="1" min="1">
-        <label class="pos-grid-label">Target Ratios</label>
-        <div class="input-group mb-3">
-            <span class="input-group-text">T1</span><input type="number" step="0.1" id="set_r1" class="form-control" value="0.5">
-            <span class="input-group-text">T2</span><input type="number" step="0.1" id="set_r2" class="form-control" value="1.0">
-            <span class="input-group-text">T3</span><input type="number" step="0.1" id="set_r3" class="form-control" value="1.5">
-        </div>
-        <label class="pos-grid-label">Symbol Specific SL Points</label>
+        
+        <label class="pos-grid-label">Default Stop Loss Points (Symbol Specific)</label>
         <div class="input-group mb-2"><input type="text" id="set_sym" class="form-control" placeholder="Symbol"><input type="number" id="set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL()">Add</button></div>
-        <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+        <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
             <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="sl_table_body"></tbody></table>
         </div>
+
+        <ul class="nav nav-tabs mb-3" id="settingTabs" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-live">Live</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-sim">Simulator</button></li>
+        </ul>
+
+        <div class="tab-content" id="settingTabsContent">
+            <div class="tab-pane fade show active" id="tab-paper">
+                <h6>Paper Trade Config</h6>
+                <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="paper_qty_mult" class="form-control mb-2" value="1" min="1">
+                <label class="pos-grid-label">Target Ratios</label>
+                <div class="input-group mb-2">
+                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="paper_r1" class="form-control" value="0.5">
+                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="paper_r2" class="form-control" value="1.0">
+                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="paper_r3" class="form-control" value="1.5">
+                </div>
+            </div>
+            <div class="tab-pane fade" id="tab-live">
+                <h6>Live Trade Config</h6>
+                <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="live_qty_mult" class="form-control mb-2" value="1" min="1">
+                <label class="pos-grid-label">Target Ratios</label>
+                <div class="input-group mb-2">
+                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="live_r1" class="form-control" value="0.5">
+                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="live_r2" class="form-control" value="1.0">
+                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="live_r3" class="form-control" value="1.5">
+                </div>
+            </div>
+            <div class="tab-pane fade" id="tab-sim">
+                <h6>Simulator Config</h6>
+                <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="sim_qty_mult" class="form-control mb-2" value="1" min="1">
+                <label class="pos-grid-label">Target Ratios</label>
+                <div class="input-group mb-2">
+                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="sim_r1" class="form-control" value="0.5">
+                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="sim_r2" class="form-control" value="1.0">
+                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="sim_r3" class="form-control" value="1.5">
+                </div>
+            </div>
+        </div>
+
       </div>
       <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button></div>
     </div>
@@ -273,26 +307,90 @@
 </div>
 
 <script>
-    let settings = { qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {} };
+    let settings = { 
+        modes: {
+            LIVE: {qty_mult: 1, ratios: [0.5, 1.0, 1.5]},
+            PAPER: {qty_mult: 1, ratios: [0.5, 1.0, 1.5]},
+            SIMULATOR: {qty_mult: 1, ratios: [0.5, 1.0, 1.5]}
+        }, 
+        symbol_sl: {} 
+    };
+
     function loadSettings() {
         $.get('/api/settings/load', function(data) {
             if(data) {
                 settings = data;
-                $('#set_qty_mult').val(settings.qty_mult);
-                $('#set_r1').val(settings.ratios[0]); $('#set_r2').val(settings.ratios[1]); $('#set_r3').val(settings.ratios[2]);
-                $('#qty_mult_disp').text(settings.qty_mult); $('#h_qty_mult').text(settings.qty_mult);
-                $('#r_t1').text(settings.ratios[0]); $('#hr_t1').text(settings.ratios[0]);
-                $('#r_t2').text(settings.ratios[1]); $('#hr_t2').text(settings.ratios[1]);
-                $('#r_t3').text(settings.ratios[2]); $('#hr_t3').text(settings.ratios[2]);
+                // Ensure structure
+                if(!settings.modes) {
+                    // Fallback if old data format returned
+                    let oldM = settings.qty_mult || 1;
+                    let oldR = settings.ratios || [0.5, 1.0, 1.5];
+                    settings.modes = {
+                        LIVE: {qty_mult: oldM, ratios: oldR},
+                        PAPER: {qty_mult: oldM, ratios: oldR},
+                        SIMULATOR: {qty_mult: oldM, ratios: oldR}
+                    };
+                }
+
+                // Populate Modal Inputs
+                ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
+                    let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
+                    $(`#${k}_qty_mult`).val(settings.modes[m].qty_mult);
+                    $(`#${k}_r1`).val(settings.modes[m].ratios[0]);
+                    $(`#${k}_r2`).val(settings.modes[m].ratios[1]);
+                    $(`#${k}_r3`).val(settings.modes[m].ratios[2]);
+                });
+
                 updateSymList();
+                updateDisplayValues(); // Update Main UI based on current selection
             }
         });
     }
+
     function saveSettings() {
-        settings.qty_mult = parseInt($('#set_qty_mult').val()) || 1;
-        settings.ratios = [parseFloat($('#set_r1').val()), parseFloat($('#set_r2').val()), parseFloat($('#set_r3').val())];
+        // Read from Modal
+        settings.modes.PAPER.qty_mult = parseInt($('#paper_qty_mult').val()) || 1;
+        settings.modes.PAPER.ratios = [parseFloat($('#paper_r1').val()), parseFloat($('#paper_r2').val()), parseFloat($('#paper_r3').val())];
+        
+        settings.modes.LIVE.qty_mult = parseInt($('#live_qty_mult').val()) || 1;
+        settings.modes.LIVE.ratios = [parseFloat($('#live_r1').val()), parseFloat($('#live_r2').val()), parseFloat($('#live_r3').val())];
+        
+        settings.modes.SIMULATOR.qty_mult = parseInt($('#sim_qty_mult').val()) || 1;
+        settings.modes.SIMULATOR.ratios = [parseFloat($('#sim_r1').val()), parseFloat($('#sim_r2').val()), parseFloat($('#sim_r3').val())];
+
         $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { $('#settingsModal').modal('hide'); loadSettings(); } });
     }
+
+    function updateDisplayValues() {
+        // Determine active mode based on UI state
+        let mode = 'PAPER';
+        if ($('#history').is(':visible')) {
+            mode = 'SIMULATOR';
+        } else {
+            mode = $('#mode_input').val(); // 'LIVE' or 'PAPER'
+        }
+        
+        let s = settings.modes[mode];
+        if(!s) return;
+
+        // Update Multiplier Display
+        $('#qty_mult_disp').text(s.qty_mult); 
+        $('#h_qty_mult').text(settings.modes.SIMULATOR.qty_mult);
+
+        // Update Ratio Displays
+        $('#r_t1').text(s.ratios[0]); $('#hr_t1').text(settings.modes.SIMULATOR.ratios[0]);
+        $('#r_t2').text(s.ratios[1]); $('#hr_t2').text(settings.modes.SIMULATOR.ratios[1]);
+        $('#r_t3').text(s.ratios[2]); $('#hr_t3').text(settings.modes.SIMULATOR.ratios[2]);
+        
+        // Trigger recalc
+        calcRisk();
+        // Also trigger simulator recalc if visible
+        if ($('#history').is(':visible')) {
+             let entry = parseFloat($('#h_entry').val()) || 0;
+             if (entry > 0) $('#h_entry').trigger('input');
+        }
+    }
+
     function saveSymSL() { let s=$('#set_sym').val().toUpperCase(); let p=parseInt($('#set_sl').val()); if(s && p) { settings.symbol_sl[s]=p; updateSymList(); $('#set_sym').val(''); $('#set_sl').val(''); } }
     function updateSymList() { let tbody=$('#sl_table_body').empty(); Object.keys(settings.symbol_sl).forEach(sym => { tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${settings.symbol_sl[sym]}</td><td><button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button> <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button></td></tr>`); }); }
     function editSymSL(sym) { $('#set_sym').val(sym); $('#set_sl').val(settings.symbol_sl[sym]); }
@@ -314,8 +412,23 @@
         $('#active_filter').change(updateData);
     });
 
-    function switchTab(id) { $('.tab-content').hide(); $(`#${id}`).show(); $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); if(id==='closed') loadClosedTrades(); }
-    function setMode(el, mode) { $('#mode_input').val(mode); $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active'); }
+    function switchTab(id) { 
+        $('.tab-content').hide(); 
+        $(`#${id}`).show(); 
+        $('.nav-btn').removeClass('active'); 
+        $(event.target).addClass('active'); 
+        if(id==='closed') loadClosedTrades(); 
+        updateDisplayValues(); 
+    }
+    
+    function setMode(el, mode) { 
+        $('#mode_input').val(mode); 
+        $(el).parent().find('.btn').removeClass('active'); 
+        $(el).addClass('active'); 
+        updateDisplayValues();
+        // Reload details to apply new multiplier to Quantity field
+        loadDetails('#sym', '#exp', '#type', '#qty', '#sl_pts');
+    }
 
     function getTradeCategory(t) {
         if (t.order_type === 'SIMULATION') return 'SIMULATOR';
@@ -330,7 +443,7 @@
     }
 
     let curLTP=0; let symLTP={};
-    let activeTradesList = []; // Global store for active trades
+    let activeTradesList = []; 
 
     function updateData() {
         if(!document.getElementById('n_lp')) return;
@@ -346,7 +459,7 @@
         let filterType = $('#active_filter').val();
 
         $.get('/api/positions', trades => {
-            activeTradesList = trades; // Store for edit Modal
+            activeTradesList = trades; 
 
             // Calculate Totals Separately
             let sumLive = 0, sumPaper = 0, sumSim = 0;
@@ -528,10 +641,17 @@
         let s = $(symId).val(); if(!s) return;
         let savedSL = settings.symbol_sl[s.toUpperCase()] || 20;
         $(slId).val(savedSL);
+        
+        let mode = 'PAPER';
+        if ($('#history').is(':visible')) mode = 'SIMULATOR';
+        else mode = $('#mode_input').val();
+        
+        let mult = settings.modes[mode].qty_mult || 1;
+
         $.get('/api/details?symbol='+s, d => { 
             symLTP[symId] = d.ltp; 
             if(d.lot_size > 0) {
-                let totalQty = d.lot_size * settings.qty_mult;
+                let totalQty = d.lot_size * mult;
                 if(symId === '#sym') { $('#lot').text(d.lot_size); }
                 $(qtyId).val(totalQty).attr('step', d.lot_size).attr('min', d.lot_size);
             }
@@ -581,10 +701,13 @@
         let qty = parseInt($('#qty').val())||1;
         let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
         
+        let mode = $('#mode_input').val(); // LIVE or PAPER
+        let ratios = settings.modes[mode].ratios;
+
         let sl = basePrice - p;
-        let t1 = basePrice + p * settings.ratios[0];
-        let t2 = basePrice + p * settings.ratios[1];
-        let t3 = basePrice + p * settings.ratios[2];
+        let t1 = basePrice + p * ratios[0];
+        let t2 = basePrice + p * ratios[1];
+        let t3 = basePrice + p * ratios[2];
 
         $('#p_sl').val(sl.toFixed(2)); 
         $('#p_t1').val(t1.toFixed(2)); 
@@ -601,11 +724,13 @@
         let entry = parseFloat($('#h_entry').val()) || 0;
         let pts = parseFloat($('#h_sl_pts').val()) || 0;
         let qty = parseInt($('#h_qty').val()) || 1;
+        let ratios = settings.modes.SIMULATOR.ratios;
+
         if(entry > 0) {
             let sl = entry - pts;
-            let t1 = entry + pts * settings.ratios[0];
-            let t2 = entry + pts * settings.ratios[1];
-            let t3 = entry + pts * settings.ratios[2];
+            let t1 = entry + pts * ratios[0];
+            let t2 = entry + pts * ratios[1];
+            let t3 = entry + pts * ratios[2];
             $('#h_t1').val(t1.toFixed(2)); $('#h_t2').val(t2.toFixed(2)); $('#h_t3').val(t3.toFixed(2));
             $('#h_pnl_sl').text(`₹ ${((sl-entry)*qty).toFixed(0)}`);
             $('#h_pnl_t1').text(`₹ ${((t1-entry)*qty).toFixed(0)}`);

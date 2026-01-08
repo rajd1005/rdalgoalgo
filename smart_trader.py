@@ -151,6 +151,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
     token = token_row.iloc[0]['instrument_token']
     
     try:
+        # Timezone aware logic
         start_dt = datetime.strptime(time_str.replace("T", " "), "%Y-%m-%d %H:%M")
         
         # IST End Time
@@ -163,7 +164,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             
         first = candles[0]
         
-        # Determine Entry Logic
         is_limit_order = (float(custom_entry) > 0)
         entry = float(custom_entry) if is_limit_order else first['open']
         
@@ -191,7 +191,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         for c in candles:
             curr_high = c['high']
             curr_low = c['low']
-            c_time = c['date']
+            c_time = str(c['date']) # Force string conversion for consistency
             
             if not trade_active and status == "PENDING":
                 if curr_low <= entry <= curr_high:

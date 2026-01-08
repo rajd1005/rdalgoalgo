@@ -8,7 +8,6 @@ import smart_trader
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 
-# Setup Kite
 kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 
@@ -22,7 +21,7 @@ def home():
 def logout():
     global bot_active
     bot_active = False
-    flash("🔌 Disconnected from Zerodha.")
+    flash("🔌 Disconnected.")
     return redirect('/')
 
 @app.route('/callback')
@@ -35,27 +34,20 @@ def callback():
             kite.set_access_token(data["access_token"])
             bot_active = True
             smart_trader.fetch_instruments(kite)
-            flash("✅ Login Successful! System Online.")
+            flash("✅ System Online.")
         except Exception as e: flash(f"Login Error: {e}")
     return redirect('/')
 
 # --- API ROUTES ---
-
 @app.route('/api/positions')
 def api_positions():
-    """
-    CRITICAL: This is called by the frontend every 2 seconds.
-    It forces the backend to fetch fresh prices (LTP) from Zerodha
-    and run the Risk Engine logic before returning data.
-    """
-    if bot_active:
-        # 1. Force Risk Engine Update (Fetch Live Prices)
-        strategy_manager.update_risk_engine(kite)
-        
-    # 2. Return latest data
-    trades = strategy_manager.load_trades()
-    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE']]
-    return jsonify(active)
+    if bot_active: strategy_manager.update_risk_engine(kite)
+    return jsonify(strategy_manager.load_trades())
+
+@app.route('/api/closed_trades')
+def api_closed_trades():
+    """Returns the history of closed trades"""
+    return jsonify(strategy_manager.load_history())
 
 @app.route('/api/indices')
 def api_indices():
@@ -70,26 +62,17 @@ def api_details(): return jsonify(smart_trader.get_symbol_details(kite, request.
 
 @app.route('/api/chain')
 def api_chain(): 
-    return jsonify(smart_trader.get_chain_data(
-        request.args.get('symbol'), request.args.get('expiry'), 
-        request.args.get('type'), float(request.args.get('ltp', 0))
-    ))
+    return jsonify(smart_trader.get_chain_data(request.args.get('symbol'), request.args.get('expiry'), request.args.get('type'), float(request.args.get('ltp', 0))))
 
 @app.route('/api/specific_ltp')
 def api_s_ltp(): 
-    return jsonify({"ltp": smart_trader.get_specific_ltp(
-        kite, request.args.get('symbol'), request.args.get('expiry'), 
-        request.args.get('strike'), request.args.get('type')
-    )})
+    return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
 @app.route('/api/history_check')
 def api_history():
-    return jsonify(smart_trader.fetch_historical_check(
-        kite, request.args.get('symbol'), request.args.get('expiry'), 
-        request.args.get('strike'), request.args.get('type'), request.args.get('time')
-    ))
+    return jsonify(smart_trader.fetch_historical_check(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'), request.args.get('time')))
 
-# --- EXECUTION ---
+# --- ACTIONS ---
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active: return redirect('/')
@@ -108,15 +91,10 @@ def place_trade():
         custom_targets = [t1, t2, t3] if t1 > 0 else []
         
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
-        
-        if not final_sym:
-            flash("❌ Contract Not Found")
-            return redirect('/')
+        if not final_sym: return redirect('/')
 
-        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
-        if res['status'] == 'success': flash(f"✅ Executed: {final_sym}")
-        else: flash(f"❌ Error: {res['message']}")
-        
+        strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
+        flash(f"✅ Executed: {final_sym}")
     except Exception as e: flash(f"Error: {e}")
     return redirect('/')
 
@@ -124,6 +102,12 @@ def place_trade():
 def promote(trade_id):
     if strategy_manager.promote_to_live(kite, trade_id): flash("✅ Promoted!")
     else: flash("❌ Failed")
+    return redirect('/')
+
+@app.route('/close_trade/<trade_id>')
+def close_trade(trade_id):
+    if strategy_manager.close_trade_manual(kite, trade_id): flash("✅ Trade Closed & Saved!")
+    else: flash("❌ Failed to Close")
     return redirect('/')
 
 if __name__ == "__main__":

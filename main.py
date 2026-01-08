@@ -5,7 +5,6 @@ from kiteconnect import KiteConnect
 import config
 import strategy_manager
 import smart_trader
-# Import ALL models here to ensure db.create_all() works
 from database import db, AppSetting, ActiveTrade, TradeHistory
 
 app = Flask(__name__)
@@ -96,6 +95,17 @@ def api_delete_trade(trade_id):
     if strategy_manager.delete_trade(trade_id):
         return jsonify({"status": "success"})
     return jsonify({"status": "error"})
+
+@app.route('/api/update_trade', methods=['POST'])
+def api_update_trade():
+    data = request.json
+    try:
+        if strategy_manager.update_trade_protection(data['id'], data['sl'], data['targets']):
+            return jsonify({"status": "success"})
+        else:
+            return jsonify({"status": "error", "message": "Trade not found"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/api/indices')
 def api_indices():

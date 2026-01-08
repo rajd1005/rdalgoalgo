@@ -225,11 +225,7 @@ def inject_simulated_trade(trade_data, is_active):
         save_trades(trades)
     else:
         # Trade completely finished in simulator
-        if trade_data['status'] == "PENDING":
-             trade_data['pnl'] = 0
-        else:
-             trade_data['pnl'] = round((trade_data['exit_price'] - trade_data['entry_price']) * trade_data['quantity'], 2)
-        
+        trade_data['pnl'] = round((trade_data['exit_price'] - trade_data['entry_price']) * trade_data['quantity'], 2)
         hist = load_history()
         hist.insert(0, trade_data)
         save_history_file(hist)
@@ -354,7 +350,7 @@ def update_risk_engine(kite):
                         t['targets_hit_indices'].append(i)
                         log_event(t, f"Target {i+1} Hit @ {tgt}")
                         
-                        # --- TRAILING SL REMOVED ---
+                        # --- REMOVED T1 SL MOVE LOGIC HERE ---
                         
                         if i == len(t['targets']) - 1:
                             exit_reason = "TARGET_HIT"

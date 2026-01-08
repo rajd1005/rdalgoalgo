@@ -145,7 +145,6 @@ def api_history():
         trade_data['quantity'] = qty
         trade_data['targets'] = custom_targets if custom_targets else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
         
-        # Save raw inputs so we can re-populate the simulator form later (Edit Feature)
         trade_data['raw_params'] = {
             'symbol': data['symbol'],
             'expiry': data['expiry'],
@@ -159,7 +158,6 @@ def api_history():
         
     return jsonify(result)
 
-# --- EXECUTION ---
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active:

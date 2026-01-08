@@ -233,7 +233,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                 targets_hit_indices.append(i)
                                 logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price}")
                                 
-                                # --- TRAILING SL REMOVED ---
+                                # --- REMOVED T1 SL MOVE LOGIC HERE ---
                                 
                                 if i == len(tgts) - 1:
                                     status = "TARGET_HIT"
@@ -242,16 +242,15 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                     logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
 
         # After loop finishes
-        # PnL Logic: If trade not active/PENDING, PnL is 0. Else Exit - Entry.
-        final_pnl = 0
+        profit_pts = made_high - entry
+        profit_amt = profit_pts * quantity
+        
         if status == "PENDING":
              logs.append("Trade Never Triggered (Price did not reach Entry)")
              made_high = 0
-             final_pnl = 0
-        else:
-             final_pnl = (exit_p - entry) * quantity
+             profit_amt = 0
 
-        logs.append(f"Made High: {made_high} (Final PnL: ₹ {final_pnl:.2f})")
+        logs.append(f"Made High: {made_high} (Max Potential Profit: ₹ {profit_amt:.2f})")
 
         active = (status == "OPEN")
         ltp = candles[-1]['close'] if active else exit_p

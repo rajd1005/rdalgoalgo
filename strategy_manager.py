@@ -71,25 +71,23 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     entry_price = 0.0
 
     if order_type == "MARKET":
-        # Requirement 1: Execute as per live LTP and active
         if current_ltp == 0:
             return {"status": "error", "message": "Failed to fetch Live Price for Market Order"}
-        
         entry_price = current_ltp
         status = "OPEN"
     else:
-        # Requirement 2: Limit order execute as per added price
+        # LIMIT ORDER LOGIC
         entry_price = float(limit_price)
         if entry_price <= 0:
             return {"status": "error", "message": "Invalid Limit Price"}
 
-        # Logic: If LTP is already below or equal to Limit Price, execute immediately (Marketable)
-        # Otherwise, keep as PENDING and wait for market to reach entry point
+        # If Market Price (LTP) is already lower than or equal to Limit Price (for BUY), 
+        # it executes immediately (OPEN). Otherwise, it waits (PENDING).
         if current_ltp > 0 and current_ltp <= entry_price:
             status = "OPEN"
-            entry_price = current_ltp # Filled at market (better than limit)
+            entry_price = current_ltp # Filled at better market price
         else:
-            status = "PENDING" # Wait for price to drop to entry
+            status = "PENDING"
 
     if mode == "LIVE":
         try:
@@ -108,8 +106,9 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # Calculate Targets based on intended entry price
+    # Calculate Targets
     targets = []
+    # For calculation, use the intended entry price
     calc_price = entry_price
     
     if len(custom_targets) == 3:
@@ -218,7 +217,7 @@ def update_risk_engine(kite):
     updated = False
     
     now = datetime.now()
-    # Requirement 2: If not active during the day (by 3:30 PM), cancel it.
+    # Market Close check (3:30 PM)
     market_closed = (now.hour > 15) or (now.hour == 15 and now.minute >= 30)
 
     for t in trades:
@@ -231,11 +230,12 @@ def update_risk_engine(kite):
             continue
 
         if t['status'] == "PENDING":
+            # 1. Cancel if EOD and still pending
             if market_closed:
                 move_to_history(t, "CANCELLED_EOD", 0)
                 continue
             
-            # Requirement 2: Wait for market to reach entry point, then active it
+            # 2. Activate if Market Reaches Entry Price
             if ltp <= t['entry_price']:
                 t['status'] = "OPEN"
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")

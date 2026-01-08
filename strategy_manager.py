@@ -50,8 +50,24 @@ def delete_trade(trade_id):
         db.session.rollback()
         return False
 
+def update_trade_protection(trade_id, sl, targets):
+    trades = load_trades()
+    updated = False
+    for t in trades:
+        if str(t['id']) == str(trade_id):
+            old_sl = t['sl']
+            t['sl'] = float(sl)
+            t['targets'] = [float(x) for x in targets]
+            log_event(t, f"Manual Update: SL changed {old_sl} -> {t['sl']}, Targets updated.")
+            updated = True
+            break
+    
+    if updated:
+        save_trades(trades)
+        return True
+    return False
+
 def get_time_str():
-    # Force IST for consistent logs and filtering
     try:
         return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
     except:
@@ -251,7 +267,6 @@ def inject_simulated_trade(trade_data, is_active):
              trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
              trade_data['exit_price'] = trade_data.get('made_high', 0)
         
-        # FIX: Force set exit_time if missing or empty, so it shows up in "Closed" tab
         if not trade_data.get('exit_time'):
              trade_data['exit_time'] = get_time_str()
 

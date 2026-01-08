@@ -30,10 +30,10 @@ def get_indices_ltp(kite):
 def get_zerodha_symbol(common_name):
     if not common_name: return ""
     u = common_name.upper().strip()
-    if u in ["BANKNIFTY", "NIFTY BANK"]: return "BANKNIFTY"
-    if u in ["NIFTY", "NIFTY 50"]: return "NIFTY"
+    if u in ["BANKNIFTY", "NIFTY BANK", "BANK NIFTY"]: return "BANKNIFTY"
+    if u in ["NIFTY", "NIFTY 50", "NIFTY50"]: return "NIFTY"
     if u == "SENSEX": return "SENSEX"
-    if "BANK" in u and "NIFTY" in u: return "BANKNIFTY"
+    if upper == "FINNIFTY": return "FINNIFTY"
     return u
 
 def search_symbols(keyword):
@@ -50,7 +50,18 @@ def get_symbol_details(kite, symbol):
     
     clean = get_zerodha_symbol(symbol)
     today = datetime.now().date()
-    
+
+    # 1. Get LTP
+    ltp = 0
+    try:
+        quote_sym = f"NSE:{clean}"
+        if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
+        if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
+        if clean == "SENSEX": quote_sym = "BSE:SENSEX"
+        ltp = kite.quote(quote_sym)[quote_sym]['last_price']
+    except: ltp = 0
+
+    # 2. Get Lot Size & Expiries
     lot = 1
     futs = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['segment'] == 'NFO-FUT')]
     if not futs.empty: lot = int(futs.iloc[0]['lot_size'])
@@ -59,7 +70,13 @@ def get_symbol_details(kite, symbol):
     opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'CE')]
     o_exp = sorted(opts[opts['expiry_date'] >= today]['expiry_str'].unique().tolist())
     
-    return {"symbol": clean, "lot_size": lot, "fut_expiries": f_exp, "opt_expiries": o_exp}
+    return {
+        "symbol": clean, 
+        "ltp": ltp,          # Added LTP here
+        "lot_size": lot, 
+        "fut_expiries": f_exp, 
+        "opt_expiries": o_exp
+    }
 
 def get_chain_data(symbol, expiry_date, option_type, ltp):
     global instrument_dump
@@ -70,6 +87,8 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
     
     strikes = sorted(c['strike'].unique().tolist())
     if not strikes: return []
+    
+    # Calculate ATM based on passed LTP
     atm = min(strikes, key=lambda x: abs(x - ltp))
     
     res = []
@@ -103,16 +122,10 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
 
-# --- UPDATED SIMULATION LOGIC ---
+# --- SIMULATION LOGIC ---
 def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, custom_entry, custom_targets):
-    """
-    Backtests a trade.
-    FIX 1: End Date = Tomorrow (Avoids Timezone crashes).
-    FIX 2: Uses custom entry and targets if provided.
-    """
     symbol_common = get_zerodha_symbol(symbol)
     tradingsymbol = get_exact_symbol(symbol_common, expiry, strike, type_)
-    
     if not tradingsymbol: return {"status": "error", "message": "Symbol Not Found"}
     
     global instrument_dump
@@ -121,92 +134,41 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
     token = token_row.iloc[0]['instrument_token']
     
     try:
-        # Time Handling
         start_dt = datetime.strptime(time_str.replace("T", " "), "%Y-%m-%d %H:%M")
-        # FIX: Set end_dt to tomorrow to ensure it's always > start_dt (handles UTC/IST mismatch)
         end_dt = datetime.now() + timedelta(days=1)
-        
         candles = kite.historical_data(token, start_dt, end_dt, "minute")
         
-        if not candles:
-            return {"status": "error", "message": "No historical data found for this time."}
+        if not candles: return {"status": "error", "message": "No Data Found"}
             
-        # 1. Determine Entry
-        first_candle = candles[0]
-        # Use custom entry if provided (>0), else Open Price
-        entry_price = float(custom_entry) if custom_entry > 0 else first_candle['open']
+        first = candles[0]
+        entry = float(custom_entry) if custom_entry > 0 else first['open']
         
-        # 2. Determine Targets/SL
-        current_sl = entry_price - sl_points
+        if len(custom_targets) == 3 and custom_targets[0] > 0: tgts = custom_targets
+        else: tgts = [entry+sl_points*0.5, entry+sl_points*1.0, entry+sl_points*2.0]
         
-        # If custom targets provided (size 3), use them. Else Auto-Calc.
-        if len(custom_targets) == 3 and custom_targets[0] > 0:
-            targets = custom_targets
-        else:
-            targets = [
-                entry_price + (sl_points * 0.5),
-                entry_price + (sl_points * 1.0),
-                entry_price + (sl_points * 2.0)
-            ]
-        
-        # Simulation Loop
-        status = "OPEN"
-        exit_price = 0
-        exit_time = ""
-        logs = [f"Simulated Entry at {first_candle['date']} @ {entry_price}"]
-        
+        sl = entry - sl_points
+        status, exit_p, exit_t, logs = "OPEN", 0, "", [f"Simulated Entry @ {entry}"]
         t1_hit = False
         
-        for candle in candles:
-            low = candle['low']
-            high = candle['high']
-            curr_time = candle['date'].strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Check SL
-            if low <= current_sl:
-                status = "SL_HIT"
-                exit_price = current_sl
-                exit_time = curr_time
-                logs.append(f"[{curr_time}] Stop Loss Hit @ {current_sl}")
-                break
-                
-            # Check T1 (Safe Guard)
-            if high >= targets[0] and not t1_hit:
-                t1_hit = True
-                current_sl = entry_price # Move SL to Cost
-                logs.append(f"[{curr_time}] Target 1 Hit. SL Moved to Entry.")
-                
-            # Check Final Target (T3)
-            if high >= targets[2]:
-                status = "TARGET_HIT"
-                exit_price = targets[2]
-                exit_time = curr_time
-                logs.append(f"[{curr_time}] Final Target Hit @ {targets[2]}")
-                break
+        for c in candles:
+            if c['low'] <= sl:
+                status, exit_p, exit_t = "SL_HIT", sl, c['date'], f"SL Hit @ {sl}"
+                logs.append(f"[{c['date']}] {exit_t}"); break
+            if c['high'] >= tgts[0] and not t1_hit:
+                t1_hit = True; sl = entry; logs.append(f"[{c['date']}] T1 Hit. SL->Entry")
+            if c['high'] >= tgts[2]:
+                status, exit_p, exit_t = "TARGET_HIT", tgts[2], c['date'], f"Target Hit @ {tgts[2]}"
+                logs.append(f"[{c['date']}] {exit_t}"); break
         
-        is_active = (status == "OPEN")
-        if is_active:
-            current_ltp = candles[-1]['close']
-            logs.append(f"Trade still ACTIVE. Current Price: {current_ltp}")
-        else:
-            current_ltp = exit_price
-
+        active = (status == "OPEN")
+        ltp = candles[-1]['close'] if active else exit_p
+        
         return {
-            "status": "success",
-            "is_active": is_active,
+            "status": "success", "is_active": active,
             "trade_data": {
-                "symbol": tradingsymbol,
-                "entry_price": entry_price,
-                "current_ltp": current_ltp,
-                "sl": current_sl,
-                "targets": targets,
-                "status": status,
-                "exit_price": exit_price,
-                "exit_time": exit_time,
-                "logs": logs,
-                "quantity": 0 # Filled by caller
+                "symbol": tradingsymbol, "entry_price": entry, "current_ltp": ltp,
+                "sl": sl, "targets": tgts, "status": status,
+                "exit_price": exit_p, "exit_time": exit_t, "logs": logs, "quantity": 0
             }
         }
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    except Exception as e: return {"status": "error", "message": str(e)}

@@ -25,6 +25,8 @@
         .log-entry { font-size: 0.75rem; border-left: 2px solid #ddd; padding-left: 8px; margin-bottom: 4px; color: #555; }
         .tab-content { display: none; } .tab-content.active { display: block; }
         .settings-btn { cursor: pointer; color: #0d6efd; text-decoration: underline; font-size: 0.8rem; }
+        /* Table Styles for Settings */
+        .sl-table td { vertical-align: middle; }
     </style>
 </head>
 <body>
@@ -239,9 +241,17 @@
         <div class="input-group mb-2">
             <input type="text" id="set_sym" class="form-control" placeholder="Symbol (e.g. NIFTY)">
             <input type="number" id="set_sl" class="form-control" placeholder="SL Pts">
-            <button class="btn btn-outline-primary" onclick="saveSymSL()">Save</button>
+            <button class="btn btn-primary" onclick="saveSymSL()">Add</button>
         </div>
-        <div id="saved_sl_list" class="small text-muted"></div>
+        
+        <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+            <table class="table table-bordered table-sm mt-2 sl-table">
+                <thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead>
+                <tbody id="sl_table_body">
+                    </tbody>
+            </table>
+        </div>
+
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button>
@@ -259,7 +269,6 @@
     };
 
     function loadSettings() {
-        // Load from server or localStorage
         $.get('/api/settings/load', function(data) {
             if(data) {
                 settings = data;
@@ -289,7 +298,6 @@
             parseFloat($('#set_r3').val())
         ];
         
-        // Save to Server
         $.ajax({
             type: "POST", url: '/api/settings/save',
             data: JSON.stringify(settings), contentType: "application/json",
@@ -310,9 +318,31 @@
         }
     }
 
+    // NEW: Update List with Edit/Delete
     function updateSymList() {
-        let html = Object.keys(settings.symbol_sl).map(k => `${k}: ${settings.symbol_sl[k]} pts`).join(', ');
-        $('#saved_sl_list').text(html || "No overrides saved.");
+        let tbody = $('#sl_table_body').empty();
+        Object.keys(settings.symbol_sl).forEach(sym => {
+            tbody.append(`
+                <tr>
+                    <td class="fw-bold">${sym}</td>
+                    <td>${settings.symbol_sl[sym]}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button>
+                        <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button>
+                    </td>
+                </tr>
+            `);
+        });
+    }
+
+    function editSymSL(sym) {
+        $('#set_sym').val(sym);
+        $('#set_sl').val(settings.symbol_sl[sym]);
+    }
+
+    function deleteSymSL(sym) {
+        delete settings.symbol_sl[sym];
+        updateSymList();
     }
 
     // Init Settings
@@ -373,14 +403,12 @@
     function loadDetails(symId, expId, typeId, qtyId, slId) {
         let s = $(symId).val(); if(!s) return;
         
-        // CHECK SETTINGS FOR SL OVERRIDE
         let savedSL = settings.symbol_sl[s.toUpperCase()] || 20;
         $(slId).val(savedSL);
 
         $.get('/api/details?symbol='+s, d => { 
             symLTP[symId] = d.ltp; 
             if(d.lot_size > 0) {
-                // APPLY QUANTITY MULTIPLIER
                 let totalQty = d.lot_size * settings.qty_mult;
                 if(symId === '#sym') { $('#lot').text(d.lot_size); }
                 $(qtyId).val(totalQty).attr('step', d.lot_size).attr('min', d.lot_size);
@@ -426,7 +454,6 @@
         let qty = parseInt($('#qty').val())||1;
         let sl = curLTP - p;
         
-        // USE CUSTOM RATIOS
         let t1 = curLTP + p * settings.ratios[0];
         let t2 = curLTP + p * settings.ratios[1];
         let t3 = curLTP + p * settings.ratios[2];

@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Flask, render_template, request, redirect, flash, jsonify
 from kiteconnect import KiteConnect
 import config
@@ -10,6 +11,18 @@ app.secret_key = config.SECRET_KEY
 
 kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
+SETTINGS_FILE = "settings.json"
+
+# --- HELPER: SETTINGS ---
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f: return json.load(f)
+        except: pass
+    return {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
+
+def save_settings_file(data):
+    with open(SETTINGS_FILE, 'w') as f: json.dump(data, f, indent=4)
 
 @app.route('/')
 def home():
@@ -38,7 +51,17 @@ def callback():
         except Exception as e: flash(f"Login Error: {e}")
     return redirect('/')
 
-# --- API ---
+# --- SETTINGS API ---
+@app.route('/api/settings/load')
+def api_settings_load():
+    return jsonify(load_settings())
+
+@app.route('/api/settings/save', methods=['POST'])
+def api_settings_save():
+    save_settings_file(request.json)
+    return jsonify({"status": "success"})
+
+# --- EXISTING API ---
 @app.route('/api/positions')
 def api_positions():
     if bot_active: strategy_manager.update_risk_engine(kite)

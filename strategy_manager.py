@@ -34,7 +34,6 @@ def save_history_file(history):
         json.dump(history, f, default=str, indent=4)
 
 def get_time_str():
-    # Returns current time in IST if possible, else server time
     try:
         return pd.Timestamp.now('Asia/Kolkata').strftime("%Y-%m-%d %H:%M:%S")
     except:
@@ -51,8 +50,9 @@ def move_to_history(trade, final_status, exit_price):
     trade['exit_time'] = get_time_str()
     trade['pnl'] = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
     
-    if "Made High" not in str(trade['logs']):
-        log_event(trade, f"Closed: {final_status} @ {exit_price}")
+    # Ensure closure log if not present
+    if "Closed:" not in str(trade['logs']):
+         log_event(trade, f"Closed: {final_status} @ {exit_price}")
     
     history = load_history()
     history.insert(0, trade)
@@ -120,7 +120,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
             calc_price + (sl_points * 2.0)
         ]
 
-    # Explicitly logging Added Time and Active Time
     logs = [f"[{get_time_str()}] Trade Added to System"]
     logs.append(f"[{get_time_str()}] Order Created ({order_type}). Status: {status}. Trigger: {trigger_dir if order_type=='LIMIT' else 'N/A'}")
     
@@ -140,7 +139,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "sl": calc_price - sl_points,
         "targets": targets,
         "targets_hit_indices": [],
-        "highest_ltp": entry_price,
+        "highest_ltp": entry_price, # Track Made High
         "current_ltp": current_ltp,
         "trigger_dir": trigger_dir,
         "logs": logs
@@ -185,6 +184,7 @@ def close_trade_manual(kite, trade_id):
                 move_to_history(t, "CANCELLED_MANUAL", 0)
                 continue
 
+            # Switch to MONITORING
             exit_p = t.get('current_ltp', 0)
             if t['mode'] == "LIVE" and t['status'] not in ["MONITORING"]:
                 try:
@@ -223,6 +223,7 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
+        # Trade completely finished in simulator
         trade_data['pnl'] = round((trade_data['exit_price'] - trade_data['entry_price']) * trade_data['quantity'], 2)
         hist = load_history()
         hist.insert(0, trade_data)
@@ -238,6 +239,7 @@ def update_risk_engine(kite):
     except:
         now = datetime.now()
 
+    # Market Close check (3:30 PM IST)
     market_closed = (now.hour > 15) or (now.hour == 15 and now.minute >= 30)
 
     for t in trades:
@@ -246,6 +248,7 @@ def update_risk_engine(kite):
             t['current_ltp'] = ltp
             updated = True
             
+            # Update Made High (for all active/monitoring trades)
             if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
             if ltp > t['highest_ltp']: t['highest_ltp'] = ltp
             
@@ -253,18 +256,23 @@ def update_risk_engine(kite):
             active_list.append(t)
             continue
 
+        # --- MONITORING MODE (Post-Exit) ---
         if t['status'] == "MONITORING":
             if market_closed:
+                # Finalize Trade with Made High Log
                 profit = round((t['highest_ltp'] - t['entry_price']) * t['quantity'], 2)
                 log_event(t, f"Market Closed. Made High: {t['highest_ltp']} (Max Potential Profit: ₹ {profit})")
                 
                 final_status = t.get('exit_type', 'CLOSED')
                 exit_p = t.get('exit_price', ltp)
+                
                 move_to_history(t, final_status, exit_p)
+                # Removed from active list
             else:
                 active_list.append(t)
             continue
 
+        # --- PENDING ORDERS ---
         if t['status'] == "PENDING":
             if market_closed:
                 move_to_history(t, "CANCELLED_EOD", 0)
@@ -300,17 +308,20 @@ def update_risk_engine(kite):
                 active_list.append(t)
             continue
 
+        # --- OPEN TRADES ---
         if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
             exit_triggered = False
             exit_reason = ""
             exit_p = ltp
             
+            # 1. Check SL
             if ltp <= t['sl']:
                 exit_reason = "SL_HIT"
                 log_event(t, f"SL Hit @ {ltp}")
                 exit_triggered = True
                 exit_p = t['sl']
 
+            # 2. Check Targets
             if not exit_triggered:
                 if 'targets_hit_indices' not in t: t['targets_hit_indices'] = []
                 
@@ -343,6 +354,7 @@ def update_risk_engine(kite):
                     except:
                         pass
                 
+                # Move to MONITORING instead of History
                 t['status'] = "MONITORING"
                 t['exit_price'] = exit_p
                 t['exit_type'] = exit_reason

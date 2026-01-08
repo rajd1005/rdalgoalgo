@@ -5,43 +5,26 @@ from kiteconnect import KiteConnect
 import config
 import strategy_manager
 import smart_trader
-from database import db, AppSetting
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-app.config.from_object(config)
-
-# Initialize Database
-db.init_app(app)
-with app.app_context():
-    db.create_all()
 
 kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
+SETTINGS_FILE = "settings.json"
 
 def load_settings():
-    # Load from DB instead of file
-    try:
-        setting = AppSetting.query.first()
-        if setting:
-            return json.loads(setting.data)
-    except:
-        pass
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
     return {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
 
 def save_settings_file(data):
-    # Save to DB
-    try:
-        setting = AppSetting.query.first()
-        if not setting:
-            setting = AppSetting(data=json.dumps(data))
-            db.session.add(setting)
-        else:
-            setting.data = json.dumps(data)
-        db.session.commit()
-    except Exception as e:
-        print(f"Settings Save Error: {e}")
-        db.session.rollback()
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
 
 @app.route('/')
 def home():
@@ -92,6 +75,12 @@ def api_positions():
 def api_closed_trades():
     return jsonify(strategy_manager.load_history())
 
+@app.route('/api/delete_trade/<trade_id>', methods=['POST'])
+def api_delete_trade(trade_id):
+    if strategy_manager.delete_trade(trade_id):
+        return jsonify({"status": "success"})
+    return jsonify({"status": "error"})
+
 @app.route('/api/indices')
 def api_indices():
     if not bot_active:
@@ -140,6 +129,16 @@ def api_history():
         trade_data = result['trade_data']
         trade_data['quantity'] = qty
         trade_data['targets'] = custom_targets if custom_targets else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
+        
+        # Save raw inputs so we can re-populate the simulator form later (Edit Feature)
+        trade_data['raw_params'] = {
+            'symbol': data['symbol'],
+            'expiry': data['expiry'],
+            'strike': data['strike'],
+            'type': data['type'],
+            'time': data['time']
+        }
+        
         strategy_manager.inject_simulated_trade(trade_data, result['is_active'])
         return jsonify({"status": "success", "message": "Simulation Complete", "is_active": result['is_active']})
         

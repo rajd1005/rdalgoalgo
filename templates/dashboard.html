@@ -7,36 +7,42 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
-        body { background-color: #f8f9fa; font-family: sans-serif; padding-bottom: 80px; }
+        body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
         
         /* TICKER */
-        .ticker-bar { background: #000; color: #fff; padding: 8px; font-size: 0.9rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; }
-        .ticker-item { margin-right: 20px; font-weight: bold; }
-        .val-up { color: #2ecc71; } .val-down { color: #e74c3c; }
+        .ticker-bar { background: #111; color: #fff; padding: 8px; font-size: 0.85rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; }
+        .ticker-item { margin-right: 20px; font-weight: 600; letter-spacing: 0.5px; }
+        .val-up { color: #00ff88; } .val-down { color: #ff4d4d; }
 
         /* CARDS */
-        .custom-card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); background: #fff; margin-bottom: 15px; overflow: hidden; }
-        .card-head { padding: 15px; font-weight: bold; border-bottom: 1px solid #eee; background: #fff; }
+        .custom-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); background: #fff; margin-bottom: 15px; overflow: hidden; }
+        .card-head { padding: 12px 15px; font-weight: 700; border-bottom: 1px solid #f0f0f0; background: #fff; color: #333; }
         .card-body { padding: 15px; }
 
+        /* POSITIONS P&L STYLES */
+        .pnl-green { color: #198754; }
+        .pnl-red { color: #dc3545; }
+        .pos-grid-label { font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; }
+        .pos-grid-val { font-weight: 700; font-size: 0.95rem; }
+
         /* TABS */
-        .nav-tabs { border: none; background: #fff; padding: 10px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        .nav-btn { flex: 1; text-align: center; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: 600; color: #6c757d; border: 1px solid transparent; margin: 0 5px; background: transparent; }
-        .nav-btn.active { background-color: #0d6efd; color: #fff; box-shadow: 0 2px 4px rgba(13,110,253,0.3); }
+        .nav-tabs { border: none; background: #fff; padding: 8px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .nav-btn { flex: 1; text-align: center; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: 600; color: #6c757d; margin: 0 4px; transition: 0.2s; }
+        .nav-btn.active { background-color: #0d6efd; color: #fff; box-shadow: 0 4px 6px rgba(13,110,253,0.2); }
 
         /* FORMS */
-        .form-control, .form-select { height: 45px; font-size: 16px; border-radius: 8px; background: #f8f9fa; border: 1px solid #e9ecef; }
+        .form-control, .form-select { height: 42px; font-size: 15px; border-radius: 8px; background: #f8f9fa; border: 1px solid #e9ecef; }
         .form-control:focus { background: #fff; border-color: #0d6efd; box-shadow: none; }
         
-        /* LIVE TOGGLE */
+        /* MODE TOGGLE */
         .mode-selector { display: flex; gap: 10px; margin-bottom: 15px; }
-        .mode-btn { flex: 1; padding: 15px; border: 2px solid #ddd; border-radius: 10px; text-align: center; cursor: pointer; font-weight: bold; opacity: 0.6; }
-        .mode-btn.selected { opacity: 1; border-color: currentColor; background: rgba(0,0,0,0.03); }
+        .mode-btn { flex: 1; padding: 12px; border: 2px solid #ddd; border-radius: 10px; text-align: center; cursor: pointer; font-weight: bold; opacity: 0.5; transition: 0.2s; }
+        .mode-btn.selected { opacity: 1; border-color: currentColor; background: rgba(0,0,0,0.03); transform: scale(1.02); }
         .mode-paper { color: #f39c12; border-color: #f39c12; }
         .mode-live { color: #e74c3c; border-color: #e74c3c; }
 
         /* LOGIN SCREEN */
-        .login-card { max-width: 400px; margin: 100px auto; text-align: center; padding: 40px; }
+        .login-card { max-width: 400px; margin: 80px auto; text-align: center; padding: 40px; }
 
         /* HIDDEN SECTIONS */
         .tab-content { display: none; }
@@ -47,28 +53,28 @@
 
 <div class="container mt-3">
     {% with messages = get_flashed_messages() %}
-        {% if messages %} <div class="alert alert-info">{{ messages[0] }}</div> {% endif %}
+        {% if messages %} <div class="alert alert-info py-2 shadow-sm border-0">{{ messages[0] }}</div> {% endif %}
     {% endwith %}
 
     {% if not is_active %}
     <div class="custom-card login-card shadow-lg">
-        <h3 class="mb-3">🔌 System Offline</h3>
-        <p class="text-muted mb-4">Please authenticate with Zerodha Kite to initialize the trading engine.</p>
+        <h2 class="mb-3">🔌 Offline</h2>
+        <p class="text-muted mb-4">Authenticate with Zerodha to initialize.</p>
         <a href="{{ login_url }}" class="btn btn-primary btn-lg w-100 fw-bold shadow">Login to Zerodha</a>
     </div>
 
     {% else %}
     
-    <div class="ticker-bar rounded mb-3">
-        <span class="ticker-item">NIFTY: <span id="n_lp">Loading...</span></span>
-        <span class="ticker-item">BANKNIFTY: <span id="b_lp">Loading...</span></span>
-        <span class="ticker-item">SENSEX: <span id="s_lp">Loading...</span></span>
+    <div class="ticker-bar rounded mb-3 shadow-sm">
+        <span class="ticker-item">NIFTY: <span id="n_lp" class="text-warning">Loading...</span></span>
+        <span class="ticker-item">BANKNIFTY: <span id="b_lp" class="text-warning">Loading...</span></span>
+        <span class="ticker-item">SENSEX: <span id="s_lp" class="text-warning">Loading...</span></span>
     </div>
 
     <div class="nav-tabs">
         <div class="nav-btn active" onclick="switchTab('trade')">🚀 Trade</div>
+        <div class="nav-btn" onclick="switchTab('pos')">💼 Positions</div>
         <div class="nav-btn" onclick="switchTab('history')">📅 History</div>
-        <div class="nav-btn" onclick="switchTab('pos')">💼 Pos</div>
     </div>
 
     <div id="trade" class="tab-content active">
@@ -81,13 +87,13 @@
                 <div class="card-body">
                     
                     <div class="mb-3">
-                        <label class="small text-muted fw-bold">1. SEARCH SYMBOL</label>
+                        <label class="pos-grid-label mb-1">1. SEARCH SYMBOL</label>
                         <input type="text" id="sym" name="index" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list" required autocomplete="off">
                         <datalist id="sym_list"></datalist>
                     </div>
 
                     <div class="mb-3">
-                        <label class="small text-muted fw-bold">2. INSTRUMENT TYPE</label>
+                        <label class="pos-grid-label mb-1">2. INSTRUMENT TYPE</label>
                         <select name="type" id="type" class="form-select fw-bold">
                             <option value="CE" selected>Option Call (CE)</option>
                             <option value="PE">Option Put (PE)</option>
@@ -98,22 +104,22 @@
 
                     <div class="row g-2 mb-3">
                         <div class="col-6">
-                            <label class="small text-muted fw-bold">3. EXPIRY</label>
+                            <label class="pos-grid-label mb-1">3. EXPIRY</label>
                             <select name="expiry" id="exp" class="form-select"></select>
                         </div>
                         <div class="col-6">
-                            <label class="small text-muted fw-bold">4. STRIKE</label>
+                            <label class="pos-grid-label mb-1">4. STRIKE</label>
                             <select name="strike" id="str" class="form-select"></select>
                         </div>
                     </div>
 
                     <div class="row g-2 mb-3">
                         <div class="col-6">
-                            <label class="small text-muted fw-bold">QTY (Lot: <span id="lot">1</span>)</label>
+                            <label class="pos-grid-label mb-1">QTY (Lot: <span id="lot">1</span>)</label>
                             <input type="number" name="qty" id="qty" class="form-control fw-bold" value="1">
                         </div>
                         <div class="col-6">
-                            <label class="small text-muted fw-bold">ORDER TYPE</label>
+                            <label class="pos-grid-label mb-1">ORDER TYPE</label>
                             <select name="order_type" id="ord" class="form-select fw-bold">
                                 <option value="LIMIT" selected>LIMIT</option>
                                 <option value="MARKET">MARKET</option>
@@ -122,7 +128,7 @@
                     </div>
 
                     <div id="lim_box" class="mb-3">
-                        <label class="small text-muted fw-bold">LIMIT PRICE</label>
+                        <label class="pos-grid-label mb-1">LIMIT PRICE</label>
                         <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control text-primary fw-bold" placeholder="0.00">
                     </div>
 
@@ -156,6 +162,80 @@
         </form>
     </div>
 
+    <div id="pos" class="tab-content">
+        <div class="custom-card">
+            <div class="card-head">💼 Active Positions</div>
+            <div class="card-body p-2">
+                {% for t in trades %}
+                
+                <div class="card mb-3 border border-1 {{ 'border-danger' if t.mode=='LIVE' else 'border-warning' }} shadow-sm">
+                    <div class="card-body p-3">
+                        
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <h6 class="fw-bold mb-0" style="font-size: 1.1rem;">{{ t.symbol }}</h6>
+                                <span class="badge bg-light text-dark border">Qty: {{ t.quantity }}</span>
+                            </div>
+                            <span class="badge {{ 'bg-danger' if t.mode=='LIVE' else 'bg-warning text-dark' }}">{{ t.mode }}</span>
+                        </div>
+                        
+                        {% set pnl = (t.current_ltp - t.entry_price) * t.quantity %}
+                        <div class="text-center py-2 mb-2 rounded bg-light">
+                            <small class="text-muted fw-bold">TOTAL P&L</small>
+                            <h2 class="mb-0 fw-bold {{ 'pnl-green' if pnl >= 0 else 'pnl-red' }}">
+                                {{ "%.2f"|format(pnl) }}
+                            </h2>
+                        </div>
+
+                        <div class="row g-2 text-center mb-3">
+                            <div class="col-6 border-end">
+                                <div class="pos-grid-label">Avg Price</div>
+                                <div class="pos-grid-val">{{ "%.2f"|format(t.entry_price) }}</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="pos-grid-label">LTP</div>
+                                <div class="pos-grid-val text-primary">{{ "%.2f"|format(t.current_ltp) }}</div>
+                            </div>
+                            
+                            <hr class="my-1 text-muted opacity-25">
+
+                            <div class="col-3 border-end">
+                                <div class="pos-grid-label text-danger">SL</div>
+                                <div class="fw-bold small">{{ "%.1f"|format(t.sl) }}</div>
+                            </div>
+                            <div class="col-3 border-end">
+                                <div class="pos-grid-label text-success">T1</div>
+                                <div class="fw-bold small">{{ "%.1f"|format(t.targets[0]) }}</div>
+                            </div>
+                            <div class="col-3 border-end">
+                                <div class="pos-grid-label text-success">T2</div>
+                                <div class="fw-bold small">{{ "%.1f"|format(t.targets[1]) }}</div>
+                            </div>
+                            <div class="col-3">
+                                <div class="pos-grid-label text-success">T3</div>
+                                <div class="fw-bold small">{{ "%.1f"|format(t.targets[2]) }}</div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <span class="badge bg-secondary">{{ t.status }}</span>
+                            {% if t.mode == 'PAPER' %}
+                                <a href="/promote/{{ t.id }}" class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3">🚀 Go Live</a>
+                            {% endif %}
+                        </div>
+
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-center p-5 text-muted">
+                    <h5>No active trades</h5>
+                    <p>Execute an order to see details here.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
     <div id="history" class="tab-content">
         <div class="custom-card">
             <div class="card-head">📅 Historical Check</div>
@@ -183,34 +263,6 @@
         </div>
     </div>
 
-    <div id="pos" class="tab-content">
-        <div class="custom-card">
-            <div class="card-head">💼 Active Positions</div>
-            <div class="card-body p-0">
-                {% for t in trades %}
-                <div class="p-3 border-bottom">
-                    <div class="d-flex justify-content-between">
-                        <strong>{{ t.symbol }}</strong>
-                        <span class="badge {{ 'bg-danger' if t.mode=='LIVE' else 'bg-warning text-dark' }}">{{ t.mode }}</span>
-                    </div>
-                    <div class="d-flex justify-content-between small text-muted mt-1">
-                        <span>Entry: {{ t.entry_price }}</span>
-                        <span class="text-dark fw-bold">LTP: {{ t.current_ltp }}</span>
-                    </div>
-                    <div class="d-flex justify-content-between align-items-center mt-2">
-                        <span class="badge bg-secondary">{{ t.status }}</span>
-                        {% if t.mode == 'PAPER' %}
-                        <a href="/promote/{{ t.id }}" class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold">Promote Live</a>
-                        {% endif %}
-                    </div>
-                </div>
-                {% else %}
-                <div class="text-center p-5 text-muted">No active trades found.</div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-
     {% endif %} </div>
 
 <script>
@@ -221,8 +273,7 @@
         
         document.getElementById(tabId).style.display = 'block';
         
-        // Find button that triggered this or match by text content logic
-        // Simple hack: loop and find matching onclick
+        // Highlight correct button
         document.querySelectorAll('.nav-btn').forEach(btn => {
             if(btn.getAttribute('onclick').includes(tabId)) btn.classList.add('active');
         });
@@ -243,7 +294,7 @@
     function updateTicker() {
         if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', function(data) {
-            $('#n_lp').text(data.NIFTY);
+            $('#n_lp').text(data.NIFTY).css('color', data.NIFTY > 0 ? '#2ecc71' : 'white');
             $('#b_lp').text(data.BANKNIFTY);
             $('#s_lp').text(data.SENSEX);
         });
@@ -290,7 +341,7 @@
             list.forEach((d, i) => $e.append(`<option value="${d}" ${i===0?'selected':''}>${d}</option>`));
             fillChain();
         } else {
-            $e.append('<option>Loading/No Expiry</option>');
+            $e.append('<option>No Expiries</option>');
         }
     }
 

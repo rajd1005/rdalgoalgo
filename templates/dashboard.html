@@ -25,7 +25,6 @@
         .log-entry { font-size: 0.75rem; border-left: 2px solid #ddd; padding-left: 8px; margin-bottom: 4px; color: #555; }
         .tab-content { display: none; } .tab-content.active { display: block; }
         .settings-btn { cursor: pointer; color: #0d6efd; text-decoration: underline; font-size: 0.8rem; }
-        /* Table Styles for Settings */
         .sl-table td { vertical-align: middle; }
     </style>
 </head>
@@ -83,9 +82,13 @@
                             <label class="pos-grid-label">QTY (<span id="lot">1</span> x <span id="qty_mult_disp">1</span>)</label>
                             <input type="number" name="qty" id="qty" class="form-control fw-bold" value="1">
                         </div>
-                        <div class="col-6"><label class="pos-grid-label">ORDER</label><select name="order_type" class="form-select fw-bold"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select></div>
+                        <div class="col-6"><label class="pos-grid-label">ORDER</label><select name="order_type" id="ord" class="form-select fw-bold"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select></div>
                     </div>
-                    <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control mb-3 text-primary fw-bold" placeholder="Limit Price">
+                    
+                    <div id="lim_box" class="mb-3">
+                        <label class="pos-grid-label">LIMIT PRICE</label>
+                        <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control mb-3 text-primary fw-bold" placeholder="Limit Price">
+                    </div>
                 </div>
             </div>
 
@@ -243,15 +246,12 @@
             <input type="number" id="set_sl" class="form-control" placeholder="SL Pts">
             <button class="btn btn-primary" onclick="saveSymSL()">Add</button>
         </div>
-        
         <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
             <table class="table table-bordered table-sm mt-2 sl-table">
                 <thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead>
-                <tbody id="sl_table_body">
-                    </tbody>
+                <tbody id="sl_table_body"></tbody>
             </table>
         </div>
-
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button>
@@ -261,30 +261,22 @@
 </div>
 
 <script>
-    // --- GLOBAL SETTINGS STATE ---
-    let settings = {
-        qty_mult: 1,
-        ratios: [0.5, 1.0, 1.5],
-        symbol_sl: {}
-    };
+    // --- SETTINGS ---
+    let settings = { qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {} };
 
     function loadSettings() {
         $.get('/api/settings/load', function(data) {
             if(data) {
                 settings = data;
-                // Update UI
                 $('#set_qty_mult').val(settings.qty_mult);
                 $('#set_r1').val(settings.ratios[0]);
                 $('#set_r2').val(settings.ratios[1]);
                 $('#set_r3').val(settings.ratios[2]);
-                
-                // Update Display Labels
                 $('#qty_mult_disp').text(settings.qty_mult);
                 $('#h_qty_mult').text(settings.qty_mult);
                 $('#r_t1').text(settings.ratios[0]); $('#hr_t1').text(settings.ratios[0]);
                 $('#r_t2').text(settings.ratios[1]); $('#hr_t2').text(settings.ratios[1]);
                 $('#r_t3').text(settings.ratios[2]); $('#hr_t3').text(settings.ratios[2]);
-                
                 updateSymList();
             }
         });
@@ -292,63 +284,29 @@
     
     function saveSettings() {
         settings.qty_mult = parseInt($('#set_qty_mult').val()) || 1;
-        settings.ratios = [
-            parseFloat($('#set_r1').val()),
-            parseFloat($('#set_r2').val()),
-            parseFloat($('#set_r3').val())
-        ];
-        
-        $.ajax({
-            type: "POST", url: '/api/settings/save',
-            data: JSON.stringify(settings), contentType: "application/json",
-            success: () => {
-                $('#settingsModal').modal('hide');
-                loadSettings(); // Refresh UI
-            }
-        });
+        settings.ratios = [parseFloat($('#set_r1').val()), parseFloat($('#set_r2').val()), parseFloat($('#set_r3').val())];
+        $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { $('#settingsModal').modal('hide'); loadSettings(); } });
     }
 
     function saveSymSL() {
         let s = $('#set_sym').val().toUpperCase();
         let p = parseInt($('#set_sl').val());
-        if(s && p) {
-            settings.symbol_sl[s] = p;
-            updateSymList();
-            $('#set_sym').val(''); $('#set_sl').val('');
-        }
+        if(s && p) { settings.symbol_sl[s] = p; updateSymList(); $('#set_sym').val(''); $('#set_sl').val(''); }
     }
 
-    // NEW: Update List with Edit/Delete
     function updateSymList() {
         let tbody = $('#sl_table_body').empty();
         Object.keys(settings.symbol_sl).forEach(sym => {
-            tbody.append(`
-                <tr>
-                    <td class="fw-bold">${sym}</td>
-                    <td>${settings.symbol_sl[sym]}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button>
-                        <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button>
-                    </td>
-                </tr>
-            `);
+            tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${settings.symbol_sl[sym]}</td><td><button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button> <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button></td></tr>`);
         });
     }
 
-    function editSymSL(sym) {
-        $('#set_sym').val(sym);
-        $('#set_sl').val(settings.symbol_sl[sym]);
-    }
+    function editSymSL(sym) { $('#set_sym').val(sym); $('#set_sl').val(settings.symbol_sl[sym]); }
+    function deleteSymSL(sym) { delete settings.symbol_sl[sym]; updateSymList(); }
 
-    function deleteSymSL(sym) {
-        delete settings.symbol_sl[sym];
-        updateSymList();
-    }
-
-    // Init Settings
     $(document).ready(loadSettings);
 
-    // --- STANDARD LOGIC ---
+    // --- MAIN LOGIC ---
     function switchTab(id) { $('.tab-content').hide(); $(`#${id}`).show(); $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); if(id==='closed') loadClosedTrades(); }
     function setMode(el, mode) { $('#mode_input').val(mode); $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active'); }
 
@@ -358,6 +316,18 @@
     function updateData() {
         if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); });
+        
+        // AUTO-UPDATE NEW ORDER LTP HEADER
+        let currentSym = $('#sym').val();
+        if(currentSym && $('#trade').is(':visible')) {
+             $.get(`/api/specific_ltp?symbol=${currentSym}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
+                curLTP=d.ltp; 
+                $('#inst_ltp').text("LTP: "+curLTP);
+                // Also update Limit Price value if it's currently showing and was auto-filled (optional)
+                // if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
+             });
+        }
+
         $.get('/api/positions', trades => {
             let html = '';
             if(trades.length === 0) html = '<div class="text-center p-4 text-muted">No Active Trades</div>';
@@ -402,10 +372,8 @@
 
     function loadDetails(symId, expId, typeId, qtyId, slId) {
         let s = $(symId).val(); if(!s) return;
-        
         let savedSL = settings.symbol_sl[s.toUpperCase()] || 20;
         $(slId).val(savedSL);
-
         $.get('/api/details?symbol='+s, d => { 
             symLTP[symId] = d.ltp; 
             if(d.lot_size > 0) {
@@ -441,11 +409,19 @@
     $('#exp').change(() => fillChain('#sym', '#exp', '#type', '#str'));
     $('#h_exp').change(() => fillChain('#h_sym', '#h_exp', '#h_type', '#h_str'));
 
+    // --- ORDER TYPE TOGGLE ---
+    $('#ord').change(function() {
+        if($(this).val() === 'LIMIT') $('#lim_box').show();
+        else $('#lim_box').hide();
+    });
+
     // --- TRADE TAB P&L ---
     $('#str').change(fetchLTP);
     function fetchLTP() {
         $.get(`/api/specific_ltp?symbol=${$('#sym').val()}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
-            curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP); $('#lim_pr').val(curLTP); calcRisk();
+            curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP); 
+            if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
+            calcRisk();
         });
     }
     $('#sl_pts, #qty').on('input', calcRisk);
@@ -453,7 +429,6 @@
         let p = parseFloat($('#sl_pts').val())||0;
         let qty = parseInt($('#qty').val())||1;
         let sl = curLTP - p;
-        
         let t1 = curLTP + p * settings.ratios[0];
         let t2 = curLTP + p * settings.ratios[1];
         let t3 = curLTP + p * settings.ratios[2];
@@ -474,17 +449,12 @@
         let entry = parseFloat($('#h_entry').val()) || 0;
         let pts = parseFloat($('#h_sl_pts').val()) || 0;
         let qty = parseInt($('#h_qty').val()) || 1;
-        
         if(entry > 0) {
             let sl = entry - pts;
             let t1 = entry + pts * settings.ratios[0];
             let t2 = entry + pts * settings.ratios[1];
             let t3 = entry + pts * settings.ratios[2];
-
-            $('#h_t1').val(t1.toFixed(2));
-            $('#h_t2').val(t2.toFixed(2));
-            $('#h_t3').val(t3.toFixed(2));
-
+            $('#h_t1').val(t1.toFixed(2)); $('#h_t2').val(t2.toFixed(2)); $('#h_t3').val(t3.toFixed(2));
             $('#h_pnl_sl').text(`₹ ${((sl-entry)*qty).toFixed(0)}`);
             $('#h_pnl_t1').text(`₹ ${((t1-entry)*qty).toFixed(0)}`);
             $('#h_pnl_t2').text(`₹ ${((t2-entry)*qty).toFixed(0)}`);

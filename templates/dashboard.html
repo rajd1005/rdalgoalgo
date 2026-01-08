@@ -153,7 +153,7 @@
                         </div>
                         <div class="col-6">
                             <label class="pos-grid-label">Qty</label>
-                            <input type="number" id="h_qty" class="form-control" value="50">
+                            <input type="number" id="h_qty" class="form-control fw-bold" value="50">
                         </div>
                     </div>
                     <hr class="my-2">
@@ -177,10 +177,10 @@
     function switchTab(id) { $('.tab-content').hide(); $(`#${id}`).show(); $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); if(id==='closed') loadClosedTrades(); }
     function setMode(el, mode) { $('#mode_input').val(mode); $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active'); }
 
-    // --- DATA ---
+    // --- DATA FETCHING ---
     let curLTP=0;
-    // Store current symbol spot prices globally to use in History Tab
-    let symLTP = {}; 
+    // Store Symbol LTPs for History Tab to use
+    let symLTP = {};
 
     function updateData() {
         if(!document.getElementById('n_lp')) return;
@@ -235,23 +235,25 @@
     bindSearch('#sym', '#sym_list'); 
     bindSearch('#h_sym', '#h_sym_list');
 
-    // Details & Expiry
-    function loadDetails(symId, expId, typeId) {
+    // Details, Expiry, Qty Update
+    function loadDetails(symId, expId, typeId, qtyId) {
         let s = $(symId).val(); if(!s) return;
         $.get('/api/details?symbol='+s, d => { 
-            // STORE LTP FOR LATER ATM CALCULATION
-            symLTP[symId] = d.ltp; 
-
-            // Auto-Populate Qty & Lot Size
-            if(symId === '#sym') { $('#lot').text(d.lot_size); $('#qty').val(d.lot_size); }
-            if(symId === '#h_sym') { $('#h_qty').val(d.lot_size); } // Fix for Simulator
+            // 1. Store LTP for ATM calc
+            symLTP[symId] = d.ltp;
+            
+            // 2. Update Lot Size & Qty Step
+            if(d.lot_size > 0) {
+                if(symId === '#sym') { $('#lot').text(d.lot_size); }
+                $(qtyId).val(d.lot_size).attr('step', d.lot_size).attr('min', d.lot_size);
+            }
 
             window[symId+'_fut'] = d.fut_expiries; window[symId+'_opt'] = d.opt_expiries;
             fillExp(expId, typeId, symId);
         });
     }
-    $('#sym').change(() => loadDetails('#sym', '#exp', '#type'));
-    $('#h_sym').change(() => loadDetails('#h_sym', '#h_exp', '#h_type'));
+    $('#sym').change(() => loadDetails('#sym', '#exp', '#type', '#qty'));
+    $('#h_sym').change(() => loadDetails('#h_sym', '#h_exp', '#h_type', '#h_qty'));
 
     function fillExp(expId, typeId, symId) { 
         let l = $(typeId).val()=='FUT' ? window[symId+'_fut'] : window[symId+'_opt']; 
@@ -263,18 +265,13 @@
     $('#type').change(() => fillExp('#exp', '#type', '#sym'));
     $('#h_type').change(() => fillExp('#h_exp', '#h_type', '#h_sym'));
 
-    // Fill Chain & AUTO-SELECT ATM
+    // Fill Chain (Auto ATM)
     function fillChain(sym, exp, type, str) {
-        // USE THE STORED LTP from the search step
+        // Use stored LTP for Simulator to approximate ATM
         let spot = symLTP[sym] || 0;
-        
         $.get(`/api/chain?symbol=${$(sym).val()}&expiry=${$(exp).val()}&type=${$(type).val()}&ltp=${spot}`, d => {
             let $s = $(str).empty(); 
-            d.forEach(r => {
-                let isAtm = r.label.includes("ATM");
-                // Check if we should auto-select
-                $s.append(`<option value="${r.strike}" ${isAtm?'selected':''}>${r.strike} ${r.label}</option>`);
-            });
+            d.forEach(r => $s.append(`<option value="${r.strike}" ${r.label.includes('ATM')?'selected':''}>${r.strike} ${r.label}</option>`));
             if(str === '#str') fetchLTP();
         });
     }

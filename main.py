@@ -66,7 +66,6 @@ def api_chain():
 def api_s_ltp(): 
     return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
-# --- HISTORY SIMULATOR ---
 @app.route('/api/history_check', methods=['POST'])
 def api_history():
     if not bot_active: return jsonify({"status":"error", "message":"Offline"})
@@ -81,7 +80,6 @@ def api_history():
     t3 = float(data.get('t3', 0))
     custom_targets = [t1, t2, t3] if t1 > 0 else []
 
-    # Run Simulation
     result = smart_trader.simulate_trade(
         kite, 
         data['symbol'], data['expiry'], data['strike'], data['type'], 
@@ -91,18 +89,13 @@ def api_history():
     if result['status'] == 'success':
         trade_data = result['trade_data']
         trade_data['quantity'] = qty
-        
-        # Recalc displayed targets for consistency
         trade_data['targets'] = custom_targets if custom_targets else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
-        
         strategy_manager.inject_simulated_trade(trade_data, result['is_active'])
-        
-        msg = "Trade Active" if result['is_active'] else f"Trade Closed ({trade_data['status']})"
-        return jsonify({"status": "success", "message": msg, "is_active": result['is_active']})
+        return jsonify({"status": "success", "message": "Simulation Complete", "is_active": result['is_active']})
         
     return jsonify(result)
 
-# --- TRADE EXECUTION ---
+# --- EXECUTION ---
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active: return redirect('/')

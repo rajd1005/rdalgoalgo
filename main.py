@@ -20,13 +20,34 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 
 def load_settings():
+    default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5]}
+    defaults = {
+        "modes": {
+            "LIVE": default_mode_settings.copy(),
+            "PAPER": default_mode_settings.copy(),
+            "SIMULATOR": default_mode_settings.copy()
+        },
+        "symbol_sl": {}
+    }
+    
     try:
         setting = AppSetting.query.first()
         if setting:
-            return json.loads(setting.data)
+            saved = json.loads(setting.data)
+            # Merge logic to ensure new structure exists if loading old settings
+            if "modes" not in saved:
+                # Migrate old flat structure to new structure
+                old_mult = saved.get("qty_mult", 1)
+                old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
+                saved["modes"] = {
+                    "LIVE": {"qty_mult": old_mult, "ratios": old_ratios},
+                    "PAPER": {"qty_mult": old_mult, "ratios": old_ratios},
+                    "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios}
+                }
+            return saved
     except:
         pass
-    return {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
+    return defaults
 
 def save_settings_file(data):
     try:

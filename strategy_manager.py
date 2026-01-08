@@ -87,18 +87,20 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
             return {"status": "error", "message": "Invalid Limit Price"}
 
         # If Market Price (LTP) is already lower than or equal to Limit Price (for BUY), 
-        # it executes immediately (OPEN). Otherwise, it waits (PENDING).
+        # it executes immediately (OPEN) at the BETTER price (current_ltp).
+        # Otherwise, it waits (PENDING).
         if current_ltp > 0 and current_ltp <= entry_price:
             status = "OPEN"
-            # NOTE: We keep entry_price as the Limit Price (user's price), 
-            # even if it executes immediately at a better market price.
+            # FIX: If filling immediately, update entry price to actual market price
+            # so SL is calculated correctly relative to where we actually entered.
+            entry_price = current_ltp 
         else:
             status = "PENDING"
 
     if mode == "LIVE":
         try:
             k_type = kite.ORDER_TYPE_MARKET if order_type == "MARKET" else kite.ORDER_TYPE_LIMIT
-            price = 0 if order_type == "MARKET" else entry_price
+            price = 0 if order_type == "MARKET" else float(limit_price) # Send user's limit price to broker
             
             kite.place_order(
                 tradingsymbol=specific_symbol,
@@ -112,7 +114,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # Calculate Targets based on ENTRY PRICE (Limit Price for Limit Orders)
+    # Calculate Targets based on FINAL ENTRY PRICE
     targets = []
     calc_price = entry_price
     
@@ -151,9 +153,7 @@ def promote_to_live(kite, trade_id):
     for t in trades:
         if t['id'] == int(trade_id) and t['mode'] == "PAPER":
             try:
-                # If promoting a Pending Paper trade, we should place a LIMIT order if original was limit
-                # But typically 'Promote' is used to execute NOW. 
-                # We use Market for instant execution upon promotion.
+                # If promoting a Pending Paper trade, we execute NOW at Market
                 kite.place_order(
                     tradingsymbol=t['symbol'],
                     exchange=t['exchange'],
@@ -180,9 +180,6 @@ def close_trade_manual(kite, trade_id):
             exit_p = t['current_ltp']
             
             if t['status'] == "PENDING":
-                # If Live Pending, we should ideally Cancel the open order on Zerodha
-                # But since we don't store Order ID, user must manually cancel on Kite or
-                # we assume the Algo manages the 'Logical' state.
                 move_to_history(t, "CANCELLED_MANUAL", 0)
                 continue
 
@@ -252,8 +249,12 @@ def update_risk_engine(kite):
                 continue
             
             # 2. Activate if Market Reaches Entry Price (Buy Limit Logic)
+            # If LTP drops to our Limit Price (Entry Price), we activate.
             if ltp <= t['entry_price']:
                 t['status'] = "OPEN"
+                # Note: For pending activation, we keep the original planned entry price
+                # as the reference, or we could update it to LTP. 
+                # Usually if it triggers, it means Price == Entry Price.
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
                 active_list.append(t)
             else:

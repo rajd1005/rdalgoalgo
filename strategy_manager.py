@@ -140,6 +140,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "targets": targets,
         "targets_hit_indices": [],
         "highest_ltp": entry_price, # Track Made High
+        "high_locked": False,       # Flag to freeze Made High on return to entry
         "current_ltp": current_ltp,
         "trigger_dir": trigger_dir,
         "logs": logs
@@ -248,13 +249,19 @@ def update_risk_engine(kite):
             t['current_ltp'] = ltp
             updated = True
             
-            # --- MADE HIGH LOGIC (Continuous Update) ---
-            if 'highest_ltp' not in t: 
-                t['highest_ltp'] = t['entry_price']
+            # --- MADE HIGH LOGIC (Refined) ---
+            if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
+            if 'high_locked' not in t: t['high_locked'] = False
             
-            # Update Made High if current LTP is higher
-            if ltp > t['highest_ltp']: 
-                t['highest_ltp'] = ltp
+            # If not locked, track the High
+            if not t['high_locked']:
+                if ltp > t['highest_ltp']:
+                    t['highest_ltp'] = ltp
+                
+                # Check Reversal to Entry: If it comes back to Entry (and had gone up), Lock it.
+                if ltp <= t['entry_price'] and t['highest_ltp'] > t['entry_price']:
+                     t['high_locked'] = True
+                     # Note: We don't log here to avoid spamming, will log final at exit
             
         except:
             active_list.append(t)
@@ -265,7 +272,7 @@ def update_risk_engine(kite):
             if market_closed:
                 # Finalize Trade with Made High Log
                 profit = round((t['highest_ltp'] - t['entry_price']) * t['quantity'], 2)
-                log_event(t, f"Market Closed. Made High: {t['highest_ltp']} (Max Potential Profit: ₹ {profit})")
+                log_event(t, f"Market Closed. Final Made High: {t['highest_ltp']} (Max Potential Profit: ₹ {profit})")
                 
                 final_status = t.get('exit_type', 'CLOSED')
                 exit_p = t.get('exit_price', ltp)
@@ -292,8 +299,8 @@ def update_risk_engine(kite):
 
             if should_activate:
                 t['status'] = "OPEN"
-                # Initialize Made High at Entry
                 t['highest_ltp'] = t['entry_price'] 
+                t['high_locked'] = False
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
                 log_event(t, f"Trade Activated/Entered @ {ltp}") 
                 if t['mode'] == 'LIVE':
@@ -325,7 +332,7 @@ def update_risk_engine(kite):
                 exit_triggered = True
                 exit_p = t['sl']
                 
-                # Check if this was a Cost Exit (SL at Entry) or Loss Exit (SL below Entry)
+                # Check if this was a Cost Exit (SL at Entry) or Loss Exit
                 if t['sl'] >= t['entry_price']:
                     exit_reason = "COST_EXIT"
                     log_event(t, f"Price returned to Entry/Cost @ {ltp}. Safe Exit triggered.")
@@ -342,7 +349,7 @@ def update_risk_engine(kite):
                         t['targets_hit_indices'].append(i)
                         log_event(t, f"Target {i+1} Hit @ {tgt}")
                         
-                        # --- UPDATE SL LOGIC: PROTECT ENTRY AFTER T1 ---
+                        # --- UPDATE SL LOGIC: T1 HIT -> MOVE SL TO ENTRY ---
                         if i == 0:
                             t['sl'] = t['entry_price']
                             log_event(t, "T1 Hit. SL Moved to Entry Price (Cost Protection).")

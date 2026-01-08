@@ -110,8 +110,16 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
     if option_type == "FUT":
         mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
     else:
-        if not strike: return None
-        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == option_type)
+        # Check for invalid strike inputs (null, None, empty)
+        if not strike or str(strike).strip().lower() == 'null': 
+            return None
+            
+        try:
+            strike_price = float(strike)
+        except ValueError:
+            return None
+
+        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == strike_price) & (instrument_dump['instrument_type'] == option_type)
         
     if not mask.any(): return None
     return instrument_dump[mask].iloc[0]['tradingsymbol']

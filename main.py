@@ -5,7 +5,8 @@ from kiteconnect import KiteConnect
 import config
 import strategy_manager
 import smart_trader
-from database import db, AppSetting
+# Fix: Import ALL models so db.create_all() registers them
+from database import db, AppSetting, ActiveTrade, TradeHistory
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY

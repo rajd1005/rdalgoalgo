@@ -1,37 +1,47 @@
 import json
+import os
 import time
 from datetime import datetime
 import pandas as pd
-from database import db, ActiveTrade, TradeHistory
+
+TRADES_FILE = 'active_trades.json'
+HISTORY_FILE = 'trade_history.json'
 
 def load_trades():
-    try:
-        trades = []
-        rows = ActiveTrade.query.all()
-        for r in rows:
-            trades.append(json.loads(r.data))
-        return trades
-    except:
-        return []
+    if os.path.exists(TRADES_FILE):
+        try:
+            with open(TRADES_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
 
 def save_trades(trades):
-    try:
-        # Full sync: Delete all active and rewrite
-        ActiveTrade.query.delete()
-        for t in trades:
-            db.session.add(ActiveTrade(data=json.dumps(t)))
-        db.session.commit()
-    except Exception as e:
-        print(f"Save Trades Error: {e}")
-        db.session.rollback()
+    with open(TRADES_FILE, 'w') as f:
+        json.dump(trades, f, default=str, indent=4)
 
 def load_history():
-    try:
-        # Return newest first (reverse ID order)
-        rows = TradeHistory.query.order_by(TradeHistory.id.desc()).all()
-        return [json.loads(r.data) for r in rows]
-    except:
-        return []
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_history_file(history):
+    with open(HISTORY_FILE, 'w') as f:
+        json.dump(history, f, default=str, indent=4)
+
+def delete_trade(trade_id):
+    history = load_history()
+    new_history = [t for t in history if str(t['id']) != str(trade_id)]
+    
+    # If something was deleted, save and return True
+    if len(history) != len(new_history):
+        save_history_file(new_history)
+        return True
+    return False
 
 def get_time_str():
     try:
@@ -54,13 +64,9 @@ def move_to_history(trade, final_status, exit_price):
     if "Closed:" not in str(trade['logs']):
          log_event(trade, f"Closed: {final_status} @ {exit_price}")
     
-    # Save directly to DB History
-    try:
-        db.session.add(TradeHistory(data=json.dumps(trade)))
-        db.session.commit()
-    except Exception as e:
-        print(f"History Save Error: {e}")
-        db.session.rollback()
+    history = load_history()
+    history.insert(0, trade)
+    save_history_file(history)
 
 def get_exchange(symbol):
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol:
@@ -234,13 +240,9 @@ def inject_simulated_trade(trade_data, is_active):
         else:
              trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
         
-        # Save directly to DB History
-        try:
-            db.session.add(TradeHistory(data=json.dumps(trade_data)))
-            db.session.commit()
-        except Exception as e:
-            print(f"Sim History Save Error: {e}")
-            db.session.rollback()
+        hist = load_history()
+        hist.insert(0, trade_data)
+        save_history_file(hist)
 
 def update_risk_engine(kite):
     trades = load_trades()
@@ -361,6 +363,8 @@ def update_risk_engine(kite):
                     if i not in t['targets_hit_indices'] and ltp >= tgt:
                         t['targets_hit_indices'].append(i)
                         log_event(t, f"Target {i+1} Hit @ {tgt}")
+                        
+                        # --- REMOVED T1 SL MOVE LOGIC HERE ---
                         
                         if i == len(t['targets']) - 1:
                             exit_reason = "TARGET_HIT"

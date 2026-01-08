@@ -18,6 +18,13 @@ def home():
     active_trades = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE']]
     return render_template('dashboard.html', is_active=bot_active, login_url=kite.login_url(), trades=active_trades)
 
+@app.route('/logout')
+def logout():
+    global bot_active
+    bot_active = False
+    flash("🔌 Disconnected from Zerodha.")
+    return redirect('/')
+
 @app.route('/callback')
 def callback():
     global bot_active
@@ -27,13 +34,29 @@ def callback():
             data = kite.generate_session(t, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
             bot_active = True
-            # Trigger Download
             smart_trader.fetch_instruments(kite)
             flash("✅ Login Successful! System Online.")
         except Exception as e: flash(f"Login Error: {e}")
     return redirect('/')
 
 # --- API ROUTES ---
+
+@app.route('/api/positions')
+def api_positions():
+    """
+    CRITICAL: This is called by the frontend every 2 seconds.
+    It forces the backend to fetch fresh prices (LTP) from Zerodha
+    and run the Risk Engine logic before returning data.
+    """
+    if bot_active:
+        # 1. Force Risk Engine Update (Fetch Live Prices)
+        strategy_manager.update_risk_engine(kite)
+        
+    # 2. Return latest data
+    trades = strategy_manager.load_trades()
+    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE']]
+    return jsonify(active)
+
 @app.route('/api/indices')
 def api_indices():
     if not bot_active: return jsonify({"NIFTY":0, "BANKNIFTY":0, "SENSEX":0})
@@ -70,9 +93,7 @@ def api_history():
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active: return redirect('/')
-    
     try:
-        # Extract Form Data
         sym = request.form['index']
         type_ = request.form['type']
         mode = request.form['mode']
@@ -81,13 +102,11 @@ def place_trade():
         limit_price = float(request.form.get('limit_price') or 0)
         sl_points = float(request.form.get('sl_points', 0))
         
-        # Targets
         t1 = float(request.form.get('t1_price', 0))
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
         custom_targets = [t1, t2, t3] if t1 > 0 else []
         
-        # Symbol Resolution
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         
         if not final_sym:
@@ -95,13 +114,10 @@ def place_trade():
             return redirect('/')
 
         res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
-        
         if res['status'] == 'success': flash(f"✅ Executed: {final_sym}")
         else: flash(f"❌ Error: {res['message']}")
         
-    except Exception as e:
-        flash(f"Error: {e}")
-
+    except Exception as e: flash(f"Error: {e}")
     return redirect('/')
 
 @app.route('/promote/<trade_id>')

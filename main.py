@@ -13,11 +13,9 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 SETTINGS_FILE = "settings.json"
 
-# --- HELPER: SETTINGS ---
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r') as f: return json.load(f)
+        try: with open(SETTINGS_FILE, 'r') as f: return json.load(f)
         except: pass
     return {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
 
@@ -27,7 +25,7 @@ def save_settings_file(data):
 @app.route('/')
 def home():
     trades = strategy_manager.load_trades()
-    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE']]
+    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING']] # Added PENDING
     return render_template('dashboard.html', is_active=bot_active, login_url=kite.login_url(), trades=active)
 
 @app.route('/logout')
@@ -51,17 +49,16 @@ def callback():
         except Exception as e: flash(f"Login Error: {e}")
     return redirect('/')
 
-# --- SETTINGS API ---
+# --- SETTINGS ---
 @app.route('/api/settings/load')
-def api_settings_load():
-    return jsonify(load_settings())
+def api_settings_load(): return jsonify(load_settings())
 
 @app.route('/api/settings/save', methods=['POST'])
 def api_settings_save():
     save_settings_file(request.json)
     return jsonify({"status": "success"})
 
-# --- EXISTING API ---
+# --- API ---
 @app.route('/api/positions')
 def api_positions():
     if bot_active: strategy_manager.update_risk_engine(kite)
@@ -93,21 +90,14 @@ def api_s_ltp():
 def api_history():
     if not bot_active: return jsonify({"status":"error", "message":"Offline"})
     data = request.json
-    
     qty = int(data.get('qty', 50))
     sl_points = float(data.get('sl_points', 20))
     entry_price = float(data.get('entry_price', 0))
     
-    t1 = float(data.get('t1', 0))
-    t2 = float(data.get('t2', 0))
-    t3 = float(data.get('t3', 0))
+    t1 = float(data.get('t1', 0)); t2 = float(data.get('t2', 0)); t3 = float(data.get('t3', 0))
     custom_targets = [t1, t2, t3] if t1 > 0 else []
 
-    result = smart_trader.simulate_trade(
-        kite, 
-        data['symbol'], data['expiry'], data['strike'], data['type'], 
-        data['time'], sl_points, entry_price, custom_targets
-    )
+    result = smart_trader.simulate_trade(kite, data['symbol'], data['expiry'], data['strike'], data['type'], data['time'], sl_points, entry_price, custom_targets)
     
     if result['status'] == 'success':
         trade_data = result['trade_data']
@@ -115,7 +105,6 @@ def api_history():
         trade_data['targets'] = custom_targets if custom_targets else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
         strategy_manager.inject_simulated_trade(trade_data, result['is_active'])
         return jsonify({"status": "success", "message": "Simulation Complete", "is_active": result['is_active']})
-        
     return jsonify(result)
 
 # --- EXECUTION ---
@@ -131,16 +120,16 @@ def place_trade():
         limit_price = float(request.form.get('limit_price') or 0)
         sl_points = float(request.form.get('sl_points', 0))
         
-        t1 = float(request.form.get('t1_price', 0))
-        t2 = float(request.form.get('t2_price', 0))
-        t3 = float(request.form.get('t3_price', 0))
+        t1 = float(request.form.get('t1_price', 0)); t2 = float(request.form.get('t2_price', 0)); t3 = float(request.form.get('t3_price', 0))
         custom_targets = [t1, t2, t3] if t1 > 0 else []
         
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         if not final_sym: return redirect('/')
 
-        strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
-        flash(f"✅ Trade Open: {final_sym}")
+        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
+        if res['status'] == 'success': flash(f"✅ Order Placed: {final_sym}")
+        else: flash(f"❌ Error: {res['message']}")
+        
     except Exception as e: flash(f"Error: {e}")
     return redirect('/')
 

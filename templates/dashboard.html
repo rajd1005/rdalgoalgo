@@ -10,9 +10,14 @@
         body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
         
         /* TICKER */
-        .ticker-bar { background: #111; color: #fff; padding: 8px; font-size: 0.85rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; }
-        .ticker-item { margin-right: 20px; font-weight: 600; letter-spacing: 0.5px; }
-        .val-up { color: #00ff88; } .val-down { color: #ff4d4d; }
+        .ticker-bar { background: #111; color: #fff; padding: 8px; font-size: 0.85rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; justify-content: space-between; }
+        .ticker-items { display: flex; }
+        .ticker-item { margin-right: 20px; font-weight: 600; }
+
+        /* AUTH BUTTONS IN HEADER */
+        .auth-btn { font-size: 0.75rem; padding: 2px 10px; border-radius: 20px; text-decoration: none; font-weight: bold; }
+        .btn-login { background: #0d6efd; color: white; }
+        .btn-logout { background: #dc3545; color: white; }
 
         /* CARDS */
         .custom-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); background: #fff; margin-bottom: 15px; overflow: hidden; }
@@ -66,9 +71,14 @@
     {% else %}
     
     <div class="ticker-bar rounded mb-3 shadow-sm">
-        <span class="ticker-item">NIFTY: <span id="n_lp" class="text-warning">Loading...</span></span>
-        <span class="ticker-item">BANKNIFTY: <span id="b_lp" class="text-warning">Loading...</span></span>
-        <span class="ticker-item">SENSEX: <span id="s_lp" class="text-warning">Loading...</span></span>
+        <div class="ticker-items">
+            <span class="ticker-item">NIFTY: <span id="n_lp" class="text-warning">Loading...</span></span>
+            <span class="ticker-item">BANKNIFTY: <span id="b_lp" class="text-warning">...</span></span>
+            <span class="ticker-item">SENSEX: <span id="s_lp" class="text-warning">...</span></span>
+        </div>
+        <div>
+            <a href="/logout" class="auth-btn btn-logout">Logout</a>
+        </div>
     </div>
 
     <div class="nav-tabs">
@@ -165,40 +175,33 @@
     <div id="pos" class="tab-content">
         <div class="custom-card">
             <div class="card-head">💼 Active Positions</div>
-            <div class="card-body p-2">
+            <div class="card-body p-2" id="positions-container">
                 {% for t in trades %}
-                
-                <div class="card mb-3 border border-1 {{ 'border-danger' if t.mode=='LIVE' else 'border-warning' }} shadow-sm">
+                <div class="card mb-3 border border-1 {{ 'border-danger' if t.mode=='LIVE' else 'border-warning' }} shadow-sm position-card" id="card-{{t.id}}">
                     <div class="card-body p-3">
-                        
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <div>
                                 <h6 class="fw-bold mb-0" style="font-size: 1.1rem;">{{ t.symbol }}</h6>
-                                <span class="badge bg-light text-dark border">Qty: {{ t.quantity }}</span>
+                                <span class="badge bg-light text-dark border">Qty: <span id="qty-{{t.id}}">{{ t.quantity }}</span></span>
                             </div>
                             <span class="badge {{ 'bg-danger' if t.mode=='LIVE' else 'bg-warning text-dark' }}">{{ t.mode }}</span>
                         </div>
                         
-                        {% set pnl = (t.current_ltp - t.entry_price) * t.quantity %}
                         <div class="text-center py-2 mb-2 rounded bg-light">
                             <small class="text-muted fw-bold">TOTAL P&L</small>
-                            <h2 class="mb-0 fw-bold {{ 'pnl-green' if pnl >= 0 else 'pnl-red' }}">
-                                {{ "%.2f"|format(pnl) }}
-                            </h2>
+                            <h2 class="mb-0 fw-bold" id="pnl-{{t.id}}">Loading...</h2>
                         </div>
 
                         <div class="row g-2 text-center mb-3">
                             <div class="col-6 border-end">
                                 <div class="pos-grid-label">Avg Price</div>
-                                <div class="pos-grid-val">{{ "%.2f"|format(t.entry_price) }}</div>
+                                <div class="pos-grid-val" id="entry-{{t.id}}">{{ "%.2f"|format(t.entry_price) }}</div>
                             </div>
                             <div class="col-6">
                                 <div class="pos-grid-label">LTP</div>
-                                <div class="pos-grid-val text-primary">{{ "%.2f"|format(t.current_ltp) }}</div>
+                                <div class="pos-grid-val text-primary" id="ltp-{{t.id}}">{{ "%.2f"|format(t.current_ltp) }}</div>
                             </div>
-                            
                             <hr class="my-1 text-muted opacity-25">
-
                             <div class="col-3 border-end">
                                 <div class="pos-grid-label text-danger">SL</div>
                                 <div class="fw-bold small">{{ "%.1f"|format(t.sl) }}</div>
@@ -223,14 +226,10 @@
                                 <a href="/promote/{{ t.id }}" class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3">🚀 Go Live</a>
                             {% endif %}
                         </div>
-
                     </div>
                 </div>
                 {% else %}
-                <div class="text-center p-5 text-muted">
-                    <h5>No active trades</h5>
-                    <p>Execute an order to see details here.</p>
-                </div>
+                <div class="text-center p-5 text-muted"><h5>No active trades</h5></div>
                 {% endfor %}
             </div>
         </div>
@@ -241,23 +240,17 @@
             <div class="card-head">📅 Historical Check</div>
             <div class="card-body">
                 <input type="text" id="h_sym" class="form-control mb-3" placeholder="Symbol (e.g. NIFTY)" list="sym_list">
-                
                 <div class="row g-2 mb-3">
                     <div class="col-4">
                         <select id="h_type" class="form-select">
                             <option value="CE">CE</option><option value="PE">PE</option><option value="FUT">FUT</option>
                         </select>
                     </div>
-                    <div class="col-8">
-                        <select id="h_exp" class="form-select"><option>Select Symbol</option></select>
-                    </div>
+                    <div class="col-8"><select id="h_exp" class="form-select"><option>Select Symbol</option></select></div>
                 </div>
-                
                 <input type="number" id="h_str" class="form-control mb-3" placeholder="Strike Price">
                 <input type="datetime-local" id="h_time" class="form-control mb-3">
-                
                 <button onclick="checkHistory()" class="btn btn-info w-100 fw-bold text-white">🔍 Check Price</button>
-                
                 <div id="h_res" class="mt-3 p-3 bg-light border rounded" style="display:none;"></div>
             </div>
         </div>
@@ -270,10 +263,7 @@
     function switchTab(tabId) {
         document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-        
         document.getElementById(tabId).style.display = 'block';
-        
-        // Highlight correct button
         document.querySelectorAll('.nav-btn').forEach(btn => {
             if(btn.getAttribute('onclick').includes(tabId)) btn.classList.add('active');
         });
@@ -287,10 +277,10 @@
         else document.querySelector('.mode-live').classList.add('selected');
     }
 
-    // --- MAIN TRADING LOGIC ---
+    // --- MAIN LOGIC ---
     let curLTP = 0;
 
-    // 1. Ticker (Only runs if elements exist)
+    // 1. Ticker
     function updateTicker() {
         if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', function(data) {
@@ -299,10 +289,40 @@
             $('#s_lp').text(data.SENSEX);
         });
     }
-    setInterval(updateTicker, 2000);
-    updateTicker(); 
+    
+    // 2. REAL TIME POSITIONS P&L
+    function updatePositions() {
+        // Only run if positions tab is active or just run always in background
+        if(!document.getElementById('positions-container')) return;
+        
+        $.get('/api/positions', function(trades) {
+            if(!trades || trades.length === 0) return;
+            
+            trades.forEach(t => {
+                // Update LTP Text
+                $(`#ltp-${t.id}`).text(t.current_ltp.toFixed(2));
+                
+                // Calc P&L
+                let entry = t.entry_price;
+                let qty = t.quantity;
+                let pnl = (t.current_ltp - entry) * qty;
+                
+                // Update P&L Text & Color
+                let pnlEl = $(`#pnl-${t.id}`);
+                pnlEl.text(pnl.toFixed(2));
+                pnlEl.removeClass('pnl-green pnl-red');
+                pnlEl.addClass(pnl >= 0 ? 'pnl-green' : 'pnl-red');
+            });
+        });
+    }
 
-    // 2. Symbol Search
+    // Start Loops
+    setInterval(updateTicker, 2000);
+    setInterval(updatePositions, 2000); // Poll positions every 2s
+    updateTicker();
+    updatePositions();
+
+    // 3. Symbol Search
     $('#sym').on('input', function() {
         let val = $(this).val();
         if(val.length < 2) return;
@@ -312,19 +332,15 @@
         });
     });
 
-    // 3. Populate Details
+    // 4. Details & Auto-Fill
     $('#sym').change(function() {
-        let s = $(this).val();
-        if(!s) return;
-        
+        let s = $(this).val(); if(!s) return;
         let memSL = localStorage.getItem('sl_' + s);
         if(memSL) $('#sl_pts').val(memSL);
 
         $.get('/api/details?symbol=' + s, function(data) {
-            $('#lot').text(data.lot_size);
-            $('#qty').val(data.lot_size);
-            window.fut = data.fut_expiries;
-            window.opt = data.opt_expiries;
+            $('#lot').text(data.lot_size); $('#qty').val(data.lot_size);
+            window.fut = data.fut_expiries; window.opt = data.opt_expiries;
             fillExp();
         });
     });
@@ -340,20 +356,14 @@
         if(list && list.length > 0) {
             list.forEach((d, i) => $e.append(`<option value="${d}" ${i===0?'selected':''}>${d}</option>`));
             fillChain();
-        } else {
-            $e.append('<option>No Expiries</option>');
-        }
+        } else $e.append('<option>No Expiries</option>');
     }
 
     $('#exp').change(fillChain);
 
     function fillChain() {
         let s = $('#sym').val(), e = $('#exp').val(), t = $('#type').val();
-        if(t === 'FUT' || t === 'EQ') { 
-            $('#str').html('<option value="0">N/A</option>'); 
-            fetchLTP(); 
-            return; 
-        }
+        if(t === 'FUT' || t === 'EQ') { $('#str').html('<option value="0">N/A</option>'); fetchLTP(); return; }
 
         let spot = parseFloat($('#n_lp').text()) || 0;
         $.get(`/api/chain?symbol=${s}&expiry=${e}&type=${t}&ltp=${spot}`, function(data) {
@@ -380,7 +390,7 @@
         });
     }
 
-    // 4. Risk Calc
+    // 5. Risk Calc
     $('#sl_pts').on('input', function() {
         localStorage.setItem('sl_' + $('#sym').val(), $(this).val());
         calcRisk();
@@ -396,13 +406,13 @@
         }
     }
 
-    // 5. Order Type
+    // 6. Order Type Toggle
     $('#ord').change(function() {
         if($(this).val() === 'LIMIT') $('#lim_box').show();
         else $('#lim_box').hide();
     });
 
-    // 6. History Logic
+    // 7. History Logic
     $('#h_sym').change(function() {
         $.get('/api/details?symbol=' + $(this).val(), function(d) {
             window.hFut = d.fut_expiries; window.hOpt = d.opt_expiries;
@@ -419,18 +429,12 @@
     }
 
     window.checkHistory = function() {
-        let d = {
-            symbol: $('#h_sym').val(), type: $('#h_type').val(),
-            expiry: $('#h_exp').val(), strike: $('#h_str').val(),
-            time: $('#h_time').val()
-        };
+        let d = { symbol: $('#h_sym').val(), type: $('#h_type').val(), expiry: $('#h_exp').val(), strike: $('#h_str').val(), time: $('#h_time').val() };
         $('#h_res').show().text("Checking...");
         $.get('/api/history_check', d, function(r) {
             if(r.status === 'success') {
                 $('#h_res').html(`<b>${r.symbol}</b><br>${r.data.date}<br>Open: ${r.data.open} <br>High: ${r.data.high} <br>Low: ${r.data.low} <br>Close: ${r.data.close}`);
-            } else {
-                $('#h_res').text(r.message);
-            }
+            } else $('#h_res').text(r.message);
         });
     };
 </script>

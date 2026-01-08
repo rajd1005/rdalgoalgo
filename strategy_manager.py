@@ -225,7 +225,13 @@ def inject_simulated_trade(trade_data, is_active):
         save_trades(trades)
     else:
         # Trade completely finished in simulator
-        trade_data['pnl'] = round((trade_data['exit_price'] - trade_data['entry_price']) * trade_data['quantity'], 2)
+        # Calculate PnL based on Made High
+        # If Status is PENDING (never triggered), PnL should be 0
+        if trade_data.get('status') == 'PENDING':
+             trade_data['pnl'] = 0
+        else:
+             trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
+        
         hist = load_history()
         hist.insert(0, trade_data)
         save_history_file(hist)

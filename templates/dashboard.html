@@ -179,6 +179,9 @@
 
     // --- DATA ---
     let curLTP=0;
+    // Store current symbol spot prices globally to use in History Tab
+    let symLTP = {}; 
+
     function updateData() {
         if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); });
@@ -236,7 +239,13 @@
     function loadDetails(symId, expId, typeId) {
         let s = $(symId).val(); if(!s) return;
         $.get('/api/details?symbol='+s, d => { 
+            // STORE LTP FOR LATER ATM CALCULATION
+            symLTP[symId] = d.ltp; 
+
+            // Auto-Populate Qty & Lot Size
             if(symId === '#sym') { $('#lot').text(d.lot_size); $('#qty').val(d.lot_size); }
+            if(symId === '#h_sym') { $('#h_qty').val(d.lot_size); } // Fix for Simulator
+
             window[symId+'_fut'] = d.fut_expiries; window[symId+'_opt'] = d.opt_expiries;
             fillExp(expId, typeId, symId);
         });
@@ -254,11 +263,18 @@
     $('#type').change(() => fillExp('#exp', '#type', '#sym'));
     $('#h_type').change(() => fillExp('#h_exp', '#h_type', '#h_sym'));
 
-    // Fill Chain
+    // Fill Chain & AUTO-SELECT ATM
     function fillChain(sym, exp, type, str) {
-        $.get(`/api/chain?symbol=${$(sym).val()}&expiry=${$(exp).val()}&type=${$(type).val()}&ltp=0`, d => {
+        // USE THE STORED LTP from the search step
+        let spot = symLTP[sym] || 0;
+        
+        $.get(`/api/chain?symbol=${$(sym).val()}&expiry=${$(exp).val()}&type=${$(type).val()}&ltp=${spot}`, d => {
             let $s = $(str).empty(); 
-            d.forEach(r => $s.append(`<option value="${r.strike}">${r.strike} (${r.label})</option>`));
+            d.forEach(r => {
+                let isAtm = r.label.includes("ATM");
+                // Check if we should auto-select
+                $s.append(`<option value="${r.strike}" ${isAtm?'selected':''}>${r.strike} ${r.label}</option>`);
+            });
             if(str === '#str') fetchLTP();
         });
     }

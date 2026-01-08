@@ -165,11 +165,12 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         exit_p = 0
         exit_t = ""
         
-        # Log 1: Adding Time (Simulator uses Entry Time as Setup Time)
+        # Log 1: Adding Time
         logs = [f"[{time_str}] Trade Added/Setup"]
         
-        # Log 2: Activation Time
-        logs.append(f"[{time_str}] Trade Activated/Entered @ {entry}")
+        # Log 2: Activation Time (Using CHART Time)
+        # Use first['date'] to grab the exact candle timestamp
+        logs.append(f"[{first['date']}] Trade Activated/Entered @ {entry}")
         
         # Tracking variables
         trade_active = True

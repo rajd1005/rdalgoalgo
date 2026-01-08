@@ -72,49 +72,50 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     except:
         current_ltp = 0.0
 
+    if current_ltp == 0:
+        return {"status": "error", "message": "Failed to fetch Live Price"}
+
     status = "OPEN"
     entry_price = 0.0
+    trigger_dir = "BELOW" # Default trigger direction
 
     if order_type == "MARKET":
-        if current_ltp == 0:
-            return {"status": "error", "message": "Failed to fetch Live Price for Market Order"}
         entry_price = current_ltp
         status = "OPEN"
     else:
-        # LIMIT ORDER LOGIC
+        # LIMIT ORDER LOGIC (ALGO MANAGED)
         entry_price = float(limit_price)
         if entry_price <= 0:
             return {"status": "error", "message": "Invalid Limit Price"}
 
-        # If Market Price (LTP) is already lower than or equal to Limit Price (for BUY), 
-        # it executes immediately (OPEN) at the BETTER price (current_ltp).
-        # Otherwise, it waits (PENDING).
-        if current_ltp > 0 and current_ltp <= entry_price:
-            status = "OPEN"
-            # FIX: If filling immediately, update entry price to actual market price
-            # so SL is calculated correctly relative to where we actually entered.
-            entry_price = current_ltp 
+        # Always set to PENDING for Limit orders to wait for price level
+        status = "PENDING"
+        
+        # Determine Trigger Direction
+        # If Limit > LTP: Wait for Price to rise (ABOVE) -> Stop Buy Logic
+        # If Limit < LTP: Wait for Price to fall (BELOW) -> Dip Buy Logic
+        if entry_price >= current_ltp:
+            trigger_dir = "ABOVE"
         else:
-            status = "PENDING"
+            trigger_dir = "BELOW"
 
-    if mode == "LIVE":
+    if mode == "LIVE" and status == "OPEN":
+        # Only place immediate order if it's MARKET (OPEN)
+        # Limit orders are pending locally until triggered
         try:
-            k_type = kite.ORDER_TYPE_MARKET if order_type == "MARKET" else kite.ORDER_TYPE_LIMIT
-            price = 0 if order_type == "MARKET" else float(limit_price) # Send user's limit price to broker
-            
             kite.place_order(
                 tradingsymbol=specific_symbol,
                 exchange=exchange,
                 transaction_type=kite.TRANSACTION_TYPE_BUY,
                 quantity=quantity,
-                order_type=k_type,
-                price=price,
+                order_type=kite.ORDER_TYPE_MARKET,
+                price=0,
                 product=kite.PRODUCT_MIS
             )
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # Calculate Targets based on FINAL ENTRY PRICE
+    # Calculate Targets based on ENTRY PRICE (User Limit or Market)
     targets = []
     calc_price = entry_price
     
@@ -141,7 +142,8 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "targets": targets,
         "t1_hit": False,
         "current_ltp": current_ltp,
-        "logs": [f"Order Placed ({order_type}) @ {entry_price}. Status: {status}"]
+        "trigger_dir": trigger_dir,
+        "logs": [f"Order Created ({order_type}). Status: {status}. Trigger: {trigger_dir if order_type=='LIMIT' else 'N/A'}"]
     }
     
     trades.append(record)
@@ -248,14 +250,40 @@ def update_risk_engine(kite):
                 move_to_history(t, "CANCELLED_EOD", 0)
                 continue
             
-            # 2. Activate if Market Reaches Entry Price (Buy Limit Logic)
-            # If LTP drops to our Limit Price (Entry Price), we activate.
-            if ltp <= t['entry_price']:
+            # 2. Check Activation Logic
+            should_activate = False
+            trigger_dir = t.get('trigger_dir', 'BELOW') # Default to BELOW (Dip Buy) if not found
+            
+            if trigger_dir == 'BELOW':
+                # Wait for price to drop to Entry Price
+                if ltp <= t['entry_price']:
+                    should_activate = True
+            elif trigger_dir == 'ABOVE':
+                # Wait for price to rise to Entry Price
+                if ltp >= t['entry_price']:
+                    should_activate = True
+
+            if should_activate:
                 t['status'] = "OPEN"
-                # Note: For pending activation, we keep the original planned entry price
-                # as the reference, or we could update it to LTP. 
-                # Usually if it triggers, it means Price == Entry Price.
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
+                
+                # Execute Order if LIVE
+                if t['mode'] == 'LIVE':
+                    try:
+                        # Place Market Order to ensure execution at Triggered Level
+                        kite.place_order(
+                            tradingsymbol=t['symbol'],
+                            exchange=t['exchange'],
+                            transaction_type=kite.TRANSACTION_TYPE_BUY,
+                            quantity=t['quantity'],
+                            order_type=kite.ORDER_TYPE_MARKET,
+                            product=kite.PRODUCT_MIS
+                        )
+                        log_event(t, "Broker Order Placed (Market)")
+                    except Exception as e:
+                        log_event(t, f"Broker Order Failed: {str(e)}")
+                        # We keep it OPEN in system but warn user via logs
+                
                 active_list.append(t)
             else:
                 active_list.append(t)

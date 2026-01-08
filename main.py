@@ -21,7 +21,7 @@ def home():
 def logout():
     global bot_active
     bot_active = False
-    flash("🔌 Logout Successful")
+    flash("🔌 Disconnected")
     return redirect('/')
 
 @app.route('/callback')
@@ -45,8 +45,7 @@ def api_positions():
     return jsonify(strategy_manager.load_trades())
 
 @app.route('/api/closed_trades')
-def api_closed_trades():
-    return jsonify(strategy_manager.load_history())
+def api_closed_trades(): return jsonify(strategy_manager.load_history())
 
 @app.route('/api/indices')
 def api_indices():
@@ -67,9 +66,64 @@ def api_chain():
 def api_s_ltp(): 
     return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
-@app.route('/api/history_check')
+@app.route('/api/history_check', methods=['POST'])
 def api_history():
-    return jsonify(smart_trader.fetch_historical_check(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'), request.args.get('time')))
+    """
+    Runs the trade simulation and saves the result to Active or Closed tabs.
+    """
+    if not bot_active: return jsonify({"status":"error", "message":"Offline"})
+    
+    # Get parameters from POST data (JSON)
+    data = request.json
+    
+    # Calculate Targets based on SL Points
+    sl = float(data.get('sl_points', 20))
+    # We need entry price to calculate targets, but simulation does that internally.
+    # We pass the logic: Targets are 0.5x, 1x, 2x of SL. 
+    # But simulate_trade needs absolute prices.
+    # Solution: We pass SL Points, and inside simulate_trade we calc absolute SL/Targets based on Historical Entry.
+    
+    # Simplified: We pass SL Points, and we need to pass RELATIVE target multipliers or calculate inside.
+    # Let's update simulate_trade to accept SL_POINTS and calculate targets internally based on Entry Price.
+    
+    # Wait, simulate_trade needs absolute target prices if we passed them?
+    # Let's let simulate_trade calculate them.
+    
+    # 1. Simulate
+    # Note: We need to pass the LOT SIZE (Quantity) so P&L is correct.
+    qty = int(data.get('qty', 50))
+    
+    # Pre-calc targets logic is hard without entry price. 
+    # Update smart_trader.simulate_trade to calculate targets dynamically.
+    
+    result = smart_trader.simulate_trade(
+        kite, 
+        data['symbol'], 
+        data['expiry'], 
+        data['strike'], 
+        data['type'], 
+        data['time'], 
+        float(data['sl_points']),
+        [] # Targets will be auto-calculated inside using SL points
+    )
+    
+    if result['status'] == 'success':
+        # Add Quantity to the trade data
+        trade_data = result['trade_data']
+        trade_data['quantity'] = qty
+        
+        # Recalculate Targets in data (for display)
+        entry = trade_data['entry_price']
+        sl_pts = float(data['sl_points'])
+        trade_data['targets'] = [entry + sl_pts*0.5, entry + sl_pts*1.0, entry + sl_pts*2.0]
+        
+        # Inject into System
+        strategy_manager.inject_simulated_trade(trade_data, result['is_active'])
+        
+        msg = "Trade is ACTIVE" if result['is_active'] else f"Trade CLOSED ({trade_data['status']})"
+        return jsonify({"status": "success", "message": msg, "is_active": result['is_active']})
+        
+    return jsonify(result)
 
 # --- EXECUTION ---
 @app.route('/trade', methods=['POST'])

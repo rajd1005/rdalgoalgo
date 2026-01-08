@@ -198,18 +198,23 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             
             # Trade Management
             if trade_active:
-                # Track Made High (Continuing even after exit if loop persists)
+                # Track Made High Logic (Continuous)
                 if curr_high > made_high:
                     made_high = curr_high
                     
-                # 1. Check SL
-                if status == "OPEN": # Only check SL if currently Open
+                # 1. Check SL (Standard OR Cost)
+                if status == "OPEN": 
                     if curr_low <= sl:
-                        status = "SL_HIT"
+                        if sl >= entry:
+                            status = "COST_EXIT" # Safe exit at entry
+                            logs.append(f"[{c_time}] Price returned to Entry (Cost) @ {sl}. Safe Exit.")
+                        else:
+                            status = "SL_HIT"
+                            logs.append(f"[{c_time}] SL Hit @ {sl}")
+                            
                         exit_p = sl
                         exit_t = c_time
-                        logs.append(f"[{c_time}] SL Hit @ {sl}")
-                        # Don't break; continue loop to track Made High
+                        # Don't break; continue loop to track Made High (if needed, though exited)
                         
                     # 2. Check Targets
                     elif status == "OPEN":
@@ -218,20 +223,25 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                 targets_hit_indices.append(i)
                                 logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price}")
                                 
-                                # --- REMOVED TRAILING SL LOGIC HERE ---
+                                # --- UPDATE SL LOGIC: T1 HIT -> MOVE SL TO ENTRY ---
+                                if i == 0:
+                                    sl = entry
+                                    logs.append(f"[{c_time}] T1 Hit. SL Moved to Entry (Cost Protection)")
+                                # ---------------------------------------------------
                                 
                                 if i == len(tgts) - 1:
                                     status = "TARGET_HIT"
                                     exit_p = t_price
                                     exit_t = c_time
                                     logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
-                                    # Don't break; continue loop to track Made High
             
-            # If trade is no longer active (Status is SL_HIT or TARGET_HIT), we still track Made High
-            # by continuing the loop.
-            if status in ["SL_HIT", "TARGET_HIT"]:
-                if curr_high > made_high:
-                     made_high = curr_high
+            # If trade is no longer active (Status is SL_HIT, COST_EXIT or TARGET_HIT), 
+            # we continue the loop only if we want to see post-exit movement, 
+            # BUT for Made High calculation relative to this trade, it usually freezes at exit 
+            # OR continues if we consider 'potential'. 
+            # The user requirement: "Market reveres form any point and again come to the entry point, this ... is Made high"
+            # This implies the Made High is the high point UP TO the return to entry.
+            # Since 'COST_EXIT' happens when it returns to entry, the 'made_high' captured above is correct.
 
         # After loop finishes
         profit_pts = made_high - entry

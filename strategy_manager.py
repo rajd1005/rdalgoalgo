@@ -281,7 +281,7 @@ def update_risk_engine(kite):
             if should_activate:
                 t['status'] = "OPEN"
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
-                log_event(t, f"Trade Activated/Entered @ {ltp}") # Explicit log for activation time
+                log_event(t, f"Trade Activated/Entered @ {ltp}") 
                 if t['mode'] == 'LIVE':
                     try:
                         kite.place_order(

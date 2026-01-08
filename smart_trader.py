@@ -153,7 +153,12 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             return {"status": "error", "message": "No Data Found"}
             
         first = candles[0]
-        entry = float(custom_entry) if custom_entry > 0 else first['open']
+        
+        # Determine Entry Logic
+        # If custom_entry > 0: It's a LIMIT/STOP logic, we must wait for price to hit it.
+        # If custom_entry == 0: It's MARKET logic, we enter immediately at Open.
+        is_limit_order = (float(custom_entry) > 0)
+        entry = float(custom_entry) if is_limit_order else first['open']
         
         if len(custom_targets) == 3 and custom_targets[0] > 0:
             tgts = custom_targets
@@ -161,19 +166,20 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             tgts = [entry+sl_points*0.5, entry+sl_points*1.0, entry+sl_points*2.0]
         
         sl = entry - sl_points
-        status = "OPEN"
+        status = "PENDING" if is_limit_order else "OPEN"
         exit_p = 0
         exit_t = ""
         
-        # Log 1: Adding Time
+        # Log 1: Adding/Setup Time
         logs = [f"[{time_str}] Trade Added/Setup"]
         
-        # Log 2: Activation Time (Using CHART Time)
-        # Use first['date'] to grab the exact candle timestamp
-        logs.append(f"[{first['date']}] Trade Activated/Entered @ {entry}")
-        
         # Tracking variables
-        trade_active = True
+        trade_active = False
+        if not is_limit_order:
+            # Immediate Entry
+            trade_active = True
+            logs.append(f"[{first['date']}] Trade Activated/Entered @ {entry}")
+            
         targets_hit_indices = [] 
         made_high = entry
         
@@ -182,11 +188,25 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             curr_low = c['low']
             c_time = c['date']
             
-            # Always track Made High after entry
-            if curr_high > made_high:
-                made_high = curr_high
-                
+            # PENDING -> OPEN Check
+            if not trade_active and status == "PENDING":
+                # Check if price range touches entry
+                if curr_low <= entry <= curr_high:
+                    status = "OPEN"
+                    trade_active = True
+                    logs.append(f"[{c_time}] Trade Activated/Entered @ {entry}")
+                    made_high = entry # Reset made_high to entry point
+                    # Proceed to manage trade in SAME candle? 
+                    # Generally safer to start checking SL/Tgt in same candle for extreme moves
+                else:
+                    continue # Wait for next candle
+            
+            # Trade Management
             if trade_active:
+                # Track Made High
+                if curr_high > made_high:
+                    made_high = curr_high
+                    
                 # 1. Check SL
                 if curr_low <= sl:
                     status = "SL_HIT"
@@ -217,6 +237,12 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         # After loop finishes
         profit_pts = made_high - entry
         profit_amt = profit_pts * quantity
+        
+        if status == "PENDING":
+             logs.append("Trade Never Triggered (Price did not reach Entry)")
+             made_high = 0
+             profit_amt = 0
+
         logs.append(f"Made High: {made_high} (Max Potential Profit: ₹ {profit_amt:.2f})")
 
         active = (status == "OPEN")

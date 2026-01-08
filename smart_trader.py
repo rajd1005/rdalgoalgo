@@ -155,8 +155,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         first = candles[0]
         
         # Determine Entry Logic
-        # If custom_entry > 0: It's a LIMIT/STOP logic, we must wait for price to hit it.
-        # If custom_entry == 0: It's MARKET logic, we enter immediately at Open.
         is_limit_order = (float(custom_entry) > 0)
         entry = float(custom_entry) if is_limit_order else first['open']
         
@@ -190,49 +188,52 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             
             # PENDING -> OPEN Check
             if not trade_active and status == "PENDING":
-                # Check if price range touches entry
                 if curr_low <= entry <= curr_high:
                     status = "OPEN"
                     trade_active = True
                     logs.append(f"[{c_time}] Trade Activated/Entered @ {entry}")
-                    made_high = entry # Reset made_high to entry point
-                    # Proceed to manage trade in SAME candle? 
-                    # Generally safer to start checking SL/Tgt in same candle for extreme moves
+                    made_high = entry 
                 else:
-                    continue # Wait for next candle
+                    continue 
             
             # Trade Management
             if trade_active:
-                # Track Made High
+                # Track Made High (Continuing even after exit if loop persists)
                 if curr_high > made_high:
                     made_high = curr_high
                     
                 # 1. Check SL
-                if curr_low <= sl:
-                    status = "SL_HIT"
-                    exit_p = sl
-                    exit_t = c_time
-                    logs.append(f"[{c_time}] SL Hit @ {sl}")
-                    trade_active = False 
-                    
-                # 2. Check Targets
-                if trade_active: 
-                    for i, t_price in enumerate(tgts):
-                        if i not in targets_hit_indices and curr_high >= t_price:
-                            targets_hit_indices.append(i)
-                            logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price}")
-                            
-                            if i == 0:
-                                sl = entry
-                                logs.append(f"[{c_time}] T1 Hit. SL->Entry")
-                            
-                            if i == len(tgts) - 1:
-                                status = "TARGET_HIT"
-                                exit_p = t_price
-                                exit_t = c_time
-                                logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
-                                trade_active = False
-                                break
+                if status == "OPEN": # Only check SL if currently Open
+                    if curr_low <= sl:
+                        status = "SL_HIT"
+                        exit_p = sl
+                        exit_t = c_time
+                        logs.append(f"[{c_time}] SL Hit @ {sl}")
+                        # Don't break; continue loop to track Made High
+                        
+                    # 2. Check Targets
+                    elif status == "OPEN":
+                        for i, t_price in enumerate(tgts):
+                            if i not in targets_hit_indices and curr_high >= t_price:
+                                targets_hit_indices.append(i)
+                                logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price}")
+                                
+                                if i == 0:
+                                    sl = entry
+                                    logs.append(f"[{c_time}] T1 Hit. SL->Entry")
+                                
+                                if i == len(tgts) - 1:
+                                    status = "TARGET_HIT"
+                                    exit_p = t_price
+                                    exit_t = c_time
+                                    logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
+                                    # Don't break; continue loop to track Made High
+            
+            # If trade is no longer active (Status is SL_HIT or TARGET_HIT), we still track Made High
+            # by continuing the loop.
+            if status in ["SL_HIT", "TARGET_HIT"]:
+                if curr_high > made_high:
+                     made_high = curr_high
 
         # After loop finishes
         profit_pts = made_high - entry

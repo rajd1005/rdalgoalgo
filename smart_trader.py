@@ -103,11 +103,12 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
 
-# --- SIMULATION LOGIC ---
-def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, targets):
+# --- UPDATED SIMULATION LOGIC ---
+def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, custom_entry, custom_targets):
     """
-    Backtests a trade from entry_time until NOW.
-    Returns the final status (Active/Closed) and PnL.
+    Backtests a trade.
+    FIX 1: End Date = Tomorrow (Avoids Timezone crashes).
+    FIX 2: Uses custom entry and targets if provided.
     """
     symbol_common = get_zerodha_symbol(symbol)
     tradingsymbol = get_exact_symbol(symbol_common, expiry, strike, type_)
@@ -120,36 +121,48 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, tar
     token = token_row.iloc[0]['instrument_token']
     
     try:
-        # Fetch Data: Entry Time -> Now
+        # Time Handling
         start_dt = datetime.strptime(time_str.replace("T", " "), "%Y-%m-%d %H:%M")
-        end_dt = datetime.now()
+        # FIX: Set end_dt to tomorrow to ensure it's always > start_dt (handles UTC/IST mismatch)
+        end_dt = datetime.now() + timedelta(days=1)
         
-        # Note: Zerodha allows max 60 days of 1min data. Assuming check is recent.
         candles = kite.historical_data(token, start_dt, end_dt, "minute")
         
         if not candles:
             return {"status": "error", "message": "No historical data found for this time."}
             
-        # ENTRY
-        entry_candle = candles[0]
-        entry_price = entry_candle['open'] # Assume entry at Open of that minute
+        # 1. Determine Entry
+        first_candle = candles[0]
+        # Use custom entry if provided (>0), else Open Price
+        entry_price = float(custom_entry) if custom_entry > 0 else first_candle['open']
         
-        # State Variables
+        # 2. Determine Targets/SL
+        current_sl = entry_price - sl_points
+        
+        # If custom targets provided (size 3), use them. Else Auto-Calc.
+        if len(custom_targets) == 3 and custom_targets[0] > 0:
+            targets = custom_targets
+        else:
+            targets = [
+                entry_price + (sl_points * 0.5),
+                entry_price + (sl_points * 1.0),
+                entry_price + (sl_points * 2.0)
+            ]
+        
+        # Simulation Loop
         status = "OPEN"
         exit_price = 0
         exit_time = ""
-        logs = [f"Simulated Entry at {entry_candle['date']} @ {entry_price}"]
+        logs = [f"Simulated Entry at {first_candle['date']} @ {entry_price}"]
         
-        current_sl = entry_price - sl_points
         t1_hit = False
         
-        # SIMULATION LOOP
         for candle in candles:
             low = candle['low']
             high = candle['high']
             curr_time = candle['date'].strftime('%Y-%m-%d %H:%M:%S')
             
-            # 1. Check SL
+            # Check SL
             if low <= current_sl:
                 status = "SL_HIT"
                 exit_price = current_sl
@@ -157,13 +170,13 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, tar
                 logs.append(f"[{curr_time}] Stop Loss Hit @ {current_sl}")
                 break
                 
-            # 2. Check T1 (Safe Guard)
+            # Check T1 (Safe Guard)
             if high >= targets[0] and not t1_hit:
                 t1_hit = True
-                current_sl = entry_price
+                current_sl = entry_price # Move SL to Cost
                 logs.append(f"[{curr_time}] Target 1 Hit. SL Moved to Entry.")
                 
-            # 3. Check Final Target (T3)
+            # Check Final Target (T3)
             if high >= targets[2]:
                 status = "TARGET_HIT"
                 exit_price = targets[2]
@@ -171,11 +184,8 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, tar
                 logs.append(f"[{curr_time}] Final Target Hit @ {targets[2]}")
                 break
         
-        # FINALIZE
         is_active = (status == "OPEN")
-        
         if is_active:
-            # If still open, current price is the last candle's close
             current_ltp = candles[-1]['close']
             logs.append(f"Trade still ACTIVE. Current Price: {current_ltp}")
         else:

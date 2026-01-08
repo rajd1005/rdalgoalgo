@@ -50,7 +50,7 @@
         <div class="nav-btn active" onclick="switchTab('trade')">🚀 Trade</div>
         <div class="nav-btn" onclick="switchTab('pos')">💼 Active</div>
         <div class="nav-btn" onclick="switchTab('closed')">📜 Closed</div>
-        <div class="nav-btn" onclick="switchTab('history')">📅 Check</div>
+        <div class="nav-btn" onclick="switchTab('history')">📅 Simulator</div>
     </div>
 
     <div id="trade" class="tab-content active">
@@ -122,29 +122,43 @@
         <div class="custom-card">
             <div class="card-head">📅 Trade Simulator</div>
             <div class="card-body">
-                <p class="text-muted small">Simulate a past trade.</p>
-                <input type="text" id="h_sym" class="form-control mb-3" placeholder="Symbol" list="sym_list">
+                <div class="mb-3">
+                    <label class="pos-grid-label">SEARCH SYMBOL</label>
+                    <input type="text" id="h_sym" class="form-control fw-bold" placeholder="Symbol" list="h_sym_list">
+                    <datalist id="h_sym_list"></datalist>
+                </div>
+                
                 <div class="row g-2 mb-3">
                     <div class="col-4"><select id="h_type" class="form-select"><option>CE</option><option>PE</option><option>FUT</option></select></div>
                     <div class="col-8"><select id="h_exp" class="form-select"></select></div>
                 </div>
-                <select id="h_str" class="form-select mb-3"><option>Select Expiry</option></select>
-                
-                <label class="pos-grid-label">Past Entry Time</label>
-                <input type="datetime-local" id="h_time" class="form-control mb-3">
+                <select id="h_str" class="form-select mb-3"><option>Select Expiry First</option></select>
                 
                 <div class="row g-2 mb-3">
-                    <div class="col-6"><label class="pos-grid-label">SL Points</label><input type="number" id="h_sl" class="form-control" value="20"></div>
-                    <div class="col-6"><label class="pos-grid-label">Qty</label><input type="number" id="h_qty" class="form-control" value="50"></div>
-                </div>
-
-                <div class="mb-3 p-2 bg-light rounded border">
-                    <small class="text-muted fw-bold d-block mb-2">Optional Overrides</small>
-                    <div class="row g-2 mb-2">
-                        <div class="col-6"><input type="number" step="0.05" id="h_entry" class="form-control form-control-sm" placeholder="Entry Price"></div>
-                        <div class="col-6"><input type="number" step="0.05" id="h_t1" class="form-control form-control-sm" placeholder="Target 1"></div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">ENTRY PRICE <span class="text-danger">*</span></label>
+                        <input type="number" step="0.05" id="h_entry" class="form-control fw-bold border-primary" placeholder="Required">
                     </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">ENTRY TIME</label>
+                        <input type="datetime-local" id="h_time" class="form-control">
+                    </div>
+                </div>
+                
+                <div class="p-2 bg-light rounded border mb-3">
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col-6">
+                            <label class="pos-grid-label">SL Points</label>
+                            <input type="number" id="h_sl_pts" class="form-control" value="20">
+                        </div>
+                        <div class="col-6">
+                            <label class="pos-grid-label">Qty</label>
+                            <input type="number" id="h_qty" class="form-control" value="50">
+                        </div>
+                    </div>
+                    <hr class="my-2">
                     <div class="row g-2">
+                        <div class="col-6"><input type="number" step="0.05" id="h_t1" class="form-control form-control-sm" placeholder="Target 1"></div>
                         <div class="col-6"><input type="number" step="0.05" id="h_t2" class="form-control form-control-sm" placeholder="Target 2"></div>
                         <div class="col-6"><input type="number" step="0.05" id="h_t3" class="form-control form-control-sm" placeholder="Target 3"></div>
                     </div>
@@ -207,25 +221,51 @@
         });
     }
 
-    // --- LOGIC ---
-    $('#sym').on('input', function() { if(this.value.length>1) $.get('/api/search?q='+this.value, d => { $('#sym_list').empty(); d.forEach(s=>$('#sym_list').append(`<option value="${s}">`)) }); });
-    $('#sym').change(function() { 
-        $.get('/api/details?symbol='+this.value, d => { 
-            $('#lot').text(d.lot_size); $('#qty').val(d.lot_size); window.fut=d.fut_expiries; window.opt=d.opt_expiries; fillExp(); 
-        });
-    });
-    $('#type').change(fillExp);
-    function fillExp() { 
-        let l = $('#type').val()=='FUT'?window.fut:window.opt; let $e=$('#exp').empty(); 
-        if(l) l.forEach(d=>$e.append(`<option value="${d}">${d}</option>`)); fillChain();
-    }
-    $('#exp').change(fillChain);
-    function fillChain() {
-        $.get(`/api/chain?symbol=${$('#sym').val()}&expiry=${$('#exp').val()}&type=${$('#type').val()}&ltp=${$('#n_lp').text()}`, d => {
-            let $s=$('#str').empty(); d.forEach(r=>$s.append(`<option value="${r.strike}" ${r.label.includes('ATM')?'selected':''}>${r.strike} ${r.label}</option>`));
-            fetchLTP();
+    // --- SHARED LOGIC ---
+    function bindSearch(id, listId) {
+        $(id).on('input', function() { 
+            if(this.value.length>1) $.get('/api/search?q='+this.value, d => { 
+                $(listId).empty(); d.forEach(s=>$(listId).append(`<option value="${s}">`)) 
+            }); 
         });
     }
+    bindSearch('#sym', '#sym_list'); 
+    bindSearch('#h_sym', '#h_sym_list');
+
+    // Details & Expiry
+    function loadDetails(symId, expId, typeId) {
+        let s = $(symId).val(); if(!s) return;
+        $.get('/api/details?symbol='+s, d => { 
+            if(symId === '#sym') { $('#lot').text(d.lot_size); $('#qty').val(d.lot_size); }
+            window[symId+'_fut'] = d.fut_expiries; window[symId+'_opt'] = d.opt_expiries;
+            fillExp(expId, typeId, symId);
+        });
+    }
+    $('#sym').change(() => loadDetails('#sym', '#exp', '#type'));
+    $('#h_sym').change(() => loadDetails('#h_sym', '#h_exp', '#h_type'));
+
+    function fillExp(expId, typeId, symId) { 
+        let l = $(typeId).val()=='FUT' ? window[symId+'_fut'] : window[symId+'_opt']; 
+        let $e = $(expId).empty(); 
+        if(l) l.forEach(d => $e.append(`<option value="${d}">${d}</option>`)); 
+        if(expId === '#exp') fillChain('#sym', '#exp', '#type', '#str');
+        if(expId === '#h_exp') fillChain('#h_sym', '#h_exp', '#h_type', '#h_str');
+    }
+    $('#type').change(() => fillExp('#exp', '#type', '#sym'));
+    $('#h_type').change(() => fillExp('#h_exp', '#h_type', '#h_sym'));
+
+    // Fill Chain
+    function fillChain(sym, exp, type, str) {
+        $.get(`/api/chain?symbol=${$(sym).val()}&expiry=${$(exp).val()}&type=${$(type).val()}&ltp=0`, d => {
+            let $s = $(str).empty(); 
+            d.forEach(r => $s.append(`<option value="${r.strike}">${r.strike} (${r.label})</option>`));
+            if(str === '#str') fetchLTP();
+        });
+    }
+    $('#exp').change(() => fillChain('#sym', '#exp', '#type', '#str'));
+    $('#h_exp').change(() => fillChain('#h_sym', '#h_exp', '#h_type', '#h_str'));
+
+    // Trade Tab specifics
     $('#str').change(fetchLTP);
     function fetchLTP() {
         $.get(`/api/specific_ltp?symbol=${$('#sym').val()}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
@@ -238,20 +278,27 @@
         $('#p_sl').val((curLTP-p).toFixed(2)); $('#p_t1').val((curLTP+p*0.5).toFixed(2)); 
         $('#p_t2').val((curLTP+p*1).toFixed(2)); $('#p_t3').val((curLTP+p*2).toFixed(2));
     }
-    
-    // --- HISTORY SIMULATOR ---
-    $('#h_sym').change(function() { $.get('/api/details?symbol='+this.value, d => { window.hFut=d.fut_expiries; window.hOpt=d.opt_expiries; fillHExp(); }); });
-    $('#h_type').change(fillHExp);
-    function fillHExp() { let l=$('#h_type').val()=='FUT'?window.hFut:window.hOpt; let $e=$('#h_exp').empty(); if(l) l.forEach(d=>$e.append(`<option value="${d}">${d}</option>`)); fillHChain(); }
-    $('#h_exp').change(fillHChain);
-    function fillHChain() { $.get(`/api/chain?symbol=${$('#h_sym').val()}&expiry=${$('#h_exp').val()}&type=${$('#h_type').val()}&ltp=0`, d => { let $s=$('#h_str').empty(); d.forEach(r=>$s.append(`<option value="${r.strike}">${r.strike}</option>`)); }); }
+
+    // --- SIMULATOR AUTO-CALC ---
+    $('#h_entry, #h_sl_pts').on('input', function() {
+        let entry = parseFloat($('#h_entry').val()) || 0;
+        let pts = parseFloat($('#h_sl_pts').val()) || 0;
+        if(entry > 0) {
+            $('#h_t1').val((entry + pts * 0.5).toFixed(2));
+            $('#h_t2').val((entry + pts * 1.0).toFixed(2));
+            $('#h_t3').val((entry + pts * 2.0).toFixed(2));
+        }
+    });
 
     window.checkHistory = function() {
+        let entry = $('#h_entry').val();
+        if(!entry) { alert("Entry Price is required for simulation!"); return; }
+
         let d = {
-            symbol: $('#h_sym').val(), type: $('#h_type').val(), expiry: $('#h_exp').val(), 
-            strike: $('#h_str').val(), time: $('#h_time').val(), 
-            sl_points: $('#h_sl').val(), qty: $('#h_qty').val(),
-            entry_price: $('#h_entry').val(), t1: $('#h_t1').val(), t2: $('#h_t2').val(), t3: $('#h_t3').val()
+            symbol:$('#h_sym').val(), type:$('#h_type').val(), expiry:$('#h_exp').val(), 
+            strike:$('#h_str').val(), time:$('#h_time').val(), 
+            sl_points:$('#h_sl_pts').val(), qty:$('#h_qty').val(),
+            entry_price: entry, t1: $('#h_t1').val(), t2: $('#h_t2').val(), t3: $('#h_t3').val()
         };
         $('#h_res').show().text("Running Simulation...");
         
@@ -261,7 +308,7 @@
             success: function(r) {
                 if(r.status==='success') {
                     $('#h_res').html(`<b class="text-success">${r.message}</b>`);
-                    setTimeout(() => { if(r.is_active) switchTab('pos'); else switchTab('closed'); }, 1000);
+                    setTimeout(() => { if(r.is_active) switchTab('pos'); else switchTab('closed'); }, 1500);
                 } else $('#h_res').text(r.message);
             }
         });

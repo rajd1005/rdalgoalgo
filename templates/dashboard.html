@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Algo Terminal V3.5</title>
+    <title>Algo Terminal V3.6</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -152,64 +152,29 @@
         <div class="custom-card">
             <div class="card-head">📅 Trade Simulator</div>
             <div class="card-body">
-                <div class="mb-3">
-                    <label class="pos-grid-label">SEARCH SYMBOL</label>
-                    <input type="text" id="h_sym" class="form-control fw-bold" placeholder="Symbol" list="h_sym_list">
-                    <datalist id="h_sym_list"></datalist>
-                </div>
-                
+                <div class="mb-3"><label class="pos-grid-label">SEARCH SYMBOL</label><input type="text" id="h_sym" class="form-control fw-bold" placeholder="Symbol" list="h_sym_list"><datalist id="h_sym_list"></datalist></div>
                 <div class="row g-2 mb-3">
                     <div class="col-4"><select id="h_type" class="form-select"><option>CE</option><option>PE</option><option>FUT</option></select></div>
                     <div class="col-8"><select id="h_exp" class="form-select"></select></div>
                 </div>
                 <select id="h_str" class="form-select mb-3"><option>Select Expiry First</option></select>
-                
                 <div class="row g-2 mb-3">
-                    <div class="col-6">
-                        <label class="pos-grid-label">ENTRY PRICE <span class="text-danger">*</span></label>
-                        <input type="number" step="0.05" id="h_entry" class="form-control fw-bold border-primary" placeholder="Required">
-                    </div>
-                    <div class="col-6">
-                        <label class="pos-grid-label">ENTRY TIME</label>
-                        <input type="datetime-local" id="h_time" class="form-control">
-                    </div>
+                    <div class="col-6"><label class="pos-grid-label">ENTRY PRICE <span class="text-danger">*</span></label><input type="number" step="0.05" id="h_entry" class="form-control fw-bold border-primary" placeholder="Required"></div>
+                    <div class="col-6"><label class="pos-grid-label">ENTRY TIME</label><input type="datetime-local" id="h_time" class="form-control"></div>
                 </div>
-                
                 <div class="p-2 bg-light rounded border mb-3">
                     <div class="row g-2 align-items-end mb-2">
-                        <div class="col-6">
-                            <label class="pos-grid-label">SL Points</label>
-                            <input type="number" id="h_sl_pts" class="form-control" value="20">
-                        </div>
-                        <div class="col-6">
-                            <label class="pos-grid-label">Qty (Mult: <span id="h_qty_mult">1</span>)</label>
-                            <input type="number" id="h_qty" class="form-control fw-bold" value="50">
-                        </div>
+                        <div class="col-6"><label class="pos-grid-label">SL Points</label><input type="number" id="h_sl_pts" class="form-control" value="20"></div>
+                        <div class="col-6"><label class="pos-grid-label">Qty (Mult: <span id="h_qty_mult">1</span>)</label><input type="number" id="h_qty" class="form-control fw-bold" value="50"></div>
                     </div>
                     <hr class="my-2">
                     <div class="row g-2 text-center">
-                        <div class="col-4">
-                            <small class="text-success fw-bold">T1 (<span id="hr_t1">0.5</span>x)</small>
-                            <input type="number" step="0.05" id="h_t1" class="form-control form-control-sm mb-1">
-                            <span id="h_pnl_t1" class="pnl-green">₹ 0</span>
-                        </div>
-                        <div class="col-4">
-                            <small class="text-success fw-bold">T2 (<span id="hr_t2">1.0</span>x)</small>
-                            <input type="number" step="0.05" id="h_t2" class="form-control form-control-sm mb-1">
-                            <span id="h_pnl_t2" class="pnl-green">₹ 0</span>
-                        </div>
-                        <div class="col-4">
-                            <small class="text-success fw-bold">T3 (<span id="hr_t3">1.5</span>x)</small>
-                            <input type="number" step="0.05" id="h_t3" class="form-control form-control-sm mb-1">
-                            <span id="h_pnl_t3" class="pnl-green">₹ 0</span>
-                        </div>
+                        <div class="col-4"><small class="text-success fw-bold">T1 (<span id="hr_t1">0.5</span>x)</small><input type="number" step="0.05" id="h_t1" class="form-control form-control-sm mb-1"><span id="h_pnl_t1" class="pnl-green">₹ 0</span></div>
+                        <div class="col-4"><small class="text-success fw-bold">T2 (<span id="hr_t2">1.0</span>x)</small><input type="number" step="0.05" id="h_t2" class="form-control form-control-sm mb-1"><span id="h_pnl_t2" class="pnl-green">₹ 0</span></div>
+                        <div class="col-4"><small class="text-success fw-bold">T3 (<span id="hr_t3">1.5</span>x)</small><input type="number" step="0.05" id="h_t3" class="form-control form-control-sm mb-1"><span id="h_pnl_t3" class="pnl-green">₹ 0</span></div>
                     </div>
-                    <div class="mt-2 text-center">
-                        <small class="text-danger fw-bold">Potential Loss: </small>
-                        <span id="h_pnl_sl" class="pnl-red" style="display:inline;">₹ 0</span>
-                    </div>
+                    <div class="mt-2 text-center"><small class="text-danger fw-bold">Potential Loss: </small><span id="h_pnl_sl" class="pnl-red" style="display:inline;">₹ 0</span></div>
                 </div>
-
                 <button onclick="checkHistory()" class="btn btn-info w-100 fw-bold text-white">🔄 Run Simulation</button>
                 <div id="h_res" class="mt-3 p-3 bg-light border rounded" style="display:none;"></div>
             </div>
@@ -222,58 +187,35 @@
 <div class="modal fade" id="settingsModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">⚙️ Global Settings</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
+      <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
-        <label class="pos-grid-label">Quantity Multiplier</label>
-        <input type="number" id="set_qty_mult" class="form-control mb-3" value="1" min="1">
-        
-        <label class="pos-grid-label">Target Ratios (Multiple of SL)</label>
+        <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="set_qty_mult" class="form-control mb-3" value="1" min="1">
+        <label class="pos-grid-label">Target Ratios</label>
         <div class="input-group mb-3">
-            <span class="input-group-text">T1</span>
-            <input type="number" step="0.1" id="set_r1" class="form-control" value="0.5">
-            <span class="input-group-text">T2</span>
-            <input type="number" step="0.1" id="set_r2" class="form-control" value="1.0">
-            <span class="input-group-text">T3</span>
-            <input type="number" step="0.1" id="set_r3" class="form-control" value="1.5">
+            <span class="input-group-text">T1</span><input type="number" step="0.1" id="set_r1" class="form-control" value="0.5">
+            <span class="input-group-text">T2</span><input type="number" step="0.1" id="set_r2" class="form-control" value="1.0">
+            <span class="input-group-text">T3</span><input type="number" step="0.1" id="set_r3" class="form-control" value="1.5">
         </div>
-
         <label class="pos-grid-label">Symbol Specific SL Points</label>
-        <div class="input-group mb-2">
-            <input type="text" id="set_sym" class="form-control" placeholder="Symbol (e.g. NIFTY)">
-            <input type="number" id="set_sl" class="form-control" placeholder="SL Pts">
-            <button class="btn btn-primary" onclick="saveSymSL()">Add</button>
-        </div>
+        <div class="input-group mb-2"><input type="text" id="set_sym" class="form-control" placeholder="Symbol"><input type="number" id="set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL()">Add</button></div>
         <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
-            <table class="table table-bordered table-sm mt-2 sl-table">
-                <thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead>
-                <tbody id="sl_table_body"></tbody>
-            </table>
+            <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="sl_table_body"></tbody></table>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button>
-      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button></div>
     </div>
   </div>
 </div>
 
 <script>
-    // --- SETTINGS ---
     let settings = { qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {} };
-
     function loadSettings() {
         $.get('/api/settings/load', function(data) {
             if(data) {
                 settings = data;
                 $('#set_qty_mult').val(settings.qty_mult);
-                $('#set_r1').val(settings.ratios[0]);
-                $('#set_r2').val(settings.ratios[1]);
-                $('#set_r3').val(settings.ratios[2]);
-                $('#qty_mult_disp').text(settings.qty_mult);
-                $('#h_qty_mult').text(settings.qty_mult);
+                $('#set_r1').val(settings.ratios[0]); $('#set_r2').val(settings.ratios[1]); $('#set_r3').val(settings.ratios[2]);
+                $('#qty_mult_disp').text(settings.qty_mult); $('#h_qty_mult').text(settings.qty_mult);
                 $('#r_t1').text(settings.ratios[0]); $('#hr_t1').text(settings.ratios[0]);
                 $('#r_t2').text(settings.ratios[1]); $('#hr_t2').text(settings.ratios[1]);
                 $('#r_t3').text(settings.ratios[2]); $('#hr_t3').text(settings.ratios[2]);
@@ -281,50 +223,29 @@
             }
         });
     }
-    
     function saveSettings() {
         settings.qty_mult = parseInt($('#set_qty_mult').val()) || 1;
         settings.ratios = [parseFloat($('#set_r1').val()), parseFloat($('#set_r2').val()), parseFloat($('#set_r3').val())];
         $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { $('#settingsModal').modal('hide'); loadSettings(); } });
     }
-
-    function saveSymSL() {
-        let s = $('#set_sym').val().toUpperCase();
-        let p = parseInt($('#set_sl').val());
-        if(s && p) { settings.symbol_sl[s] = p; updateSymList(); $('#set_sym').val(''); $('#set_sl').val(''); }
-    }
-
-    function updateSymList() {
-        let tbody = $('#sl_table_body').empty();
-        Object.keys(settings.symbol_sl).forEach(sym => {
-            tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${settings.symbol_sl[sym]}</td><td><button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button> <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button></td></tr>`);
-        });
-    }
-
+    function saveSymSL() { let s=$('#set_sym').val().toUpperCase(); let p=parseInt($('#set_sl').val()); if(s && p) { settings.symbol_sl[s]=p; updateSymList(); $('#set_sym').val(''); $('#set_sl').val(''); } }
+    function updateSymList() { let tbody=$('#sl_table_body').empty(); Object.keys(settings.symbol_sl).forEach(sym => { tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${settings.symbol_sl[sym]}</td><td><button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button> <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button></td></tr>`); }); }
     function editSymSL(sym) { $('#set_sym').val(sym); $('#set_sl').val(settings.symbol_sl[sym]); }
     function deleteSymSL(sym) { delete settings.symbol_sl[sym]; updateSymList(); }
-
     $(document).ready(loadSettings);
 
-    // --- MAIN LOGIC ---
     function switchTab(id) { $('.tab-content').hide(); $(`#${id}`).show(); $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); if(id==='closed') loadClosedTrades(); }
     function setMode(el, mode) { $('#mode_input').val(mode); $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active'); }
 
-    let curLTP=0;
-    let symLTP = {};
-
+    let curLTP=0; let symLTP={};
     function updateData() {
         if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); });
         
-        // AUTO-UPDATE NEW ORDER LTP HEADER
         let currentSym = $('#sym').val();
         if(currentSym && $('#trade').is(':visible')) {
              $.get(`/api/specific_ltp?symbol=${currentSym}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
-                curLTP=d.ltp; 
-                $('#inst_ltp').text("LTP: "+curLTP);
-                // Also update Limit Price value if it's currently showing and was auto-filled (optional)
-                // if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
+                curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP);
              });
         }
 
@@ -335,12 +256,15 @@
                 trades.forEach(t => {
                     let pnl = (t.current_ltp - t.entry_price) * t.quantity;
                     let color = pnl >= 0 ? 'pnl-green' : 'pnl-red';
+                    // If PENDING, P&L is 0
+                    if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
+                    
                     html += `<div class="card mb-3 border shadow-sm"><div class="card-body p-3">
                         <div class="d-flex justify-content-between mb-2"><h6 class="fw-bold mb-0">${t.symbol} <span class="badge bg-light text-dark border ms-2">Qty: ${t.quantity}</span></h6><span class="badge ${t.mode=='LIVE'?'bg-danger':'bg-warning text-dark'}">${t.mode}</span></div>
-                        <div class="text-center py-2 bg-light rounded mb-3"><small class="text-muted fw-bold">P&L</small><h3 class="mb-0 fw-bold ${color}">${pnl.toFixed(2)}</h3></div>
+                        <div class="text-center py-2 bg-light rounded mb-3"><small class="text-muted fw-bold">P&L</small><h3 class="mb-0 fw-bold ${color}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</h3></div>
                         <div class="row text-center mb-2"><div class="col-6 border-end"><div class="pos-grid-label">Entry</div><div class="pos-grid-val">${t.entry_price.toFixed(2)}</div></div><div class="col-6"><div class="pos-grid-label">LTP</div><div class="pos-grid-val text-primary">${t.current_ltp.toFixed(2)}</div></div></div>
                         <div class="row text-center border-top pt-2"><div class="col-3"><div class="pos-grid-label text-danger">SL</div><small class="fw-bold">${t.sl.toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T1</div><small class="fw-bold">${t.targets[0].toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T2</div><small class="fw-bold">${t.targets[1].toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T3</div><small class="fw-bold">${t.targets[2].toFixed(1)}</small></div></div>
-                        <div class="mt-3 d-flex justify-content-between"><a href="/close_trade/${t.id}" class="btn btn-sm btn-dark w-100 fw-bold">Exit Position</a>${t.mode=='PAPER' ? `<a href="/promote/${t.id}" class="btn btn-sm btn-outline-danger ms-2 fw-bold">Live</a>` : ''}</div></div></div>`;
+                        <div class="mt-3 d-flex justify-content-between"><a href="/close_trade/${t.id}" class="btn btn-sm btn-dark w-100 fw-bold">${t.status==='PENDING'?'Cancel Order':'Exit Position'}</a>${t.mode=='PAPER' ? `<a href="/promote/${t.id}" class="btn btn-sm btn-outline-danger ms-2 fw-bold">Live</a>` : ''}</div></div></div>`;
                 });
             }
             $('#pos-container').html(html);
@@ -409,13 +333,10 @@
     $('#exp').change(() => fillChain('#sym', '#exp', '#type', '#str'));
     $('#h_exp').change(() => fillChain('#h_sym', '#h_exp', '#h_type', '#h_str'));
 
-    // --- ORDER TYPE TOGGLE ---
     $('#ord').change(function() {
-        if($(this).val() === 'LIMIT') $('#lim_box').show();
-        else $('#lim_box').hide();
+        if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide();
     });
 
-    // --- TRADE TAB P&L ---
     $('#str').change(fetchLTP);
     function fetchLTP() {
         $.get(`/api/specific_ltp?symbol=${$('#sym').val()}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
@@ -424,27 +345,29 @@
             calcRisk();
         });
     }
-    $('#sl_pts, #qty').on('input', calcRisk);
+    $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
     function calcRisk() {
         let p = parseFloat($('#sl_pts').val())||0;
         let qty = parseInt($('#qty').val())||1;
-        let sl = curLTP - p;
-        let t1 = curLTP + p * settings.ratios[0];
-        let t2 = curLTP + p * settings.ratios[1];
-        let t3 = curLTP + p * settings.ratios[2];
+        // Logic: If Limit, use Limit Price for calc. If Market, use CurLTP.
+        let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
+        
+        let sl = basePrice - p;
+        let t1 = basePrice + p * settings.ratios[0];
+        let t2 = basePrice + p * settings.ratios[1];
+        let t3 = basePrice + p * settings.ratios[2];
 
         $('#p_sl').val(sl.toFixed(2)); 
         $('#p_t1').val(t1.toFixed(2)); 
         $('#p_t2').val(t2.toFixed(2)); 
         $('#p_t3').val(t3.toFixed(2));
 
-        $('#pnl_sl').text(`₹ ${((sl-curLTP)*qty).toFixed(0)}`);
-        $('#pnl_t1').text(`₹ ${((t1-curLTP)*qty).toFixed(0)}`);
-        $('#pnl_t2').text(`₹ ${((t2-curLTP)*qty).toFixed(0)}`);
-        $('#pnl_t3').text(`₹ ${((t3-curLTP)*qty).toFixed(0)}`);
+        $('#pnl_sl').text(`₹ ${((sl-basePrice)*qty).toFixed(0)}`);
+        $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`);
+        $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`);
+        $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);
     }
 
-    // --- SIMULATOR P&L ---
     $('#h_entry, #h_sl_pts, #h_qty').on('input', function() {
         let entry = parseFloat($('#h_entry').val()) || 0;
         let pts = parseFloat($('#h_sl_pts').val()) || 0;

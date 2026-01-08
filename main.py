@@ -20,30 +20,47 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 
 def load_settings():
-    default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5]}
+    # New default structure: symbol_sl is now per-mode
+    default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
     defaults = {
         "modes": {
             "LIVE": default_mode_settings.copy(),
             "PAPER": default_mode_settings.copy(),
             "SIMULATOR": default_mode_settings.copy()
-        },
-        "symbol_sl": {}
+        }
     }
     
     try:
         setting = AppSetting.query.first()
         if setting:
             saved = json.loads(setting.data)
-            # Merge logic to ensure new structure exists if loading old settings
+            
+            # Migration Logic: Convert old structure to new structure
             if "modes" not in saved:
-                # Migrate old flat structure to new structure
+                # Very old format
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
+                old_sl = saved.get("symbol_sl", {})
                 saved["modes"] = {
-                    "LIVE": {"qty_mult": old_mult, "ratios": old_ratios},
-                    "PAPER": {"qty_mult": old_mult, "ratios": old_ratios},
-                    "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios}
+                    "LIVE": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()},
+                    "PAPER": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()},
+                    "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
                 }
+                if "symbol_sl" in saved: del saved["symbol_sl"]
+                if "qty_mult" in saved: del saved["qty_mult"]
+                if "ratios" in saved: del saved["ratios"]
+            
+            else:
+                # Check if modes exist but symbol_sl is missing inside them (Intermediate format)
+                for m in ["LIVE", "PAPER", "SIMULATOR"]:
+                    if m in saved["modes"]:
+                        if "symbol_sl" not in saved["modes"][m]:
+                            # If global symbol_sl exists, inherit it, else empty
+                            saved["modes"][m]["symbol_sl"] = saved.get("symbol_sl", {}).copy()
+                
+                # Cleanup global symbol_sl if it exists
+                if "symbol_sl" in saved: del saved["symbol_sl"]
+
             return saved
     except:
         pass

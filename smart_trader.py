@@ -1,5 +1,9 @@
 import pandas as pd
 from datetime import datetime, timedelta
+import pytz
+
+# Global IST Timezone
+IST = pytz.timezone('Asia/Kolkata')
 
 instrument_dump = None 
 
@@ -49,7 +53,9 @@ def get_symbol_details(kite, symbol):
     if instrument_dump is None: return {}
     
     clean = get_zerodha_symbol(symbol)
-    today = datetime.now().date()
+    
+    # IST Date
+    today = datetime.now(IST).date()
 
     ltp = 0
     try:
@@ -146,7 +152,10 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
     
     try:
         start_dt = datetime.strptime(time_str.replace("T", " "), "%Y-%m-%d %H:%M")
-        end_dt = datetime.now() + timedelta(days=1)
+        
+        # IST End Time
+        end_dt = datetime.now(IST) + timedelta(days=1)
+        
         candles = kite.historical_data(token, start_dt, end_dt, "minute")
         
         if not candles:
@@ -168,26 +177,22 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         exit_p = 0
         exit_t = ""
         
-        # Log 1: Adding/Setup Time
         logs = [f"[{time_str}] Trade Added/Setup"]
         
-        # Tracking variables
         trade_active = False
         if not is_limit_order:
-            # Immediate Entry
             trade_active = True
             logs.append(f"[{first['date']}] Trade Activated/Entered @ {entry}")
             
         targets_hit_indices = [] 
         made_high = entry
-        high_locked = False # Flag to stop tracking high if price reverses to entry
+        high_locked = False
         
         for c in candles:
             curr_high = c['high']
             curr_low = c['low']
             c_time = c['date']
             
-            # PENDING -> OPEN Check
             if not trade_active and status == "PENDING":
                 if curr_low <= entry <= curr_high:
                     status = "OPEN"
@@ -198,25 +203,20 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                 else:
                     continue 
             
-            # --- Continuous Made High Logic (Independent of Trade Status) ---
             if status != "PENDING":
-                # Check 1: Breakout Update (If current > max, update and unlock)
                 if curr_high > made_high:
                     made_high = curr_high
                     high_locked = False
                 
-                # Check 2: Lock if Reversal to Entry (Only if not already locked)
                 elif not high_locked:
                     if curr_low <= entry and made_high > entry:
                         high_locked = True
             
-            # Trade Management (SL/Targets)
             if trade_active:
-                # 1. Check SL (Standard OR Cost)
                 if status == "OPEN": 
                     if curr_low <= sl:
                         if sl >= entry:
-                            status = "COST_EXIT" # Safe exit at entry
+                            status = "COST_EXIT"
                             logs.append(f"[{c_time}] Price returned to Entry (Cost) @ {sl}. Safe Exit.")
                             high_locked = True
                         else:
@@ -226,14 +226,11 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                         exit_p = sl
                         exit_t = c_time
                         
-                    # 2. Check Targets
                     elif status == "OPEN":
                         for i, t_price in enumerate(tgts):
                             if i not in targets_hit_indices and curr_high >= t_price:
                                 targets_hit_indices.append(i)
                                 logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price}")
-                                
-                                # --- REMOVED T1 SL MOVE LOGIC HERE ---
                                 
                                 if i == len(tgts) - 1:
                                     status = "TARGET_HIT"
@@ -241,7 +238,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                     exit_t = c_time
                                     logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
 
-        # After loop finishes
         profit_pts = made_high - entry
         profit_amt = profit_pts * quantity
         

@@ -1,201 +1,282 @@
-import pandas as pd
-from datetime import datetime, timedelta
+import json
+import os
+import time
+from datetime import datetime
 
-instrument_dump = None 
+TRADES_FILE = 'active_trades.json'
+HISTORY_FILE = 'trade_history.json'
 
-def fetch_instruments(kite):
-    global instrument_dump
-    if instrument_dump is not None: return
+def load_trades():
+    if os.path.exists(TRADES_FILE):
+        try:
+            with open(TRADES_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
 
-    print("📥 Downloading Instrument List...")
+def save_trades(trades):
+    with open(TRADES_FILE, 'w') as f:
+        json.dump(trades, f, default=str, indent=4)
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_history_file(history):
+    with open(HISTORY_FILE, 'w') as f:
+        json.dump(history, f, default=str, indent=4)
+
+def get_time_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def log_event(trade, message):
+    if 'logs' not in trade:
+        trade['logs'] = []
+    trade['logs'].append(f"[{get_time_str()}] {message}")
+
+def move_to_history(trade, final_status, exit_price):
+    trade['status'] = final_status
+    trade['exit_price'] = exit_price
+    trade['exit_time'] = get_time_str()
+    trade['pnl'] = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
+    
+    log_event(trade, f"Closed: {final_status} @ {exit_price}")
+    
+    history = load_history()
+    history.insert(0, trade)
+    save_history_file(history)
+
+def get_exchange(symbol):
+    if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol:
+        return "NFO"
+    return "NSE"
+
+def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0):
+    trades = load_trades()
+    exchange = get_exchange(specific_symbol)
+    
+    current_ltp = 0.0
     try:
-        instrument_dump = pd.DataFrame(kite.instruments())
-        instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry']).dt.strftime('%Y-%m-%d')
-        instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry']).dt.date
-        print("✅ Instruments Downloaded Successfully.")
-    except Exception as e:
-        print(f"❌ Failed to fetch instruments: {e}")
-
-def get_indices_ltp(kite):
-    try:
-        q = kite.quote(["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"])
-        return {
-            "NIFTY": q.get("NSE:NIFTY 50", {}).get('last_price', 0),
-            "BANKNIFTY": q.get("NSE:NIFTY BANK", {}).get('last_price', 0),
-            "SENSEX": q.get("BSE:SENSEX", {}).get('last_price', 0)
-        }
+        current_ltp = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
     except:
-        return {"NIFTY":0, "BANKNIFTY":0, "SENSEX":0}
+        current_ltp = 0.0
 
-def get_zerodha_symbol(common_name):
-    if not common_name: return ""
-    u = common_name.upper().strip()
-    if u in ["BANKNIFTY", "NIFTY BANK", "BANK NIFTY"]: return "BANKNIFTY"
-    if u in ["NIFTY", "NIFTY 50", "NIFTY50"]: return "NIFTY"
-    if u == "SENSEX": return "SENSEX"
-    if u == "FINNIFTY": return "FINNIFTY"
-    return u
+    status = "OPEN"
+    entry_price = 0.0
 
-def search_symbols(keyword):
-    global instrument_dump
-    if instrument_dump is None: return []
-    k = keyword.upper()
-    mask = ((instrument_dump['segment'] == 'NFO-FUT') | (instrument_dump['segment'] == 'NSE')) & (instrument_dump['name'].str.startswith(k))
-    return instrument_dump[mask]['name'].unique().tolist()[:10]
-
-def get_symbol_details(kite, symbol):
-    global instrument_dump
-    if instrument_dump is None: fetch_instruments(kite)
-    if instrument_dump is None: return {}
-    
-    clean = get_zerodha_symbol(symbol)
-    today = datetime.now().date()
-
-    ltp = 0
-    try:
-        quote_sym = f"NSE:{clean}"
-        if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
-        if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
-        if clean == "SENSEX": quote_sym = "BSE:SENSEX"
-        ltp = kite.quote(quote_sym)[quote_sym]['last_price']
-    except:
-        ltp = 0
-
-    lot = 1
-    futs = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['segment'] == 'NFO-FUT')]
-    if not futs.empty: 
-        lot = int(futs.iloc[0]['lot_size'])
-    else:
-        opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['segment'] == 'NFO-OPT')]
-        if not opts.empty: lot = int(opts.iloc[0]['lot_size'])
-
-    f_exp = sorted(futs[futs['expiry_date'] >= today]['expiry_str'].unique().tolist())
-    opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'CE')]
-    o_exp = sorted(opts[opts['expiry_date'] >= today]['expiry_str'].unique().tolist())
-    
-    return {
-        "symbol": clean, 
-        "ltp": ltp,
-        "lot_size": lot, 
-        "fut_expiries": f_exp, 
-        "opt_expiries": o_exp
-    }
-
-def get_chain_data(symbol, expiry_date, option_type, ltp):
-    global instrument_dump
-    if instrument_dump is None: return []
-    
-    c = instrument_dump[(instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
-    if c.empty: return []
-    
-    strikes = sorted(c['strike'].unique().tolist())
-    if not strikes: return []
-    
-    atm = min(strikes, key=lambda x: abs(x - ltp))
-    
-    res = []
-    for s in strikes:
-        lbl = "OTM"
-        if s == atm: lbl = "ATM"
-        elif option_type == "CE": lbl = "ITM" if ltp > s else "OTM"
-        elif option_type == "PE": lbl = "ITM" if ltp < s else "OTM"
-        res.append({"strike": s, "label": lbl})
-    return res
-
-def get_exact_symbol(symbol, expiry, strike, option_type):
-    global instrument_dump
-    if instrument_dump is None: return None
-    if option_type == "EQ": return symbol
-    
-    if option_type == "FUT":
-        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
-    else:
-        if not strike: return None
-        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == float(strike)) & (instrument_dump['instrument_type'] == option_type)
+    if order_type == "MARKET":
+        # Requirement 1: Execute as per live LTP and active
+        if current_ltp == 0:
+            return {"status": "error", "message": "Failed to fetch Live Price for Market Order"}
         
-    if not mask.any(): return None
-    return instrument_dump[mask].iloc[0]['tradingsymbol']
-
-def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
-    ts = get_exact_symbol(symbol, expiry, strike, inst_type)
-    if not ts: return 0
-    try:
-        exch = "NSE" if inst_type == "EQ" else "NFO"
-        return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
-    except:
-        return 0
-
-def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, custom_entry, custom_targets):
-    symbol_common = get_zerodha_symbol(symbol)
-    tradingsymbol = get_exact_symbol(symbol_common, expiry, strike, type_)
-    if not tradingsymbol:
-        return {"status": "error", "message": "Symbol Not Found"}
-    
-    global instrument_dump
-    token_row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
-    if token_row.empty:
-        return {"status": "error", "message": "Token Not Found"}
-    token = token_row.iloc[0]['instrument_token']
-    
-    try:
-        start_dt = datetime.strptime(time_str.replace("T", " "), "%Y-%m-%d %H:%M")
-        end_dt = datetime.now() + timedelta(days=1)
-        candles = kite.historical_data(token, start_dt, end_dt, "minute")
-        
-        if not candles:
-            return {"status": "error", "message": "No Data Found"}
-            
-        first = candles[0]
-        entry = float(custom_entry) if custom_entry > 0 else first['open']
-        
-        if len(custom_targets) == 3 and custom_targets[0] > 0:
-            tgts = custom_targets
-        else:
-            tgts = [entry+sl_points*0.5, entry+sl_points*1.0, entry+sl_points*2.0]
-        
-        sl = entry - sl_points
+        entry_price = current_ltp
         status = "OPEN"
-        exit_p = 0
-        exit_t = ""
-        logs = [f"Simulated Entry @ {entry}"]
-        t1_hit = False
-        
-        for c in candles:
-            if c['low'] <= sl:
+    else:
+        # Requirement 2: Limit order execute as per added price
+        entry_price = float(limit_price)
+        if entry_price <= 0:
+            return {"status": "error", "message": "Invalid Limit Price"}
+
+        # Logic: If LTP is already below or equal to Limit Price, execute immediately (Marketable)
+        # Otherwise, keep as PENDING and wait for market to reach entry point
+        if current_ltp > 0 and current_ltp <= entry_price:
+            status = "OPEN"
+            entry_price = current_ltp # Filled at market (better than limit)
+        else:
+            status = "PENDING" # Wait for price to drop to entry
+
+    if mode == "LIVE":
+        try:
+            k_type = kite.ORDER_TYPE_MARKET if order_type == "MARKET" else kite.ORDER_TYPE_LIMIT
+            price = 0 if order_type == "MARKET" else entry_price
+            
+            kite.place_order(
+                tradingsymbol=specific_symbol,
+                exchange=exchange,
+                transaction_type=kite.TRANSACTION_TYPE_BUY,
+                quantity=quantity,
+                order_type=k_type,
+                price=price,
+                product=kite.PRODUCT_MIS
+            )
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    # Calculate Targets based on intended entry price
+    targets = []
+    calc_price = entry_price
+    
+    if len(custom_targets) == 3:
+        targets = custom_targets
+    else:
+        targets = [
+            calc_price + (sl_points * 0.5),
+            calc_price + (sl_points * 1.0),
+            calc_price + (sl_points * 2.0)
+        ]
+
+    record = {
+        "id": int(time.time()),
+        "entry_time": get_time_str(),
+        "symbol": specific_symbol,
+        "exchange": exchange,
+        "mode": mode,
+        "order_type": order_type,
+        "status": status,
+        "entry_price": entry_price,
+        "quantity": quantity,
+        "sl": calc_price - sl_points,
+        "targets": targets,
+        "t1_hit": False,
+        "current_ltp": current_ltp,
+        "logs": [f"Order Placed ({order_type}) @ {entry_price}. Status: {status}"]
+    }
+    
+    trades.append(record)
+    save_trades(trades)
+    return {"status": "success", "trade": record}
+
+def promote_to_live(kite, trade_id):
+    trades = load_trades()
+    for t in trades:
+        if t['id'] == int(trade_id) and t['mode'] == "PAPER":
+            try:
+                kite.place_order(
+                    tradingsymbol=t['symbol'],
+                    exchange=t['exchange'],
+                    transaction_type=kite.TRANSACTION_TYPE_BUY,
+                    quantity=t['quantity'],
+                    order_type=kite.ORDER_TYPE_MARKET,
+                    product=kite.PRODUCT_MIS
+                )
+                t['mode'] = "LIVE"
+                t['status'] = "PROMOTED_LIVE"
+                log_event(t, "Promoted to LIVE")
+                save_trades(trades)
+                return True
+            except:
+                return False
+    return False
+
+def close_trade_manual(kite, trade_id):
+    trades = load_trades()
+    active, found = [], False
+    for t in trades:
+        if t['id'] == int(trade_id):
+            found = True
+            exit_p = t['current_ltp']
+            
+            if t['status'] == "PENDING":
+                move_to_history(t, "CANCELLED_MANUAL", 0)
+                continue
+
+            if t['mode'] == "LIVE":
+                try:
+                    kite.place_order(
+                        tradingsymbol=t['symbol'],
+                        exchange=t['exchange'],
+                        transaction_type=kite.TRANSACTION_TYPE_SELL,
+                        quantity=t['quantity'],
+                        order_type=kite.ORDER_TYPE_MARKET,
+                        product=kite.PRODUCT_MIS
+                    )
+                except:
+                    pass
+            
+            move_to_history(t, "MANUAL_EXIT", exit_p)
+        else:
+            active.append(t)
+    if found: 
+        save_trades(active)
+        return True
+    return False
+
+def inject_simulated_trade(trade_data, is_active):
+    trade_data['id'] = int(time.time())
+    trade_data['mode'] = "PAPER"
+    trade_data['order_type'] = "SIMULATION"
+    trade_data['exchange'] = get_exchange(trade_data['symbol'])
+    if is_active:
+        trades = load_trades()
+        trades.append(trade_data)
+        save_trades(trades)
+    else:
+        trade_data['pnl'] = round((trade_data['exit_price'] - trade_data['entry_price']) * trade_data['quantity'], 2)
+        hist = load_history()
+        hist.insert(0, trade_data)
+        save_history_file(hist)
+
+def update_risk_engine(kite):
+    trades = load_trades()
+    active_list = []
+    updated = False
+    
+    now = datetime.now()
+    # Requirement 2: If not active during the day (by 3:30 PM), cancel it.
+    market_closed = (now.hour > 15) or (now.hour == 15 and now.minute >= 30)
+
+    for t in trades:
+        try:
+            ltp = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]["last_price"]
+            t['current_ltp'] = ltp
+            updated = True
+        except:
+            active_list.append(t)
+            continue
+
+        if t['status'] == "PENDING":
+            if market_closed:
+                move_to_history(t, "CANCELLED_EOD", 0)
+                continue
+            
+            # Requirement 2: Wait for market to reach entry point, then active it
+            if ltp <= t['entry_price']:
+                t['status'] = "OPEN"
+                log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
+                active_list.append(t)
+            else:
+                active_list.append(t)
+            continue
+
+        if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
+            done = False
+            status = ""
+            
+            if ltp <= t['sl']:
                 status = "SL_HIT"
-                exit_p = sl
-                exit_t = c['date']
-                logs.append(f"[{c['date']}] SL Hit @ {sl}")
-                break
-            if c['high'] >= tgts[0] and not t1_hit:
-                t1_hit = True
-                sl = entry
-                logs.append(f"[{c['date']}] T1 Hit. SL->Entry")
-            if c['high'] >= tgts[2]:
+                log_event(t, f"SL Hit @ {ltp}")
+                done = True
+            elif ltp >= t['targets'][0] and not t.get('t1_hit'):
+                t['t1_hit'] = True
+                t['sl'] = t['entry_price']
+                log_event(t, f"T1 Hit @ {ltp}. SL -> Cost")
+            elif ltp >= t['targets'][2]:
                 status = "TARGET_HIT"
-                exit_p = tgts[2]
-                exit_t = c['date']
-                logs.append(f"[{c['date']}] Target Hit @ {tgts[2]}")
-                break
-        
-        active = (status == "OPEN")
-        ltp = candles[-1]['close'] if active else exit_p
-        
-        return {
-            "status": "success",
-            "is_active": active,
-            "trade_data": {
-                "symbol": tradingsymbol,
-                "entry_price": entry,
-                "current_ltp": ltp,
-                "sl": sl,
-                "targets": tgts,
-                "status": status,
-                "exit_price": exit_p,
-                "exit_time": exit_t,
-                "logs": logs,
-                "quantity": 0
-            }
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+                log_event(t, f"Final Target Hit @ {ltp}")
+                done = True
+            
+            if done:
+                if t['mode'] == "LIVE":
+                    try:
+                        kite.place_order(
+                            tradingsymbol=t['symbol'],
+                            exchange=t['exchange'],
+                            transaction_type=kite.TRANSACTION_TYPE_SELL,
+                            quantity=t['quantity'],
+                            order_type=kite.ORDER_TYPE_MARKET,
+                            product=kite.PRODUCT_MIS
+                        )
+                    except:
+                        pass
+                move_to_history(t, status, ltp)
+            else:
+                active_list.append(t)
+                
+    if updated:
+        save_trades(active_list)

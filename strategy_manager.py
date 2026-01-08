@@ -16,8 +16,8 @@ def load_trades():
 
 def save_trades(trades):
     try:
-        # Full sync: Delete all active and rewrite
-        ActiveTrade.query.delete()
+        # Clear existing active trades and re-add updated ones
+        db.session.query(ActiveTrade).delete()
         for t in trades:
             db.session.add(ActiveTrade(data=json.dumps(t)))
         db.session.commit()
@@ -34,15 +34,17 @@ def load_history():
         return []
 
 def save_history_file(history):
-    # Backward compatibility wrapper if needed, but primarily used by delete_trade now
+    # Not used in DB mode, but kept for compatibility if referenced
     pass
 
 def delete_trade(trade_id):
     try:
-        TradeHistory.query.filter_by(id=trade_id).delete()
+        # Delete by ID using the session
+        TradeHistory.query.filter_by(id=int(trade_id)).delete()
         db.session.commit()
         return True
-    except:
+    except Exception as e:
+        print(f"Delete Error: {e}")
         db.session.rollback()
         return False
 
@@ -246,7 +248,6 @@ def inject_simulated_trade(trade_data, is_active):
              trade_data['pnl'] = 0
              trade_data['exit_price'] = 0
         else:
-             # Calculate PnL based on Made High
              trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
              # Set Exit Price as Made High for display in Closed Tab
              trade_data['exit_price'] = trade_data.get('made_high', 0)

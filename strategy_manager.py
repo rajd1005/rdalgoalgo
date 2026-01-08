@@ -254,12 +254,13 @@ def update_risk_engine(kite):
                 if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
                 if 'high_locked' not in t: t['high_locked'] = False
                 
-                # If not locked (hasn't returned to entry yet), track the High
-                if not t['high_locked']:
-                    if ltp > t['highest_ltp']:
-                        t['highest_ltp'] = ltp
-                    
-                    # Check Reversal to Entry: If it comes back to Entry (and had gone up), Lock it.
+                # Check 1: Breakout Update (If current > max, update and unlock)
+                if ltp > t['highest_ltp']:
+                    t['highest_ltp'] = ltp
+                    t['high_locked'] = False # Unlock if it breaks the previous high
+                
+                # Check 2: Lock if Reversal to Entry (Only if not already locked)
+                elif not t['high_locked']:
                     if ltp <= t['entry_price'] and t['highest_ltp'] > t['entry_price']:
                          t['high_locked'] = True
             

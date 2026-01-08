@@ -51,6 +51,7 @@ def delete_trade(trade_id):
         return False
 
 def get_time_str():
+    # Force IST for consistent logs and filtering
     try:
         return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
     except:
@@ -71,7 +72,6 @@ def move_to_history(trade, final_status, exit_price):
          log_event(trade, f"Closed: {final_status} @ {exit_price}")
     
     try:
-        # Use merge to avoid IntegrityError if ID exists (though unlikely for live trades)
         hist = TradeHistory(id=trade['id'], data=json.dumps(trade))
         db.session.merge(hist)
         db.session.commit()
@@ -251,12 +251,11 @@ def inject_simulated_trade(trade_data, is_active):
              trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
              trade_data['exit_price'] = trade_data.get('made_high', 0)
         
-        # FIX: Ensure exit_time is present (critical for Frontend Date Filter)
-        if not trade_data.get('exit_time') or trade_data.get('exit_time') == "":
+        # FIX: Force set exit_time if missing or empty, so it shows up in "Closed" tab
+        if not trade_data.get('exit_time'):
              trade_data['exit_time'] = get_time_str()
 
         try:
-            # Use merge to handle potential ID collisions during rapid clicks
             hist = TradeHistory(id=trade_data['id'], data=json.dumps(trade_data))
             db.session.merge(hist)
             db.session.commit()

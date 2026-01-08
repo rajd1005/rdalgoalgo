@@ -233,11 +233,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                 targets_hit_indices.append(i)
                                 logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price}")
                                 
-                                # --- UPDATE SL LOGIC: T1 HIT -> MOVE SL TO ENTRY ---
-                                if i == 0:
-                                    sl = entry
-                                    logs.append(f"[{c_time}] T1 Hit. SL Moved to Entry (Cost Protection)")
-                                # ---------------------------------------------------
+                                # --- REMOVED T1 SL MOVE LOGIC HERE ---
                                 
                                 if i == len(tgts) - 1:
                                     status = "TARGET_HIT"

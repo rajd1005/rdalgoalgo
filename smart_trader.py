@@ -180,6 +180,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             
         targets_hit_indices = [] 
         made_high = entry
+        high_locked = False # Flag to stop tracking high if price reverses to entry
         
         for c in candles:
             curr_high = c['high']
@@ -193,28 +194,35 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                     trade_active = True
                     logs.append(f"[{c_time}] Trade Activated/Entered @ {entry}")
                     made_high = entry 
+                    high_locked = False
                 else:
                     continue 
             
             # Trade Management
             if trade_active:
-                # Track Made High Logic (Continuous)
-                if curr_high > made_high:
-                    made_high = curr_high
+                # --- Track Made High Logic ---
+                if not high_locked:
+                    if curr_high > made_high:
+                        made_high = curr_high
                     
+                    # If Price reverses to Entry (after being higher), Lock the High
+                    if curr_low <= entry and made_high > entry:
+                        high_locked = True
+                
                 # 1. Check SL (Standard OR Cost)
                 if status == "OPEN": 
                     if curr_low <= sl:
                         if sl >= entry:
                             status = "COST_EXIT" # Safe exit at entry
                             logs.append(f"[{c_time}] Price returned to Entry (Cost) @ {sl}. Safe Exit.")
+                            # Ensure locked if it hit entry/cost
+                            high_locked = True
                         else:
                             status = "SL_HIT"
                             logs.append(f"[{c_time}] SL Hit @ {sl}")
                             
                         exit_p = sl
                         exit_t = c_time
-                        # Don't break; continue loop to track Made High (if needed, though exited)
                         
                     # 2. Check Targets
                     elif status == "OPEN":
@@ -235,13 +243,10 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                     exit_t = c_time
                                     logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
             
-            # If trade is no longer active (Status is SL_HIT, COST_EXIT or TARGET_HIT), 
-            # we continue the loop only if we want to see post-exit movement, 
-            # BUT for Made High calculation relative to this trade, it usually freezes at exit 
-            # OR continues if we consider 'potential'. 
-            # The user requirement: "Market reveres form any point and again come to the entry point, this ... is Made high"
-            # This implies the Made High is the high point UP TO the return to entry.
-            # Since 'COST_EXIT' happens when it returns to entry, the 'made_high' captured above is correct.
+            # If trade is no longer active, the loop continues to process candles (implied 3:30 limit of data)
+            # The 'made_high' logic above continues to track if 'high_locked' is False.
+            # E.g. If exited at Target 3, and price keeps going up, high_locked is False, so made_high updates.
+            # If exited at Cost, high_locked is True, so made_high freezes.
 
         # After loop finishes
         profit_pts = made_high - entry

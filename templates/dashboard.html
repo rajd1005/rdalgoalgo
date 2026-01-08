@@ -17,7 +17,8 @@
         .nav-tabs { border: none; background: #fff; padding: 8px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; }
         .nav-btn { flex: 1; text-align: center; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: 600; color: #6c757d; margin: 0 2px; font-size: 0.9rem; }
         .nav-btn.active { background-color: #0d6efd; color: #fff; }
-        .pnl-green { color: #198754; } .pnl-red { color: #dc3545; }
+        .pnl-green { color: #198754; font-weight: bold; font-size: 0.8rem; display: block; } 
+        .pnl-red { color: #dc3545; font-weight: bold; font-size: 0.8rem; display: block; }
         .pos-grid-label { font-size: 0.7rem; color: #888; font-weight: 600; text-transform: uppercase; }
         .pos-grid-val { font-weight: 700; font-size: 0.9rem; }
         .log-entry { font-size: 0.75rem; border-left: 2px solid #ddd; padding-left: 8px; margin-bottom: 4px; color: #555; }
@@ -79,14 +80,30 @@
             </div>
 
             <div class="custom-card">
-                <div class="card-head">🛡️ Risk (Auto)</div>
+                <div class="card-head">🛡️ Projected P&L</div>
                 <div class="card-body">
-                    <div class="input-group mb-2"><span class="input-group-text">SL Pts</span><input type="number" id="sl_pts" name="sl_points" class="form-control fw-bold text-center" value="20"></div>
+                    <div class="input-group mb-3"><span class="input-group-text">SL Pts</span><input type="number" id="sl_pts" name="sl_points" class="form-control fw-bold text-center" value="20"></div>
                     <div class="row g-2 text-center">
-                        <div class="col-3"><small class="text-danger fw-bold">SL</small><input type="text" id="p_sl" class="form-control text-center text-danger fw-bold" readonly></div>
-                        <div class="col-3"><small class="text-success fw-bold">T1</small><input type="text" id="p_t1" name="t1_price" class="form-control text-center text-success fw-bold"></div>
-                        <div class="col-3"><small class="text-success fw-bold">T2</small><input type="text" id="p_t2" name="t2_price" class="form-control text-center text-success fw-bold"></div>
-                        <div class="col-3"><small class="text-success fw-bold">T3</small><input type="text" id="p_t3" name="t3_price" class="form-control text-center text-success fw-bold"></div>
+                        <div class="col-3">
+                            <small class="text-danger fw-bold">SL</small>
+                            <input type="text" id="p_sl" class="form-control text-center text-danger fw-bold mb-1" readonly>
+                            <span id="pnl_sl" class="pnl-red">₹ 0</span>
+                        </div>
+                        <div class="col-3">
+                            <small class="text-success fw-bold">T1</small>
+                            <input type="text" id="p_t1" name="t1_price" class="form-control text-center text-success fw-bold mb-1">
+                            <span id="pnl_t1" class="pnl-green">₹ 0</span>
+                        </div>
+                        <div class="col-3">
+                            <small class="text-success fw-bold">T2</small>
+                            <input type="text" id="p_t2" name="t2_price" class="form-control text-center text-success fw-bold mb-1">
+                            <span id="pnl_t2" class="pnl-green">₹ 0</span>
+                        </div>
+                        <div class="col-3">
+                            <small class="text-success fw-bold">T3</small>
+                            <input type="text" id="p_t3" name="t3_price" class="form-control text-center text-success fw-bold mb-1">
+                            <span id="pnl_t3" class="pnl-green">₹ 0</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -157,10 +174,26 @@
                         </div>
                     </div>
                     <hr class="my-2">
-                    <div class="row g-2">
-                        <div class="col-6"><input type="number" step="0.05" id="h_t1" class="form-control form-control-sm" placeholder="Target 1"></div>
-                        <div class="col-6"><input type="number" step="0.05" id="h_t2" class="form-control form-control-sm" placeholder="Target 2"></div>
-                        <div class="col-6"><input type="number" step="0.05" id="h_t3" class="form-control form-control-sm" placeholder="Target 3"></div>
+                    <div class="row g-2 text-center">
+                        <div class="col-4">
+                            <small class="text-success fw-bold">T1</small>
+                            <input type="number" step="0.05" id="h_t1" class="form-control form-control-sm mb-1">
+                            <span id="h_pnl_t1" class="pnl-green">₹ 0</span>
+                        </div>
+                        <div class="col-4">
+                            <small class="text-success fw-bold">T2</small>
+                            <input type="number" step="0.05" id="h_t2" class="form-control form-control-sm mb-1">
+                            <span id="h_pnl_t2" class="pnl-green">₹ 0</span>
+                        </div>
+                        <div class="col-4">
+                            <small class="text-success fw-bold">T3</small>
+                            <input type="number" step="0.05" id="h_t3" class="form-control form-control-sm mb-1">
+                            <span id="h_pnl_t3" class="pnl-green">₹ 0</span>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-center">
+                        <small class="text-danger fw-bold">Potential Loss: </small>
+                        <span id="h_pnl_sl" class="pnl-red" style="display:inline;">₹ 0</span>
                     </div>
                 </div>
 
@@ -177,9 +210,8 @@
     function switchTab(id) { $('.tab-content').hide(); $(`#${id}`).show(); $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); if(id==='closed') loadClosedTrades(); }
     function setMode(el, mode) { $('#mode_input').val(mode); $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active'); }
 
-    // --- DATA FETCHING ---
+    // --- DATA ---
     let curLTP=0;
-    // Store Symbol LTPs for History Tab to use
     let symLTP = {};
 
     function updateData() {
@@ -235,19 +267,14 @@
     bindSearch('#sym', '#sym_list'); 
     bindSearch('#h_sym', '#h_sym_list');
 
-    // Details, Expiry, Qty Update
     function loadDetails(symId, expId, typeId, qtyId) {
         let s = $(symId).val(); if(!s) return;
         $.get('/api/details?symbol='+s, d => { 
-            // 1. Store LTP for ATM calc
-            symLTP[symId] = d.ltp;
-            
-            // 2. Update Lot Size & Qty Step
+            symLTP[symId] = d.ltp; 
             if(d.lot_size > 0) {
                 if(symId === '#sym') { $('#lot').text(d.lot_size); }
                 $(qtyId).val(d.lot_size).attr('step', d.lot_size).attr('min', d.lot_size);
             }
-
             window[symId+'_fut'] = d.fut_expiries; window[symId+'_opt'] = d.opt_expiries;
             fillExp(expId, typeId, symId);
         });
@@ -265,9 +292,7 @@
     $('#type').change(() => fillExp('#exp', '#type', '#sym'));
     $('#h_type').change(() => fillExp('#h_exp', '#h_type', '#h_sym'));
 
-    // Fill Chain (Auto ATM)
     function fillChain(sym, exp, type, str) {
-        // Use stored LTP for Simulator to approximate ATM
         let spot = symLTP[sym] || 0;
         $.get(`/api/chain?symbol=${$(sym).val()}&expiry=${$(exp).val()}&type=${$(type).val()}&ltp=${spot}`, d => {
             let $s = $(str).empty(); 
@@ -278,43 +303,68 @@
     $('#exp').change(() => fillChain('#sym', '#exp', '#type', '#str'));
     $('#h_exp').change(() => fillChain('#h_sym', '#h_exp', '#h_type', '#h_str'));
 
-    // Trade Tab specifics
+    // --- TRADE TAB P&L ---
     $('#str').change(fetchLTP);
     function fetchLTP() {
         $.get(`/api/specific_ltp?symbol=${$('#sym').val()}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
             curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP); $('#lim_pr').val(curLTP); calcRisk();
         });
     }
-    $('#sl_pts').on('input', calcRisk);
+    $('#sl_pts, #qty').on('input', calcRisk);
     function calcRisk() {
         let p = parseFloat($('#sl_pts').val())||0;
-        $('#p_sl').val((curLTP-p).toFixed(2)); $('#p_t1').val((curLTP+p*0.5).toFixed(2)); 
-        $('#p_t2').val((curLTP+p*1).toFixed(2)); $('#p_t3').val((curLTP+p*2).toFixed(2));
+        let qty = parseInt($('#qty').val())||1;
+        let sl = curLTP - p;
+        let t1 = curLTP + p*0.5;
+        let t2 = curLTP + p*1.0;
+        let t3 = curLTP + p*2.0;
+
+        $('#p_sl').val(sl.toFixed(2)); 
+        $('#p_t1').val(t1.toFixed(2)); 
+        $('#p_t2').val(t2.toFixed(2)); 
+        $('#p_t3').val(t3.toFixed(2));
+
+        // Update P&L Labels
+        $('#pnl_sl').text(`₹ ${((sl-curLTP)*qty).toFixed(0)}`).css('color', 'red');
+        $('#pnl_t1').text(`₹ ${((t1-curLTP)*qty).toFixed(0)}`);
+        $('#pnl_t2').text(`₹ ${((t2-curLTP)*qty).toFixed(0)}`);
+        $('#pnl_t3').text(`₹ ${((t3-curLTP)*qty).toFixed(0)}`);
     }
 
-    // --- SIMULATOR AUTO-CALC ---
-    $('#h_entry, #h_sl_pts').on('input', function() {
+    // --- SIMULATOR P&L ---
+    $('#h_entry, #h_sl_pts, #h_qty').on('input', function() {
         let entry = parseFloat($('#h_entry').val()) || 0;
         let pts = parseFloat($('#h_sl_pts').val()) || 0;
+        let qty = parseInt($('#h_qty').val()) || 1;
+        
         if(entry > 0) {
-            $('#h_t1').val((entry + pts * 0.5).toFixed(2));
-            $('#h_t2').val((entry + pts * 1.0).toFixed(2));
-            $('#h_t3').val((entry + pts * 2.0).toFixed(2));
+            let t1 = entry + pts * 0.5;
+            let t2 = entry + pts * 1.0;
+            let t3 = entry + pts * 2.0;
+            let sl = entry - pts;
+
+            $('#h_t1').val(t1.toFixed(2));
+            $('#h_t2').val(t2.toFixed(2));
+            $('#h_t3').val(t3.toFixed(2));
+
+            // Update Simulator P&L Labels
+            $('#h_pnl_sl').text(`₹ ${((sl-entry)*qty).toFixed(0)}`);
+            $('#h_pnl_t1').text(`₹ ${((t1-entry)*qty).toFixed(0)}`);
+            $('#h_pnl_t2').text(`₹ ${((t2-entry)*qty).toFixed(0)}`);
+            $('#h_pnl_t3').text(`₹ ${((t3-entry)*qty).toFixed(0)}`);
         }
     });
 
     window.checkHistory = function() {
         let entry = $('#h_entry').val();
-        if(!entry) { alert("Entry Price is required for simulation!"); return; }
-
+        if(!entry) { alert("Entry Price required!"); return; }
         let d = {
             symbol:$('#h_sym').val(), type:$('#h_type').val(), expiry:$('#h_exp').val(), 
             strike:$('#h_str').val(), time:$('#h_time').val(), 
             sl_points:$('#h_sl_pts').val(), qty:$('#h_qty').val(),
             entry_price: entry, t1: $('#h_t1').val(), t2: $('#h_t2').val(), t3: $('#h_t3').val()
         };
-        $('#h_res').show().text("Running Simulation...");
-        
+        $('#h_res').show().text("Simulating...");
         $.ajax({
             type: "POST", url: '/api/history_check',
             data: JSON.stringify(d), contentType: "application/json",

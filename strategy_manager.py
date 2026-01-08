@@ -1,7 +1,12 @@
+{
+type: file
+fileName: rajd1005/rdalgoalgo/rdalgoalgo-0ca1f115f83f1ed3dd36fe9e5f474566c8b8478d/strategy_manager.py
+fullContent:
 import json
 import os
 import time
 from datetime import datetime
+import pandas as pd
 
 TRADES_FILE = 'active_trades.json'
 HISTORY_FILE = 'trade_history.json'
@@ -33,7 +38,11 @@ def save_history_file(history):
         json.dump(history, f, default=str, indent=4)
 
 def get_time_str():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Returns current time in IST if possible, else server time
+    try:
+        return pd.Timestamp.now('Asia/Kolkata').strftime("%Y-%m-%d %H:%M:%S")
+    except:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def log_event(trade, message):
     if 'logs' not in trade:
@@ -85,7 +94,8 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         # it executes immediately (OPEN). Otherwise, it waits (PENDING).
         if current_ltp > 0 and current_ltp <= entry_price:
             status = "OPEN"
-            entry_price = current_ltp # Filled at better market price
+            # NOTE: We keep entry_price as the Limit Price (user's price), 
+            # even if it executes immediately at a better market price.
         else:
             status = "PENDING"
 
@@ -106,9 +116,8 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # Calculate Targets
+    # Calculate Targets based on ENTRY PRICE (Limit Price for Limit Orders)
     targets = []
-    # For calculation, use the intended entry price
     calc_price = entry_price
     
     if len(custom_targets) == 3:
@@ -146,6 +155,9 @@ def promote_to_live(kite, trade_id):
     for t in trades:
         if t['id'] == int(trade_id) and t['mode'] == "PAPER":
             try:
+                # If promoting a Pending Paper trade, we should place a LIMIT order if original was limit
+                # But typically 'Promote' is used to execute NOW. 
+                # We use Market for instant execution upon promotion.
                 kite.place_order(
                     tradingsymbol=t['symbol'],
                     exchange=t['exchange'],
@@ -172,6 +184,9 @@ def close_trade_manual(kite, trade_id):
             exit_p = t['current_ltp']
             
             if t['status'] == "PENDING":
+                # If Live Pending, we should ideally Cancel the open order on Zerodha
+                # But since we don't store Order ID, user must manually cancel on Kite or
+                # we assume the Algo manages the 'Logical' state.
                 move_to_history(t, "CANCELLED_MANUAL", 0)
                 continue
 
@@ -216,8 +231,13 @@ def update_risk_engine(kite):
     active_list = []
     updated = False
     
-    now = datetime.now()
-    # Market Close check (3:30 PM)
+    # Use IST for Market Close Check to avoid Server Timezone issues
+    try:
+        now = pd.Timestamp.now('Asia/Kolkata')
+    except:
+        now = datetime.now()
+
+    # Market Close check (3:30 PM IST)
     market_closed = (now.hour > 15) or (now.hour == 15 and now.minute >= 30)
 
     for t in trades:
@@ -235,7 +255,7 @@ def update_risk_engine(kite):
                 move_to_history(t, "CANCELLED_EOD", 0)
                 continue
             
-            # 2. Activate if Market Reaches Entry Price
+            # 2. Activate if Market Reaches Entry Price (Buy Limit Logic)
             if ltp <= t['entry_price']:
                 t['status'] = "OPEN"
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
@@ -280,3 +300,4 @@ def update_risk_engine(kite):
                 
     if updated:
         save_trades(active_list)
+}

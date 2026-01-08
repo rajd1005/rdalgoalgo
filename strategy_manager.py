@@ -65,21 +65,31 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     try:
         current_ltp = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
     except:
-        current_ltp = limit_price if limit_price > 0 else 100.0
+        current_ltp = 0.0
 
     status = "OPEN"
     entry_price = 0.0
 
     if order_type == "MARKET":
+        # Requirement 1: Execute as per live LTP and active
+        if current_ltp == 0:
+            return {"status": "error", "message": "Failed to fetch Live Price for Market Order"}
+        
         entry_price = current_ltp
         status = "OPEN"
     else:
+        # Requirement 2: Limit order execute as per added price
         entry_price = float(limit_price)
-        if current_ltp <= entry_price:
+        if entry_price <= 0:
+            return {"status": "error", "message": "Invalid Limit Price"}
+
+        # Logic: If LTP is already below or equal to Limit Price, execute immediately (Marketable)
+        # Otherwise, keep as PENDING and wait for market to reach entry point
+        if current_ltp > 0 and current_ltp <= entry_price:
             status = "OPEN"
-            entry_price = current_ltp
+            entry_price = current_ltp # Filled at market (better than limit)
         else:
-            status = "PENDING"
+            status = "PENDING" # Wait for price to drop to entry
 
     if mode == "LIVE":
         try:
@@ -98,14 +108,17 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+    # Calculate Targets based on intended entry price
     targets = []
+    calc_price = entry_price
+    
     if len(custom_targets) == 3:
         targets = custom_targets
     else:
         targets = [
-            entry_price + (sl_points * 0.5),
-            entry_price + (sl_points * 1.0),
-            entry_price + (sl_points * 2.0)
+            calc_price + (sl_points * 0.5),
+            calc_price + (sl_points * 1.0),
+            calc_price + (sl_points * 2.0)
         ]
 
     record = {
@@ -118,7 +131,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "status": status,
         "entry_price": entry_price,
         "quantity": quantity,
-        "sl": entry_price - sl_points,
+        "sl": calc_price - sl_points,
         "targets": targets,
         "t1_hit": False,
         "current_ltp": current_ltp,
@@ -205,6 +218,7 @@ def update_risk_engine(kite):
     updated = False
     
     now = datetime.now()
+    # Requirement 2: If not active during the day (by 3:30 PM), cancel it.
     market_closed = (now.hour > 15) or (now.hour == 15 and now.minute >= 30)
 
     for t in trades:
@@ -221,6 +235,7 @@ def update_risk_engine(kite):
                 move_to_history(t, "CANCELLED_EOD", 0)
                 continue
             
+            # Requirement 2: Wait for market to reach entry point, then active it
             if ltp <= t['entry_price']:
                 t['status'] = "OPEN"
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")

@@ -232,7 +232,13 @@
     function updateSymList() { let tbody=$('#sl_table_body').empty(); Object.keys(settings.symbol_sl).forEach(sym => { tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${settings.symbol_sl[sym]}</td><td><button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button> <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button></td></tr>`); }); }
     function editSymSL(sym) { $('#set_sym').val(sym); $('#set_sl').val(settings.symbol_sl[sym]); }
     function deleteSymSL(sym) { delete settings.symbol_sl[sym]; updateSymList(); }
-    $(document).ready(loadSettings);
+    
+    $(document).ready(function() {
+        loadSettings();
+        let now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        $('#h_time').val(now.toISOString().slice(0,16));
+    });
 
     function switchTab(id) { $('.tab-content').hide(); $(`#${id}`).show(); $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); if(id==='closed') loadClosedTrades(); }
     function setMode(el, mode) { $('#mode_input').val(mode); $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active'); }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Algo Terminal V4.1</title>
+    <title>Algo Terminal V4.2</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -23,7 +23,6 @@
         .pos-grid-label { font-size: 0.7rem; color: #888; font-weight: 600; text-transform: uppercase; }
         .pos-grid-val { font-weight: 700; font-size: 0.9rem; }
         .log-entry { font-size: 0.75rem; border-left: 2px solid #ddd; padding-left: 8px; margin-bottom: 4px; color: #555; }
-        /* Renamed to avoid conflict with Bootstrap's .tab-content */
         .dashboard-tab { display: none; } .dashboard-tab.active { display: block; }
         .settings-btn { cursor: pointer; color: #0d6efd; text-decoration: underline; font-size: 0.8rem; }
         .sl-table td { vertical-align: middle; }
@@ -135,36 +134,16 @@
 
     <div id="pos" class="dashboard-tab">
         <div class="row g-2 mb-3">
-            <div class="col-4">
-                <div class="card text-center border-danger shadow-sm">
-                    <div class="card-body p-2"><small class="text-danger fw-bold">LIVE P&L</small><div id="sum_live" class="fw-bold">₹ 0</div></div>
-                </div>
-            </div>
-            <div class="col-4">
-                <div class="card text-center border-warning shadow-sm">
-                    <div class="card-body p-2"><small class="text-warning text-dark fw-bold">PAPER P&L</small><div id="sum_paper" class="fw-bold">₹ 0</div></div>
-                </div>
-            </div>
-            <div class="col-4">
-                <div class="card text-center border-info shadow-sm">
-                    <div class="card-body p-2"><small class="text-info text-dark fw-bold">SIM P&L</small><div id="sum_sim" class="fw-bold">₹ 0</div></div>
-                </div>
-            </div>
+            <div class="col-4"><div class="card text-center border-danger shadow-sm"><div class="card-body p-2"><small class="text-danger fw-bold">LIVE P&L</small><div id="sum_live" class="fw-bold">₹ 0</div></div></div></div>
+            <div class="col-4"><div class="card text-center border-warning shadow-sm"><div class="card-body p-2"><small class="text-warning text-dark fw-bold">PAPER P&L</small><div id="sum_paper" class="fw-bold">₹ 0</div></div></div></div>
+            <div class="col-4"><div class="card text-center border-info shadow-sm"><div class="card-body p-2"><small class="text-info text-dark fw-bold">SIM P&L</small><div id="sum_sim" class="fw-bold">₹ 0</div></div></div></div>
         </div>
-
         <div class="custom-card">
             <div class="card-head d-flex justify-content-between align-items-center">
                 <span>💼 Active Positions</span>
-                <select id="active_filter" class="form-select form-select-sm" style="width: auto; font-weight: bold;">
-                    <option value="ALL">All Trades</option>
-                    <option value="LIVE">Live</option>
-                    <option value="PAPER">Paper</option>
-                    <option value="SIMULATOR">Simulator</option>
-                </select>
+                <select id="active_filter" class="form-select form-select-sm" style="width: auto; font-weight: bold;"><option value="ALL">All Trades</option><option value="LIVE">Live</option><option value="PAPER">Paper</option><option value="SIMULATOR">Simulator</option></select>
             </div>
-            <div class="card-body p-2" id="pos-container">
-                <div class="text-center p-4 text-muted">Loading...</div>
-            </div>
+            <div class="card-body p-2" id="pos-container"><div class="text-center p-4 text-muted">Loading...</div></div>
         </div>
     </div>
 
@@ -172,20 +151,9 @@
         <div class="custom-card">
             <div class="card-head d-flex justify-content-between">
                 <span>📜 History</span>
-                <div class="d-flex align-items-center">
-                    <select id="hist_filter" class="form-select form-select-sm me-2" style="width: auto; font-weight: bold;">
-                        <option value="ALL">All Trades</option>
-                        <option value="LIVE">Live</option>
-                        <option value="PAPER">Paper</option>
-                        <option value="SIMULATOR">Simulator</option>
-                    </select>
-                    <input type="date" id="hist_date" class="form-control form-control-sm me-2" style="width: 130px;">
-                    <span id="day_pnl" class="badge bg-secondary">₹ 0</span>
-                </div>
+                <div class="d-flex align-items-center"><select id="hist_filter" class="form-select form-select-sm me-2" style="width: auto; font-weight: bold;"><option value="ALL">All Trades</option><option value="LIVE">Live</option><option value="PAPER">Paper</option><option value="SIMULATOR">Simulator</option></select><input type="date" id="hist_date" class="form-control form-control-sm me-2" style="width: 130px;"><span id="day_pnl" class="badge bg-secondary">₹ 0</span></div>
             </div>
-            <div class="card-body p-2" id="hist-container">
-                <div class="text-center p-4 text-muted">Loading...</div>
-            </div>
+            <div class="card-body p-2" id="hist-container"><div class="text-center p-4 text-muted">Loading...</div></div>
         </div>
     </div>
 
@@ -231,19 +199,11 @@
       <div class="modal-header"><h5 class="modal-title">✏️ Edit Trade Protection</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <input type="hidden" id="edit_trade_id">
-        <label class="pos-grid-label">New Stop Loss</label>
-        <input type="number" step="0.05" id="edit_sl" class="form-control mb-3 text-danger fw-bold">
-        
+        <label class="pos-grid-label">New Stop Loss</label><input type="number" step="0.05" id="edit_sl" class="form-control mb-3 text-danger fw-bold">
         <label class="pos-grid-label">New Targets</label>
-        <div class="input-group mb-2">
-            <span class="input-group-text text-success">T1</span><input type="number" step="0.05" id="edit_t1" class="form-control">
-        </div>
-        <div class="input-group mb-2">
-            <span class="input-group-text text-success">T2</span><input type="number" step="0.05" id="edit_t2" class="form-control">
-        </div>
-        <div class="input-group mb-2">
-            <span class="input-group-text text-success">T3</span><input type="number" step="0.05" id="edit_t3" class="form-control">
-        </div>
+        <div class="input-group mb-2"><span class="input-group-text text-success">T1</span><input type="number" step="0.05" id="edit_t1" class="form-control"></div>
+        <div class="input-group mb-2"><span class="input-group-text text-success">T2</span><input type="number" step="0.05" id="edit_t2" class="form-control"></div>
+        <div class="input-group mb-2"><span class="input-group-text text-success">T3</span><input type="number" step="0.05" id="edit_t3" class="form-control"></div>
       </div>
       <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveTradeUpdate()">💾 Update Protection</button></div>
     </div>
@@ -255,13 +215,6 @@
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
-        
-        <label class="pos-grid-label">Default Stop Loss Points (Symbol Specific)</label>
-        <div class="input-group mb-2"><input type="text" id="set_sym" class="form-control" placeholder="Symbol"><input type="number" id="set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL()">Add</button></div>
-        <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
-            <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="sl_table_body"></tbody></table>
-        </div>
-
         <ul class="nav nav-tabs mb-3" id="settingTabs" role="tablist">
             <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-live">Live</button></li>
@@ -270,33 +223,45 @@
 
         <div class="tab-content" id="settingTabsContent">
             <div class="tab-pane fade show active" id="tab-paper">
-                <h6>Paper Trade Config</h6>
+                <h6 class="mb-2 text-warning">Paper Trade Config</h6>
+                <div class="input-group mb-2"><input type="text" id="paper_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="paper_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('PAPER')">Add</button></div>
+                <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
+                    <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="paper_sl_table_body"></tbody></table>
+                </div>
                 <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="paper_qty_mult" class="form-control mb-2" value="1" min="1">
                 <label class="pos-grid-label">Target Ratios</label>
                 <div class="input-group mb-2">
-                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="paper_r1" class="form-control" value="0.5">
-                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="paper_r2" class="form-control" value="1.0">
-                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="paper_r3" class="form-control" value="1.5">
+                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="paper_r1" class="form-control">
+                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="paper_r2" class="form-control">
+                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="paper_r3" class="form-control">
                 </div>
             </div>
             <div class="tab-pane fade" id="tab-live">
-                <h6>Live Trade Config</h6>
+                <h6 class="mb-2 text-danger">Live Trade Config</h6>
+                <div class="input-group mb-2"><input type="text" id="live_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="live_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('LIVE')">Add</button></div>
+                <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
+                    <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="live_sl_table_body"></tbody></table>
+                </div>
                 <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="live_qty_mult" class="form-control mb-2" value="1" min="1">
                 <label class="pos-grid-label">Target Ratios</label>
                 <div class="input-group mb-2">
-                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="live_r1" class="form-control" value="0.5">
-                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="live_r2" class="form-control" value="1.0">
-                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="live_r3" class="form-control" value="1.5">
+                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="live_r1" class="form-control">
+                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="live_r2" class="form-control">
+                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="live_r3" class="form-control">
                 </div>
             </div>
             <div class="tab-pane fade" id="tab-sim">
-                <h6>Simulator Config</h6>
+                <h6 class="mb-2 text-info">Simulator Config</h6>
+                <div class="input-group mb-2"><input type="text" id="sim_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="sim_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('SIMULATOR')">Add</button></div>
+                <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
+                    <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="sim_sl_table_body"></tbody></table>
+                </div>
                 <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="sim_qty_mult" class="form-control mb-2" value="1" min="1">
                 <label class="pos-grid-label">Target Ratios</label>
                 <div class="input-group mb-2">
-                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="sim_r1" class="form-control" value="0.5">
-                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="sim_r2" class="form-control" value="1.0">
-                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="sim_r3" class="form-control" value="1.5">
+                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="sim_r1" class="form-control">
+                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="sim_r2" class="form-control">
+                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="sim_r3" class="form-control">
                 </div>
             </div>
         </div>
@@ -310,54 +275,77 @@
 <script>
     let settings = { 
         modes: {
-            LIVE: {qty_mult: 1, ratios: [0.5, 1.0, 1.5]},
-            PAPER: {qty_mult: 1, ratios: [0.5, 1.0, 1.5]},
-            SIMULATOR: {qty_mult: 1, ratios: [0.5, 1.0, 1.5]}
-        }, 
-        symbol_sl: {} 
+            LIVE: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
+            PAPER: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
+            SIMULATOR: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}}
+        }
     };
 
     function loadSettings() {
         $.get('/api/settings/load', function(data) {
-            if(data) {
+            if(data && data.modes) {
                 settings = data;
-                // Ensure structure
-                if(!settings.modes) {
-                    let oldM = settings.qty_mult || 1;
-                    let oldR = settings.ratios || [0.5, 1.0, 1.5];
-                    settings.modes = {
-                        LIVE: {qty_mult: oldM, ratios: oldR},
-                        PAPER: {qty_mult: oldM, ratios: oldR},
-                        SIMULATOR: {qty_mult: oldM, ratios: oldR}
-                    };
-                }
-
-                // Populate Modal Inputs
+                
                 ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
                     let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
-                    $(`#${k}_qty_mult`).val(settings.modes[m].qty_mult);
-                    $(`#${k}_r1`).val(settings.modes[m].ratios[0]);
-                    $(`#${k}_r2`).val(settings.modes[m].ratios[1]);
-                    $(`#${k}_r3`).val(settings.modes[m].ratios[2]);
+                    let s = settings.modes[m];
+                    $(`#${k}_qty_mult`).val(s.qty_mult);
+                    $(`#${k}_r1`).val(s.ratios[0]);
+                    $(`#${k}_r2`).val(s.ratios[1]);
+                    $(`#${k}_r3`).val(s.ratios[2]);
+                    renderSLTable(m);
                 });
 
-                updateSymList();
                 updateDisplayValues(); 
             }
         });
     }
 
     function saveSettings() {
-        settings.modes.PAPER.qty_mult = parseInt($('#paper_qty_mult').val()) || 1;
-        settings.modes.PAPER.ratios = [parseFloat($('#paper_r1').val()), parseFloat($('#paper_r2').val()), parseFloat($('#paper_r3').val())];
-        
-        settings.modes.LIVE.qty_mult = parseInt($('#live_qty_mult').val()) || 1;
-        settings.modes.LIVE.ratios = [parseFloat($('#live_r1').val()), parseFloat($('#live_r2').val()), parseFloat($('#live_r3').val())];
-        
-        settings.modes.SIMULATOR.qty_mult = parseInt($('#sim_qty_mult').val()) || 1;
-        settings.modes.SIMULATOR.ratios = [parseFloat($('#sim_r1').val()), parseFloat($('#sim_r2').val()), parseFloat($('#sim_r3').val())];
+        ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
+            let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
+            settings.modes[m].qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;
+            settings.modes[m].ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
+        });
 
         $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { $('#settingsModal').modal('hide'); loadSettings(); } });
+    }
+
+    function renderSLTable(mode) {
+        let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
+        let tbody = $(`#${k}_sl_table_body`).empty();
+        let slMap = settings.modes[mode].symbol_sl || {};
+        
+        Object.keys(slMap).forEach(sym => {
+            tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${slMap[sym]}</td><td>
+                <button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${mode}', '${sym}')">✏️</button> 
+                <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${mode}', '${sym}')">🗑️</button>
+            </td></tr>`);
+        });
+    }
+
+    function saveSymSL(mode) {
+        let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
+        let s = $(`#${k}_set_sym`).val().toUpperCase();
+        let p = parseInt($(`#${k}_set_sl`).val());
+        
+        if(s && p) {
+            if(!settings.modes[mode].symbol_sl) settings.modes[mode].symbol_sl = {};
+            settings.modes[mode].symbol_sl[s] = p;
+            renderSLTable(mode);
+            $(`#${k}_set_sym`).val(''); $(`#${k}_set_sl`).val('');
+        }
+    }
+
+    function editSymSL(mode, sym) {
+        let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
+        $(`#${k}_set_sym`).val(sym);
+        $(`#${k}_set_sl`).val(settings.modes[mode].symbol_sl[sym]);
+    }
+
+    function deleteSymSL(mode, sym) {
+        delete settings.modes[mode].symbol_sl[sym];
+        renderSLTable(mode);
     }
 
     function updateDisplayValues() {
@@ -384,11 +372,6 @@
              if (entry > 0) $('#h_entry').trigger('input');
         }
     }
-
-    function saveSymSL() { let s=$('#set_sym').val().toUpperCase(); let p=parseInt($('#set_sl').val()); if(s && p) { settings.symbol_sl[s]=p; updateSymList(); $('#set_sym').val(''); $('#set_sl').val(''); } }
-    function updateSymList() { let tbody=$('#sl_table_body').empty(); Object.keys(settings.symbol_sl).forEach(sym => { tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${settings.symbol_sl[sym]}</td><td><button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${sym}')">✏️</button> <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${sym}')">🗑️</button></td></tr>`); }); }
-    function editSymSL(sym) { $('#set_sym').val(sym); $('#set_sl').val(settings.symbol_sl[sym]); }
-    function deleteSymSL(sym) { delete settings.symbol_sl[sym]; updateSymList(); }
     
     $(document).ready(function() {
         loadSettings();
@@ -632,14 +615,16 @@
 
     function loadDetails(symId, expId, typeId, qtyId, slId) {
         let s = $(symId).val(); if(!s) return;
-        let savedSL = settings.symbol_sl[s.toUpperCase()] || 20;
-        $(slId).val(savedSL);
         
         let mode = 'PAPER';
         if ($('#history').is(':visible')) mode = 'SIMULATOR';
         else mode = $('#mode_input').val();
         
-        let mult = settings.modes[mode].qty_mult || 1;
+        let modeSettings = settings.modes[mode] || settings.modes.PAPER;
+        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[s.toUpperCase()]) || 20;
+        $(slId).val(savedSL);
+        
+        let mult = modeSettings.qty_mult || 1;
 
         $.get('/api/details?symbol='+s, d => { 
             symLTP[symId] = d.ltp; 

@@ -5,26 +5,41 @@ from kiteconnect import KiteConnect
 import config
 import strategy_manager
 import smart_trader
+from database import db, AppSetting
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
+app.config.from_object(config)
+
+# Initialize Database
+db.init_app(app)
+with app.app_context():
+    db.create_all()
 
 kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
-SETTINGS_FILE = "settings.json"
 
 def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
+    try:
+        setting = AppSetting.query.first()
+        if setting:
+            return json.loads(setting.data)
+    except:
+        pass
     return {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
 
 def save_settings_file(data):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    try:
+        setting = AppSetting.query.first()
+        if not setting:
+            setting = AppSetting(data=json.dumps(data))
+            db.session.add(setting)
+        else:
+            setting.data = json.dumps(data)
+        db.session.commit()
+    except Exception as e:
+        print(f"Settings Save Error: {e}")
+        db.session.rollback()
 
 @app.route('/')
 def home():

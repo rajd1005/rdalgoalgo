@@ -45,11 +45,12 @@ def search_symbols(keyword):
     if instrument_dump is None: return []
     k = keyword.upper()
     
-    # FIX: Filter by 'exchange' instead of 'segment' to ensure MCX/CDS/BFO are included
+    # Filter by EXCHANGE to ensure we get MCX, CDS, BFO, NFO, NSE
     valid_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
     mask = (instrument_dump['exchange'].isin(valid_exchanges)) & (instrument_dump['name'].str.startswith(k))
     
+    # Return unique names
     return instrument_dump[mask]['name'].unique().tolist()[:10]
 
 def get_symbol_details(kite, symbol):
@@ -60,35 +61,50 @@ def get_symbol_details(kite, symbol):
     clean = get_zerodha_symbol(symbol)
     today = datetime.now(IST).date()
     
-    # 1. Determine Exchange & Spot Symbol
-    exchange = "NSE"
-    row = instrument_dump[instrument_dump['name'] == clean]
-    if not row.empty:
-        # Prefer MCX/CDS if listed there, otherwise default to NSE/BSE
-        exchanges = row['exchange'].unique().tolist()
-        if 'MCX' in exchanges: exchange = 'MCX'
-        elif 'CDS' in exchanges: exchange = 'CDS'
-        elif 'BSE' in exchanges and 'NSE' not in exchanges: exchange = 'BSE'
+    # 1. Determine Exchange & Fetch LTP (Spot/Future)
+    # We try to determine the best 'Exchange' to query for the dashboard LTP.
+    # Priority: MCX -> CDS -> BFO -> NFO -> NSE -> BSE
     
-    # 2. Try Fetching LTP (Spot)
     ltp = 0
-    try:
-        quote_sym = f"{exchange}:{clean}"
-        if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
-        if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
-        if clean == "SENSEX": quote_sym = "BSE:SENSEX"
+    exchange_to_use = "NSE" 
+    
+    # Filter rows matching the cleaned name
+    rows = instrument_dump[instrument_dump['name'] == clean]
+    
+    if not rows.empty:
+        exchanges = rows['exchange'].unique().tolist()
         
+        if 'MCX' in exchanges: 
+            exchange_to_use = 'MCX'
+        elif 'CDS' in exchanges: 
+            exchange_to_use = 'CDS'
+        elif 'BFO' in exchanges:
+            # For SENSEX/BANKEX, Spot is on BSE
+            exchange_to_use = 'BSE' 
+        elif 'NFO' in exchanges:
+            # For NIFTY/Stocks, Spot is on NSE
+            exchange_to_use = 'NSE'
+        elif 'BSE' in exchanges:
+            exchange_to_use = 'BSE'
+    
+    # Construct Spot/LTP Symbol
+    quote_sym = f"{exchange_to_use}:{clean}"
+    if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
+    if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
+    if clean == "SENSEX": quote_sym = "BSE:SENSEX"
+    
+    try:
         q = kite.quote(quote_sym)
         if quote_sym in q:
             ltp = q[quote_sym]['last_price']
     except:
         ltp = 0
         
-    # 3. Fallback: If Spot LTP is 0 (Common for MCX/CDS), fetch Near Future LTP
-    if ltp == 0:
+    # Fallback: If Spot LTP is 0 (Common for MCX/CDS), fetch Near Future LTP
+    if ltp == 0 and not rows.empty:
         try:
-            # Find nearest future
-            futs_all = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT') & (instrument_dump['expiry_date'] >= today)]
+            # Find nearest future across ANY exchange (Prioritizing MCX/CDS)
+            futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]
             if not futs_all.empty:
                 futs_all = futs_all.sort_values('expiry_date')
                 near_fut = futs_all.iloc[0]
@@ -97,20 +113,40 @@ def get_symbol_details(kite, symbol):
         except:
             pass
 
-    # 4. Get Lot Size
+    # 2. Get Lot Size (Robust Logic)
     lot = 1
-    # Check Futures first
-    futs = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT')]
-    if not futs.empty: 
-        lot = int(futs.iloc[0]['lot_size'])
-    else:
-        # Fallback to Options (useful if only Options exist)
-        opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE']))]
-        if not opts.empty: lot = int(opts.iloc[0]['lot_size'])
+    
+    # We look for a derivative contract (FUT) in specific exchanges to get the lot size.
+    # Priority: MCX -> CDS -> BFO -> NFO
+    priority_exchanges = ['MCX', 'CDS', 'BFO', 'NFO']
+    
+    found_lot = False
+    for ex in priority_exchanges:
+        # Check for Futures in this exchange
+        futs = rows[(rows['exchange'] == ex) & (rows['instrument_type'] == 'FUT')]
+        if not futs.empty:
+            lot = int(futs.iloc[0]['lot_size'])
+            found_lot = True
+            break
+            
+    # If no future found in priority exchanges, try Options in priority exchanges
+    if not found_lot:
+        for ex in priority_exchanges:
+            opts = rows[(rows['exchange'] == ex) & (rows['instrument_type'].isin(['CE', 'PE']))]
+            if not opts.empty:
+                lot = int(opts.iloc[0]['lot_size'])
+                found_lot = True
+                break
+    
+    # If still not found, fallback to any Future found
+    if not found_lot:
+        any_fut = rows[rows['instrument_type'] == 'FUT']
+        if not any_fut.empty:
+            lot = int(any_fut.iloc[0]['lot_size'])
 
-    # 5. Get Expiries
-    f_exp = sorted(instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT') & (instrument_dump['expiry_date'] >= today)]['expiry_str'].unique().tolist())
-    o_exp = sorted(instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE'])) & (instrument_dump['expiry_date'] >= today)]['expiry_str'].unique().tolist())
+    # 3. Get Expiries
+    f_exp = sorted(rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
+    o_exp = sorted(rows[(rows['instrument_type'].isin(['CE', 'PE'])) & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
     
     return {
         "symbol": clean, 
@@ -166,7 +202,7 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     ts = get_exact_symbol(symbol, expiry, strike, inst_type)
     if not ts: return 0
     try:
-        # Dynamic Exchange Lookup based on Trading Symbol
+        # Dynamic Exchange Lookup
         global instrument_dump
         exch = "NFO" 
         if instrument_dump is not None:

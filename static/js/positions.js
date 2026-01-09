@@ -35,31 +35,32 @@ function updateData() {
                 let pnl = (t.current_ltp - t.entry_price) * t.quantity;
                 let color = pnl >= 0 ? 'pnl-green' : 'pnl-red';
                 if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
-                let cat = getTradeCategory(t); let badge = getMarkBadge(cat);
-                let editBtn = (cat !== 'SIMULATOR') ? `<span class="action-btn text-primary" onclick="openEditTradeModal('${t.id}')">✏️</span>` : '';
+                let cat = getTradeCategory(t); 
+                let badge = getMarkBadge(cat);
+                let editBtn = (cat !== 'SIMULATOR') ? `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>` : '';
 
-                html += `<div class="card mb-3 border shadow-sm"><div class="card-body p-2">
-                    <div class="d-flex justify-content-between mb-2 align-items-center">
-                        <div style="font-size:0.9rem; font-weight:700;">${t.symbol} <span class="badge bg-light text-dark border">Q:${t.quantity}</span></div>
-                        <div>${editBtn} ${badge}</div>
+                html += `<div class="trade-row">
+                    <div class="trade-info">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
+                            ${badge}
+                        </div>
+                        <div class="text-end">
+                             <span class="fw-bold ${color}" style="font-size:1rem;">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</span>
+                        </div>
                     </div>
-                    <div class="text-center py-2 bg-light rounded mb-2">
-                        <small class="text-muted fw-bold" style="font-size:0.7rem;">P&L</small>
-                        <h4 class="mb-0 fw-bold ${color}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</h4>
+                    <div class="trade-details">
+                        <span>Qty: <b class="text-dark">${t.quantity}</b></span>
+                        <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
+                        <span>LTP: <b class="text-primary">${t.current_ltp.toFixed(2)}</b></span>
+                        <span class="text-danger">SL: <b>${t.sl.toFixed(1)}</b></span>
                     </div>
-                    <div class="row text-center mb-2 g-0">
-                        <div class="col-6 border-end"><div class="pos-grid-label">Entry</div><div class="pos-grid-val">${t.entry_price.toFixed(2)}</div></div>
-                        <div class="col-6"><div class="pos-grid-label">LTP</div><div class="pos-grid-val text-primary">${t.current_ltp.toFixed(2)}</div></div>
+                    <div class="trade-actions">
+                        ${editBtn}
+                        <button class="btn btn-xs btn-outline-secondary" onclick="showLogs('${t.id}', 'active')">Logs</button>
+                        <a href="/close_trade/${t.id}" class="btn btn-xs btn-dark fw-bold">${t.status==='PENDING'?'Cancel':'Exit'}</a>
                     </div>
-                    <div class="row text-center border-top pt-2 g-1">
-                        <div class="col-3 px-1"><div class="pos-grid-label text-danger">SL</div><small class="fw-bold" style="font-size:0.8rem;">${t.sl.toFixed(1)}</small></div>
-                        <div class="col-3 px-1"><div class="pos-grid-label text-success">T1</div><small class="fw-bold" style="font-size:0.8rem;">${t.targets[0].toFixed(1)}</small></div>
-                        <div class="col-3 px-1"><div class="pos-grid-label text-success">T2</div><small class="fw-bold" style="font-size:0.8rem;">${t.targets[1].toFixed(1)}</small></div>
-                        <div class="col-3 px-1"><div class="pos-grid-label text-success">T3</div><small class="fw-bold" style="font-size:0.8rem;">${t.targets[2].toFixed(1)}</small></div>
-                    </div>
-                    <div class="mt-2 text-center"><button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'active')">📄 Logs</button></div>
-                    <div class="mt-2 d-flex justify-content-between gap-2"><a href="/close_trade/${t.id}" class="btn btn-sm btn-dark flex-grow-1 fw-bold">${t.status==='PENDING'?'Cancel':'Exit'}</a>${t.mode=='PAPER' ? `<a href="/promote/${t.id}" class="btn btn-sm btn-outline-danger fw-bold">Live</a>` : ''}</div>
-                </div></div>`;
+                </div>`;
             });
         }
         $('#pos-container').html(html);

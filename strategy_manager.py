@@ -445,12 +445,15 @@ def update_risk_engine(kite):
                 # Check if current LTP > Stored Made High
                 if ltp > t.get('made_high', 0):
                     t['made_high'] = ltp
-                    log_event(t, f"Made High Auto-Updated to {ltp} (Live)")
+                    
+                    # Calculate Potential Profit based on New High
+                    pot_pnl = round((ltp - t['entry_price']) * t['quantity'], 2)
+                    log_event(t, f"Made High Auto-Updated to {ltp} (Live). Potential Profit: {pot_pnl}")
                     
                     # For Simulator: PnL tracks Made High IF NOT SL HIT
                     if t.get('order_type') == 'SIMULATION':
                         if "SL" not in t.get('status', '') and "SL" not in t.get('exit_type', ''):
-                             t['pnl'] = round((ltp - t['entry_price']) * t['quantity'], 2)
+                             t['pnl'] = pot_pnl
                              t['exit_price'] = ltp
                     
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))

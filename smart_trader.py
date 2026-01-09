@@ -42,6 +42,39 @@ def get_zerodha_symbol(common_name):
     if u == "FINNIFTY": return "FINNIFTY"
     return u
 
+def get_display_name(tradingsymbol):
+    """
+    Formats the trading symbol to: SymbolName - Strike - CE/PE - [Exp Date]
+    Example: BANKNIFTY - 59300 - PE - [26 JAN]
+    """
+    global instrument_dump
+    if instrument_dump is None:
+        return tradingsymbol
+        
+    try:
+        # Fast lookup
+        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
+        if not row.empty:
+            data = row.iloc[0]
+            name = data['name']
+            inst_type = data['instrument_type']
+            
+            # Format expiry to "26 JAN"
+            expiry_dt = data['expiry_date'] 
+            expiry_str = expiry_dt.strftime('%d %b').upper()
+            
+            if inst_type in ["CE", "PE"]:
+                strike = int(data['strike'])
+                return f"{name} - {strike} - {inst_type} - [{expiry_str}]"
+            elif inst_type == "FUT":
+                 return f"{name} - FUT - [{expiry_str}]"
+            else:
+                 return f"{name} - {inst_type}"
+                 
+        return tradingsymbol
+    except:
+        return tradingsymbol
+
 def search_symbols(kite, keyword, allowed_exchanges=None):
     global instrument_dump
     if instrument_dump is None: return []

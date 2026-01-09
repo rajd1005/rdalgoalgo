@@ -1,9 +1,24 @@
 <div id="closed" class="dashboard-tab">
     <div class="custom-card">
-        <div class="card-head d-flex justify-content-between">
-            <span>📜 History</span>
-            <div class="d-flex align-items-center"><select id="hist_filter" class="form-select form-select-sm me-2" style="width: auto; font-weight: bold;"><option value="ALL">All</option><option value="LIVE">Live</option><option value="PAPER">Paper</option><option value="SIMULATOR">Sim</option></select><input type="date" id="hist_date" class="form-control form-control-sm me-2" style="width: 120px;"><span id="day_pnl" class="badge bg-secondary">₹ 0</span></div>
+        <div class="card-head d-flex flex-wrap align-items-center justify-content-between gap-2 p-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="fw-bold text-dark">📜 History</span>
+                <span id="day_pnl" class="badge bg-secondary">₹ 0</span>
+            </div>
+            
+            <div class="d-flex gap-1 align-items-center flex-grow-1 justify-content-end">
+                <select id="hist_filter" class="form-select form-select-sm border-secondary py-0" style="width: auto; font-size: 0.8rem; height: 28px; font-weight: 600;">
+                    <option value="ALL">All</option>
+                    <option value="LIVE">Live</option>
+                    <option value="PAPER">Paper</option>
+                    <option value="SIMULATOR">Sim</option>
+                </select>
+                <input type="date" id="hist_date" class="form-control form-control-sm border-secondary py-0" style="width: auto; max-width: 110px; font-size: 0.8rem; height: 28px; font-weight: 600;">
+            </div>
         </div>
-        <div class="card-body p-2" id="hist-container"><div class="text-center p-4 text-muted">Loading...</div></div>
+        
+        <div class="card-body p-0" id="hist-container">
+            <div class="text-center p-4 text-muted">Loading...</div>
+        </div>
     </div>
 </div>

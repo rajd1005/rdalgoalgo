@@ -45,9 +45,10 @@ def search_symbols(keyword):
     if instrument_dump is None: return []
     k = keyword.upper()
     
-    # Updated: Allow MCX, CDS (Currency), and BFO (BSE Options) segments
-    valid_segments = ['NFO-FUT', 'NSE', 'MCX', 'CDS-FUT', 'BFO-FUT', 'BFO-OPT']
-    mask = (instrument_dump['segment'].isin(valid_segments) | (instrument_dump['segment'] == 'MCX')) & (instrument_dump['name'].str.startswith(k))
+    # FIX: Filter by 'exchange' instead of 'segment' to ensure MCX/CDS/BFO are included
+    valid_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
+    
+    mask = (instrument_dump['exchange'].isin(valid_exchanges)) & (instrument_dump['name'].str.startswith(k))
     
     return instrument_dump[mask]['name'].unique().tolist()[:10]
 
@@ -57,39 +58,57 @@ def get_symbol_details(kite, symbol):
     if instrument_dump is None: return {}
     
     clean = get_zerodha_symbol(symbol)
-    
-    # IST Date
     today = datetime.now(IST).date()
-
+    
+    # 1. Determine Exchange & Spot Symbol
+    exchange = "NSE"
+    row = instrument_dump[instrument_dump['name'] == clean]
+    if not row.empty:
+        # Prefer MCX/CDS if listed there, otherwise default to NSE/BSE
+        exchanges = row['exchange'].unique().tolist()
+        if 'MCX' in exchanges: exchange = 'MCX'
+        elif 'CDS' in exchanges: exchange = 'CDS'
+        elif 'BSE' in exchanges and 'NSE' not in exchanges: exchange = 'BSE'
+    
+    # 2. Try Fetching LTP (Spot)
     ltp = 0
     try:
-        # Basic LTP fetch, might fail for MCX if not specific, but Dashboard uses get_specific_ltp mostly
-        quote_sym = f"NSE:{clean}"
+        quote_sym = f"{exchange}:{clean}"
         if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
         if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
         if clean == "SENSEX": quote_sym = "BSE:SENSEX"
         
-        # Try finding exact match in dump for correct exchange if basic NSE fails
-        row = instrument_dump[instrument_dump['name'] == clean]
-        if not row.empty and 'MCX' in row.iloc[0]['segment']:
-             quote_sym = f"MCX:{clean}" # For commodity futures often the name works
-             
-        ltp = kite.quote(quote_sym)[quote_sym]['last_price']
+        q = kite.quote(quote_sym)
+        if quote_sym in q:
+            ltp = q[quote_sym]['last_price']
     except:
         ltp = 0
+        
+    # 3. Fallback: If Spot LTP is 0 (Common for MCX/CDS), fetch Near Future LTP
+    if ltp == 0:
+        try:
+            # Find nearest future
+            futs_all = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT') & (instrument_dump['expiry_date'] >= today)]
+            if not futs_all.empty:
+                futs_all = futs_all.sort_values('expiry_date')
+                near_fut = futs_all.iloc[0]
+                fut_sym = f"{near_fut['exchange']}:{near_fut['tradingsymbol']}"
+                ltp = kite.quote(fut_sym)[fut_sym]['last_price']
+        except:
+            pass
 
+    # 4. Get Lot Size
     lot = 1
-    # Updated: Search widely for the Lot Size (MCX, NFO, CDS, BFO)
-    # Priority: Futures -> Options
+    # Check Futures first
     futs = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT')]
     if not futs.empty: 
         lot = int(futs.iloc[0]['lot_size'])
     else:
-        # Fallback to Options (useful if only Options exist or strict name match)
+        # Fallback to Options (useful if only Options exist)
         opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE']))]
         if not opts.empty: lot = int(opts.iloc[0]['lot_size'])
 
-    # Get Expiries
+    # 5. Get Expiries
     f_exp = sorted(instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT') & (instrument_dump['expiry_date'] >= today)]['expiry_str'].unique().tolist())
     o_exp = sorted(instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE'])) & (instrument_dump['expiry_date'] >= today)]['expiry_str'].unique().tolist())
     
@@ -147,9 +166,9 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     ts = get_exact_symbol(symbol, expiry, strike, inst_type)
     if not ts: return 0
     try:
-        # Updated: Dynamic Exchange Lookup
+        # Dynamic Exchange Lookup based on Trading Symbol
         global instrument_dump
-        exch = "NFO" # Default
+        exch = "NFO" 
         if instrument_dump is not None:
              row = instrument_dump[instrument_dump['tradingsymbol'] == ts]
              if not row.empty:

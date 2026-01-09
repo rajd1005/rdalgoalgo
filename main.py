@@ -5,7 +5,8 @@ from kiteconnect import KiteConnect
 import config
 import strategy_manager
 import smart_trader
-from database import db, AppSetting, ActiveTrade, TradeHistory
+import settings
+from database import db
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -18,61 +19,6 @@ with app.app_context():
 
 kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
-
-def load_settings():
-    default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
-    defaults = {
-        "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
-        "watchlist": [],
-        "modes": {
-            "LIVE": default_mode_settings.copy(),
-            "PAPER": default_mode_settings.copy(),
-            "SIMULATOR": default_mode_settings.copy()
-        }
-    }
-    
-    try:
-        setting = AppSetting.query.first()
-        if setting:
-            saved = json.loads(setting.data)
-            
-            # Migration & Integrity Checks
-            if "modes" not in saved:
-                old_mult = saved.get("qty_mult", 1)
-                old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
-                old_sl = saved.get("symbol_sl", {})
-                saved["modes"] = {
-                    "LIVE": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()},
-                    "PAPER": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()},
-                    "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
-                }
-
-            # Ensure sub-keys exist
-            for m in ["LIVE", "PAPER", "SIMULATOR"]:
-                if m in saved["modes"]:
-                    if "symbol_sl" not in saved["modes"][m]:
-                        saved["modes"][m]["symbol_sl"] = saved.get("symbol_sl", {}).copy()
-
-            if "exchanges" not in saved: saved["exchanges"] = defaults["exchanges"]
-            if "watchlist" not in saved: saved["watchlist"] = []
-
-            return saved
-    except:
-        pass
-    return defaults
-
-def save_settings_file(data):
-    try:
-        setting = AppSetting.query.first()
-        if not setting:
-            setting = AppSetting(data=json.dumps(data))
-            db.session.add(setting)
-        else:
-            setting.data = json.dumps(data)
-        db.session.commit()
-    except Exception as e:
-        print(f"Settings Save Error: {e}")
-        db.session.rollback()
 
 @app.route('/')
 def home():
@@ -102,17 +48,18 @@ def callback():
             flash(f"Login Error: {e}")
     return redirect('/')
 
-# --- SETTINGS ---
+# --- SETTINGS API ---
 @app.route('/api/settings/load')
 def api_settings_load():
-    return jsonify(load_settings())
+    return jsonify(settings.load_settings())
 
 @app.route('/api/settings/save', methods=['POST'])
 def api_settings_save():
-    save_settings_file(request.json)
-    return jsonify({"status": "success"})
+    if settings.save_settings_file(request.json):
+        return jsonify({"status": "success"})
+    return jsonify({"status": "error"})
 
-# --- API ---
+# --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
     if bot_active:
@@ -140,6 +87,7 @@ def api_update_trade():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+# --- MARKET DATA API ---
 @app.route('/api/indices')
 def api_indices():
     if not bot_active:
@@ -148,8 +96,8 @@ def api_indices():
 
 @app.route('/api/search')
 def api_search():
-    settings = load_settings()
-    allowed = settings.get('exchanges', None)
+    current_settings = settings.load_settings()
+    allowed = current_settings.get('exchanges', None)
     return jsonify(smart_trader.search_symbols(kite, request.args.get('q', ''), allowed))
 
 @app.route('/api/details')
@@ -164,6 +112,7 @@ def api_chain():
 def api_s_ltp(): 
     return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
+# --- SIMULATION & EXECUTION ---
 @app.route('/api/history_check', methods=['POST'])
 def api_history():
     if not bot_active:

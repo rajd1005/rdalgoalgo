@@ -5,7 +5,7 @@ body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-b
 .custom-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); background: #fff; margin-bottom: 15px; }
 .card-head { padding: 12px 15px; font-weight: 700; border-bottom: 1px solid #f0f0f0; background: #fff; color: #333; display: flex; justify-content: space-between; align-items: center; }
 .card-body { padding: 15px; }
-.card-body.p-0 { padding: 0 !important; } /* Allow override for list views */
+.card-body.p-0 { padding: 0 !important; }
 
 .nav-tabs { border: none; background: #fff; padding: 8px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; }
 .nav-btn { flex: 1; text-align: center; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: 600; color: #6c757d; margin: 0 2px; font-size: 0.9rem; }
@@ -36,7 +36,7 @@ body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-b
 
 @media (max-width: 576px) {
     .nav-btn { font-size: 0.8rem; padding: 8px 5px; }
-    .card-head { padding: 10px; } /* Compact header on mobile */
+    .card-head { padding: 10px; } 
     .card-body { padding: 12px; }
     .pos-grid-val { font-size: 0.8rem; }
 }

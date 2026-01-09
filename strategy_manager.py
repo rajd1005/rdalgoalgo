@@ -402,7 +402,36 @@ def update_risk_engine(kite):
         process_eod_data(kite)
         return
 
-    # --- 3. Normal Risk Management (Before 3:25 PM) ---
+    # --- 3. Live Update Closed Trades Made High (Today) ---
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    history_trades = load_history()
+    history_updated = False
+    
+    for t in history_trades:
+        if t.get('exit_time', '').startswith(today_str):
+            try:
+                # Fetch Current LTP for Closed Trade
+                q = kite.quote(f"{t['exchange']}:{t['symbol']}")
+                ltp = q[f"{t['exchange']}:{t['symbol']}"]["last_price"]
+                
+                # Check if current LTP > Stored Made High
+                if ltp > t.get('made_high', 0):
+                    t['made_high'] = ltp
+                    log_event(t, f"Made High Auto-Updated to {ltp} (Live)")
+                    
+                    if t.get('order_type') == 'SIMULATION':
+                         t['pnl'] = round((ltp - t['entry_price']) * t['quantity'], 2)
+                         t['exit_price'] = ltp 
+                    
+                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                    history_updated = True
+            except:
+                pass
+    
+    if history_updated:
+        db.session.commit()
+
+    # --- 4. Normal Risk Management (Before 3:25 PM) ---
     trades = load_trades()
     active_list = []
     updated = False

@@ -93,7 +93,7 @@ def move_to_history(trade, final_status, exit_price):
         trade['pnl'] = 0
     elif trade.get('order_type') == 'SIMULATION' and ("SL" in final_status or "SL_HIT" in final_status):
         # Requirement: For Simulator, if SL Hit, Log actual loss but set Final P/L to 0
-        log_event(trade, f"Simulator SL Hit. Actual Loss Amount: {real_pnl}")
+        log_event(trade, f"Simulator SL Hit. Actual Loss: {real_pnl} | Final P/L ₹ 0.00")
         trade['pnl'] = 0
     else:
         # Normal calculation
@@ -104,8 +104,9 @@ def move_to_history(trade, final_status, exit_price):
     trade['exit_time'] = get_time_str()
     trade['exit_type'] = final_status
     
+    # Requirement: Show calculated amount in Log
     if "Closed:" not in str(trade['logs']):
-         log_event(trade, f"Closed: {final_status} @ {exit_price}. Final PnL: {trade['pnl']}")
+         log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}")
     
     try:
         hist = TradeHistory(id=trade['id'], data=json.dumps(trade))
@@ -181,7 +182,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     logs.append(f"[{get_time_str()}] Order Created ({order_type}). Status: {status}. Trigger: {trigger_dir if order_type=='LIMIT' else 'N/A'}")
     
     if status == "OPEN":
-        logs.append(f"[{get_time_str()}] Trade Activated/Entered @ {entry_price}")
+        logs.append(f"[{get_time_str()}] Trade Activated/Entered @ {entry_price} | P/L ₹ 0.00")
 
     record = {
         "id": int(time.time()),
@@ -348,25 +349,24 @@ def process_eod_data(kite):
                     
                     # Calculate potential profit at high
                     pot_pnl = round((max_high - trade['entry_price']) * trade['quantity'], 2)
-                    log_event(trade, f"EOD Scan: Made High Updated to {max_high}. Potential PnL: {pot_pnl}")
                     
                     if trade.get('order_type') == 'SIMULATION':
-                        # STRICT CHECK: If SL was hit, FORCE 0 PnL
+                        # CHECK: If SL was hit, DO NOT calculate potential profit, ensure PnL is 0
                         is_sl_hit = ("SL" in trade.get('status', '')) or ("SL" in trade.get('exit_type', ''))
                         
                         if not is_sl_hit:
                             trade['exit_price'] = max_high
                             trade['pnl'] = pot_pnl
-                            log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
+                            log_event(trade, f"EOD Scan: Made High Updated to {max_high} | P/L ₹ {pot_pnl:.2f}")
                         else:
                             trade['pnl'] = 0 
                             log_event(trade, "EOD Scan: SL Hit previously. Final PnL kept at 0.")
                     else:
-                        # For Live/Paper, PnL is realized, just update Made High
                         real_exit = trade.get('exit_price', 0)
                         if real_exit > 0:
-                            trade['pnl'] = round((real_exit - trade['entry_price']) * trade['quantity'], 2)
-                        log_event(trade, f"EOD Scan: Real PnL Confirmed at {trade['pnl']} (Made High was {max_high})")
+                            real_pnl = round((real_exit - trade['entry_price']) * trade['quantity'], 2)
+                            trade['pnl'] = real_pnl
+                        log_event(trade, f"EOD Scan: Real PnL Confirmed | P/L ₹ {trade['pnl']:.2f}")
                     
                     db.session.merge(TradeHistory(id=trade['id'], data=json.dumps(trade)))
                     updated_count += 1
@@ -468,7 +468,7 @@ def update_risk_engine(kite):
                     
                     # Calculate Potential Profit based on New High
                     pot_pnl = round((ltp - t['entry_price']) * t['quantity'], 2)
-                    log_event(t, f"Made High Auto-Updated to {ltp} (Live). Potential Profit: {pot_pnl}")
+                    log_event(t, f"Made High Auto-Updated to {ltp} | P/L ₹ {pot_pnl:.2f}")
                     
                     # For Simulator: PnL tracks Made High IF NOT SL HIT
                     if t.get('order_type') == 'SIMULATION':
@@ -527,7 +527,7 @@ def update_risk_engine(kite):
                 t['status'] = "OPEN"
                 t['highest_ltp'] = t['entry_price'] 
                 log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
-                log_event(t, f"Trade Activated/Entered @ {ltp}") 
+                log_event(t, f"Trade Activated/Entered @ {ltp} | P/L ₹ 0.00") 
                 if t['mode'] == 'LIVE':
                     try:
                         kite.place_order(
@@ -557,7 +557,9 @@ def update_risk_engine(kite):
                 if new_calculated_sl > t['sl']:
                     old_sl_val = t['sl']
                     t['sl'] = new_calculated_sl
-                    log_event(t, f"Trailing SL Moved: {old_sl_val:.2f} -> {t['sl']:.2f} (LTP: {ltp})")
+                    # Calculate locked profit at this new SL
+                    locked_pnl = round((t['sl'] - t['entry_price']) * t['quantity'], 2)
+                    log_event(t, f"Trailing SL Moved: {old_sl_val:.2f} -> {t['sl']:.2f} (LTP: {ltp}) | Locked P/L ₹ {locked_pnl:.2f}")
 
             # --- Check SL ---
             if ltp <= t['sl']:
@@ -567,10 +569,10 @@ def update_risk_engine(kite):
                 
                 if t['sl'] >= t['entry_price']:
                     exit_reason = "COST_EXIT"
-                    log_event(t, f"Price returned to Entry/Cost @ {ltp}. PnL: {pnl_amt}")
+                    log_event(t, f"Price returned to Entry/Cost @ {ltp} | P/L ₹ {pnl_amt:.2f}")
                 else:
                     exit_reason = "SL_HIT"
-                    log_event(t, f"SL Hit @ {ltp}. PnL: {pnl_amt}")
+                    log_event(t, f"SL Hit @ {ltp} | P/L ₹ {pnl_amt:.2f}")
 
             # --- Check Target ---
             if not exit_triggered:
@@ -580,11 +582,11 @@ def update_risk_engine(kite):
                         t['targets_hit_indices'].append(i)
                         
                         pnl_amt = round((tgt - t['entry_price']) * t['quantity'], 2)
-                        log_event(t, f"Target {i+1} Hit @ {tgt}. PnL: {pnl_amt}")
+                        log_event(t, f"Target {i+1} Hit @ {tgt} | P/L ₹ {pnl_amt:.2f}")
                         
                         if i == len(t['targets']) - 1:
                             exit_reason = "TARGET_HIT"
-                            log_event(t, f"Final Target Hit @ {ltp}. PnL: {pnl_amt}")
+                            log_event(t, f"Final Target Hit @ {ltp} | P/L ₹ {pnl_amt:.2f}")
                             exit_triggered = True
                             exit_p = tgt
             

@@ -45,13 +45,26 @@ def search_symbols(keyword):
     if instrument_dump is None: return []
     k = keyword.upper()
     
-    # Filter by EXCHANGE to ensure we get MCX, CDS, BFO, NFO, NSE
+    # FIX: Filter by 'exchange' to capture ALL segments (NFO, MCX, CDS, BFO)
+    # This fixes the issue where NFO-OPT or specific MCX contracts were hidden
     valid_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
     mask = (instrument_dump['exchange'].isin(valid_exchanges)) & (instrument_dump['name'].str.startswith(k))
     
-    # Return unique names
     return instrument_dump[mask]['name'].unique().tolist()[:10]
+
+def adjust_cds_lot_size(symbol, lot_size):
+    """
+    Zerodha API returns lot_size=1 for CDS. 
+    We must apply standard multipliers manually.
+    """
+    s = symbol.upper()
+    if lot_size == 1:
+        if "JPYINR" in s:
+            return 100000
+        if any(x in s for x in ["USDINR", "EURINR", "GBPINR", "USDJPY", "EURUSD", "GBPUSD"]):
+            return 1000
+    return lot_size
 
 def get_symbol_details(kite, symbol):
     global instrument_dump
@@ -62,32 +75,22 @@ def get_symbol_details(kite, symbol):
     today = datetime.now(IST).date()
     
     # 1. Determine Exchange & Fetch LTP (Spot/Future)
-    # We try to determine the best 'Exchange' to query for the dashboard LTP.
-    # Priority: MCX -> CDS -> BFO -> NFO -> NSE -> BSE
-    
     ltp = 0
     exchange_to_use = "NSE" 
     
-    # Filter rows matching the cleaned name
+    # Filter rows matching the name
     rows = instrument_dump[instrument_dump['name'] == clean]
     
     if not rows.empty:
         exchanges = rows['exchange'].unique().tolist()
         
-        if 'MCX' in exchanges: 
-            exchange_to_use = 'MCX'
-        elif 'CDS' in exchanges: 
-            exchange_to_use = 'CDS'
-        elif 'BFO' in exchanges:
-            # For SENSEX/BANKEX, Spot is on BSE
-            exchange_to_use = 'BSE' 
-        elif 'NFO' in exchanges:
-            # For NIFTY/Stocks, Spot is on NSE
-            exchange_to_use = 'NSE'
-        elif 'BSE' in exchanges:
-            exchange_to_use = 'BSE'
+        # Priority for LTP Fetching
+        if 'MCX' in exchanges: exchange_to_use = 'MCX'
+        elif 'CDS' in exchanges: exchange_to_use = 'CDS'
+        elif 'BFO' in exchanges: exchange_to_use = 'BSE' 
+        elif 'NFO' in exchanges: exchange_to_use = 'NSE'
+        elif 'BSE' in exchanges: exchange_to_use = 'BSE'
     
-    # Construct Spot/LTP Symbol
     quote_sym = f"{exchange_to_use}:{clean}"
     if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
     if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
@@ -103,7 +106,6 @@ def get_symbol_details(kite, symbol):
     # Fallback: If Spot LTP is 0 (Common for MCX/CDS), fetch Near Future LTP
     if ltp == 0 and not rows.empty:
         try:
-            # Find nearest future across ANY exchange (Prioritizing MCX/CDS)
             futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]
             if not futs_all.empty:
                 futs_all = futs_all.sort_values('expiry_date')
@@ -113,36 +115,37 @@ def get_symbol_details(kite, symbol):
         except:
             pass
 
-    # 2. Get Lot Size (Robust Logic)
+    # 2. Get Lot Size (Robust Logic for NFO, MCX, CDS)
     lot = 1
     
-    # We look for a derivative contract (FUT) in specific exchanges to get the lot size.
     # Priority: MCX -> CDS -> BFO -> NFO
     priority_exchanges = ['MCX', 'CDS', 'BFO', 'NFO']
     
     found_lot = False
+    used_exchange = ""
+    
     for ex in priority_exchanges:
         # Check for Futures in this exchange
         futs = rows[(rows['exchange'] == ex) & (rows['instrument_type'] == 'FUT')]
         if not futs.empty:
             lot = int(futs.iloc[0]['lot_size'])
+            used_exchange = ex
             found_lot = True
             break
             
-    # If no future found in priority exchanges, try Options in priority exchanges
+    # If no future found, try Options
     if not found_lot:
         for ex in priority_exchanges:
             opts = rows[(rows['exchange'] == ex) & (rows['instrument_type'].isin(['CE', 'PE']))]
             if not opts.empty:
                 lot = int(opts.iloc[0]['lot_size'])
+                used_exchange = ex
                 found_lot = True
                 break
     
-    # If still not found, fallback to any Future found
-    if not found_lot:
-        any_fut = rows[rows['instrument_type'] == 'FUT']
-        if not any_fut.empty:
-            lot = int(any_fut.iloc[0]['lot_size'])
+    # FIX: Apply CDS Multiplier if needed
+    if used_exchange == 'CDS':
+        lot = adjust_cds_lot_size(clean, lot)
 
     # 3. Get Expiries
     f_exp = sorted(rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
@@ -274,7 +277,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                 else:
                     continue 
             
-            # Continuous High Tracking (Simulator Fix)
             if status != "PENDING":
                 if curr_high > made_high:
                     made_high = curr_high

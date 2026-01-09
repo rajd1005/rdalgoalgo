@@ -36,7 +36,7 @@ def load_settings():
         if setting:
             saved = json.loads(setting.data)
             
-            # Integrity Checks & Migration
+            # Migration & Integrity Checks
             if "modes" not in saved:
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])

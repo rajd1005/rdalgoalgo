@@ -91,9 +91,9 @@ def move_to_history(trade, final_status, exit_price):
 
     if trade['status'] == 'PENDING':
         trade['pnl'] = 0
-    elif trade.get('order_type') == 'SIMULATION' and ("SL" in final_status or final_status == "SL_HIT"):
-        # Requirement 1: For Simulator, if SL Hit, Log loss but set Final P/L to 0
-        log_event(trade, f"Simulator SL Hit. Actual Loss Amount: {real_pnl}")
+    elif trade.get('order_type') == 'SIMULATION' and ("SL" in final_status or "SL_HIT" in final_status):
+        # Requirement 1: For Simulator, if SL Hit, Log calculated loss but set Final P/L to 0
+        log_event(trade, f"Simulator SL Hit. Actual Loss: {real_pnl}")
         trade['pnl'] = 0
     else:
         # Normal calculation for Live/Paper or Simulator (if Target Hit)
@@ -104,7 +104,6 @@ def move_to_history(trade, final_status, exit_price):
     trade['exit_time'] = get_time_str()
     trade['exit_type'] = final_status
     
-    # Requirement 2: Show calculated amount in Log for closing event
     if "Closed:" not in str(trade['logs']):
          log_event(trade, f"Closed: {final_status} @ {exit_price}. Final PnL: {trade['pnl']}")
     
@@ -356,7 +355,8 @@ def process_eod_data(kite):
                             trade['pnl'] = pot_pnl
                             log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
                         else:
-                            trade['pnl'] = 0 # Ensure 0 for Simulator SL
+                            # Requirement 2: Simulator SL Hit = PnL 0 (Made High ignored for PnL)
+                            trade['pnl'] = 0 
                             log_event(trade, "EOD Scan: SL Hit previously. Final PnL kept at 0.")
                     else:
                         real_exit = trade.get('exit_price', 0)
@@ -473,7 +473,7 @@ def update_risk_engine(kite):
                              t['pnl'] = pot_pnl
                              t['exit_price'] = ltp
                         else:
-                             # Ensure Simulator SL stays 0 PnL even if Made High updates
+                             # Requirement 2: Simulator SL Hit = PnL 0 (Made High ignored for PnL)
                              t['pnl'] = 0
                     
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))

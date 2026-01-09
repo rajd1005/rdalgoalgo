@@ -232,13 +232,26 @@
       <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <ul class="nav nav-tabs mb-3" id="settingTabs" role="tablist">
-            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li>
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general">General</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-live">Live</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-sim">Simulator</button></li>
         </ul>
 
         <div class="tab-content" id="settingTabsContent">
-            <div class="tab-pane fade show active" id="tab-paper">
+            <div class="tab-pane fade show active" id="tab-general">
+                <h6 class="mb-2">Active Exchanges (For Search)</h6>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NSE" id="exch_NSE"><label class="form-check-label" for="exch_NSE">NSE</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NFO" id="exch_NFO"><label class="form-check-label" for="exch_NFO">NFO</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="MCX" id="exch_MCX"><label class="form-check-label" for="exch_MCX">MCX</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="CDS" id="exch_CDS"><label class="form-check-label" for="exch_CDS">CDS</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BSE" id="exch_BSE"><label class="form-check-label" for="exch_BSE">BSE</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BFO" id="exch_BFO"><label class="form-check-label" for="exch_BFO">BFO</label></div>
+                </div>
+            </div>
+            
+            <div class="tab-pane fade" id="tab-paper">
                 <h6 class="mb-2 text-warning">Paper Trade Config</h6>
                 <div class="input-group mb-2"><input type="text" id="paper_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="paper_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('PAPER')">Add</button></div>
                 <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
@@ -290,6 +303,7 @@
 
 <script>
     let settings = { 
+        exchanges: ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO'],
         modes: {
             LIVE: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
             PAPER: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
@@ -299,8 +313,16 @@
 
     function loadSettings() {
         $.get('/api/settings/load', function(data) {
-            if(data && data.modes) {
+            if(data) {
                 settings = data;
+                
+                // Load Exchange Checkboxes
+                if(settings.exchanges) {
+                    $('input[name="exch_select"]').prop('checked', false);
+                    settings.exchanges.forEach(e => {
+                        $(`#exch_${e}`).prop('checked', true);
+                    });
+                }
                 
                 ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
                     let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
@@ -318,6 +340,13 @@
     }
 
     function saveSettings() {
+        // Save Exchanges
+        let selectedExchanges = [];
+        $('input[name="exch_select"]:checked').each(function() {
+            selectedExchanges.push($(this).val());
+        });
+        settings.exchanges = selectedExchanges;
+
         ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
             let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
             settings.modes[m].qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;

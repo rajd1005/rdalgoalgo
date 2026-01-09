@@ -20,7 +20,6 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 
 def load_settings():
-    # Default structure
     default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
     defaults = {
         "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
@@ -37,9 +36,8 @@ def load_settings():
         if setting:
             saved = json.loads(setting.data)
             
-            # Migration & Integrity Checks
+            # Integrity Checks & Migration
             if "modes" not in saved:
-                # Migration for very old format
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
                 old_sl = saved.get("symbol_sl", {})
@@ -48,18 +46,13 @@ def load_settings():
                     "PAPER": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()},
                     "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
                 }
-                if "symbol_sl" in saved: del saved["symbol_sl"]
-                if "qty_mult" in saved: del saved["qty_mult"]
-                if "ratios" in saved: del saved["ratios"]
-            else:
-                # Integrity check for missing symbol_sl in specific modes
-                for m in ["LIVE", "PAPER", "SIMULATOR"]:
-                    if m in saved["modes"]:
-                        if "symbol_sl" not in saved["modes"][m]:
-                            saved["modes"][m]["symbol_sl"] = saved.get("symbol_sl", {}).copy()
-                if "symbol_sl" in saved: del saved["symbol_sl"]
 
-            # Ensure Top-Level Keys exist
+            # Ensure sub-keys exist
+            for m in ["LIVE", "PAPER", "SIMULATOR"]:
+                if m in saved["modes"]:
+                    if "symbol_sl" not in saved["modes"][m]:
+                        saved["modes"][m]["symbol_sl"] = saved.get("symbol_sl", {}).copy()
+
             if "exchanges" not in saved: saved["exchanges"] = defaults["exchanges"]
             if "watchlist" not in saved: saved["watchlist"] = []
 
@@ -140,7 +133,6 @@ def api_delete_trade(trade_id):
 def api_update_trade():
     data = request.json
     try:
-        # Pass trailing_sl if present
         if strategy_manager.update_trade_protection(data['id'], data['sl'], data['targets'], data.get('trailing_sl', 0)):
             return jsonify({"status": "success"})
         else:

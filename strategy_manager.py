@@ -79,10 +79,16 @@ def log_event(trade, message):
     trade['logs'].append(f"[{get_time_str()}] {message}")
 
 def move_to_history(trade, final_status, exit_price):
+    # Requirement 3: If Not active trade (PENDING) then no need to calculate profit or loss
+    if trade['status'] == 'PENDING':
+        trade['pnl'] = 0
+    else:
+        # Requirement 1 & 2: Calculate PnL for active trades using the provided exit_price (which will be Live LTP)
+        trade['pnl'] = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
+    
     trade['status'] = final_status
     trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str()
-    trade['pnl'] = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
     
     if "Closed:" not in str(trade['logs']):
          log_event(trade, f"Closed: {final_status} @ {exit_price}")
@@ -219,11 +225,19 @@ def close_trade_manual(kite, trade_id):
         if t['id'] == int(trade_id):
             found = True
             
+            # Requirement 3: If Not active (PENDING), PnL logic handled in move_to_history (sets 0)
             if t['status'] == "PENDING":
                 move_to_history(t, "CANCELLED_MANUAL", 0)
                 continue
 
+            # Requirement 1: If active, take LIVE LTP for PnL calculation
             exit_p = t.get('current_ltp', 0)
+            try:
+                q = kite.quote(f"{t['exchange']}:{t['symbol']}")
+                exit_p = q[f"{t['exchange']}:{t['symbol']}"]['last_price']
+            except Exception as e:
+                print(f"Manual Exit LTP Fetch Error: {e}")
+
             if t['mode'] == "LIVE" and t['status'] not in ["MONITORING"]:
                 try:
                     kite.place_order(
@@ -237,7 +251,6 @@ def close_trade_manual(kite, trade_id):
                 except:
                     pass
             
-            # Direct Close, No Monitoring
             move_to_history(t, "MANUAL_EXIT", exit_p)
             
         else:
@@ -337,7 +350,16 @@ def update_risk_engine(kite):
         if trades:
             for t in trades:
                 exit_p = t.get('current_ltp', 0)
-                if t['mode'] == "LIVE":
+                
+                # Requirement 2: If active, take LIVE LTP for PnL
+                if t['status'] != 'PENDING':
+                    try:
+                        q = kite.quote(f"{t['exchange']}:{t['symbol']}")
+                        exit_p = q[f"{t['exchange']}:{t['symbol']}"]['last_price']
+                    except:
+                        pass
+                
+                if t['mode'] == "LIVE" and t['status'] != 'PENDING':
                     try:
                         kite.place_order(
                             tradingsymbol=t['symbol'],
@@ -350,7 +372,10 @@ def update_risk_engine(kite):
                     except Exception as e:
                         log_event(t, f"Auto-Exit Broker Error: {e}")
 
-                move_to_history(t, "AUTO_SQUAREOFF", exit_p)
+                reason = "AUTO_SQUAREOFF"
+                if t['status'] == 'PENDING': reason = "CANCELLED_AUTO"
+                
+                move_to_history(t, reason, exit_p)
             
             # Clear Active Trades
             save_trades([])

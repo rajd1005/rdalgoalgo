@@ -154,7 +154,7 @@ def api_indices():
 
 @app.route('/api/search')
 def api_search():
-    # Pass 'kite' to allow fetching LTPs in search results
+    # Pass kite to search_symbols to enable batch LTP fetching
     return jsonify(smart_trader.search_symbols(kite, request.args.get('q', '')))
 
 @app.route('/api/details')

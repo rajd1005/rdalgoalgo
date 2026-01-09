@@ -1,5 +1,7 @@
 import os
 import json
+import threading
+import time
 from flask import Flask, render_template, request, redirect, flash, jsonify
 from kiteconnect import KiteConnect
 import config
@@ -20,7 +22,6 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 
 def load_settings():
-    # New default structure: symbol_sl is now per-mode
     default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
     defaults = {
         "modes": {
@@ -34,10 +35,7 @@ def load_settings():
         setting = AppSetting.query.first()
         if setting:
             saved = json.loads(setting.data)
-            
-            # Migration Logic: Convert old structure to new structure
             if "modes" not in saved:
-                # Very old format
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
                 old_sl = saved.get("symbol_sl", {})
@@ -49,18 +47,12 @@ def load_settings():
                 if "symbol_sl" in saved: del saved["symbol_sl"]
                 if "qty_mult" in saved: del saved["qty_mult"]
                 if "ratios" in saved: del saved["ratios"]
-            
             else:
-                # Check if modes exist but symbol_sl is missing inside them (Intermediate format)
                 for m in ["LIVE", "PAPER", "SIMULATOR"]:
                     if m in saved["modes"]:
                         if "symbol_sl" not in saved["modes"][m]:
-                            # If global symbol_sl exists, inherit it, else empty
                             saved["modes"][m]["symbol_sl"] = saved.get("symbol_sl", {}).copy()
-                
-                # Cleanup global symbol_sl if it exists
                 if "symbol_sl" in saved: del saved["symbol_sl"]
-
             return saved
     except:
         pass
@@ -78,6 +70,18 @@ def save_settings_file(data):
     except Exception as e:
         print(f"Settings Save Error: {e}")
         db.session.rollback()
+
+def run_background_engine():
+    """Background thread to check SL/Targets automatically"""
+    while True:
+        if bot_active:
+            try:
+                # App context is required to access the database
+                with app.app_context():
+                    strategy_manager.update_risk_engine(kite)
+            except Exception as e:
+                print(f"Risk Engine Error: {e}")
+        time.sleep(1)
 
 @app.route('/')
 def home():
@@ -120,8 +124,7 @@ def api_settings_save():
 # --- API ---
 @app.route('/api/positions')
 def api_positions():
-    if bot_active:
-        strategy_manager.update_risk_engine(kite)
+    # Only load trades, background thread handles the updating
     return jsonify(strategy_manager.load_trades())
 
 @app.route('/api/closed_trades')
@@ -256,4 +259,9 @@ def close_trade(trade_id):
     return redirect('/')
 
 if __name__ == "__main__":
+    # Start Background Thread
+    t = threading.Thread(target=run_background_engine)
+    t.daemon = True
+    t.start()
+    
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

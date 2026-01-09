@@ -46,19 +46,21 @@ def get_zerodha_symbol(common_name):
     if u == "FINNIFTY": return "FINNIFTY"
     return u
 
-def search_symbols(kite, keyword):
+def search_symbols(kite, keyword, allowed_exchanges=None):
     """
     Optimized Search: Fetches quotes in batch to prevent delay.
     Returns format: "SYMBOL (EXCHANGE) : LTP"
+    Filters by allowed_exchanges if provided.
     """
     global instrument_dump
     if instrument_dump is None: return []
     k = keyword.upper()
     
-    valid_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
+    if allowed_exchanges is None:
+        allowed_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
-    # 1. Filter Matches
-    mask = (instrument_dump['exchange'].isin(valid_exchanges)) & (instrument_dump['name'].str.startswith(k))
+    # 1. Filter Matches using Allowed Exchanges
+    mask = (instrument_dump['exchange'].isin(allowed_exchanges)) & (instrument_dump['name'].str.startswith(k))
     matches = instrument_dump[mask]
     
     if matches.empty:

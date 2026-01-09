@@ -419,6 +419,7 @@ def update_risk_engine(kite):
                     t['made_high'] = ltp
                     log_event(t, f"Made High Auto-Updated to {ltp} (Live)")
                     
+                    # For Simulator, PnL tracks Made High
                     if t.get('order_type') == 'SIMULATION':
                          t['pnl'] = round((ltp - t['entry_price']) * t['quantity'], 2)
                          t['exit_price'] = ltp 

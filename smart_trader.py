@@ -186,37 +186,32 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             
         targets_hit_indices = [] 
         made_high = entry
-        high_locked = False
         
         for c in candles:
-            # STOP Simulation if trade is closed
-            if status in ["SL_HIT", "COST_EXIT", "TARGET_HIT"]:
-                break
-
+            # We do NOT break here anymore, to allow Made High tracking for the full duration
+            
             curr_high = c['high']
             curr_low = c['low']
             c_time = str(c['date']) 
             
+            # --- 1. Entry Logic ---
             if not trade_active and status == "PENDING":
                 if curr_low <= entry <= curr_high:
                     status = "OPEN"
                     trade_active = True
                     logs.append(f"[{c_time}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
                     made_high = entry 
-                    high_locked = False
                 else:
+                    # If not entered yet, we cannot track 'Made High' relative to entry
                     continue 
             
-            # Update Made High only if trade is active
-            if status == "OPEN":
+            # --- 2. Track Made High (Always runs if trade has been activated) ---
+            if status != "PENDING":
                 if curr_high > made_high:
                     made_high = curr_high
-                    high_locked = False
-                elif not high_locked:
-                    if curr_low <= entry and made_high > entry:
-                        high_locked = True
             
-            if trade_active and status == "OPEN":
+            # --- 3. Exit Logic (SL / Target) - Only if OPEN ---
+            if status == "OPEN":
                 # Check SL
                 if curr_low <= sl:
                     loss_amt = (sl - entry) * quantity
@@ -254,7 +249,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
              made_high = 0
              profit_amt = 0
         
-        # Only show Made High log if it was meaningful (not immediately hit SL on candle 1 without a move)
         logs.append(f"Made High: {made_high} (Max Potential Profit: ₹ {profit_amt:.2f})")
 
         active = (status == "OPEN")

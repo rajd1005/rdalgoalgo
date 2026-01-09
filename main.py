@@ -20,7 +20,7 @@ kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
 
 def load_settings():
-    # New default structure: symbol_sl is now per-mode
+    # Default structure
     default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
     defaults = {
         "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
@@ -37,9 +37,9 @@ def load_settings():
         if setting:
             saved = json.loads(setting.data)
             
-            # Migration Logic: Convert old structure to new structure
+            # Migration & Integrity Checks
             if "modes" not in saved:
-                # Very old format
+                # Migration for very old format
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
                 old_sl = saved.get("symbol_sl", {})
@@ -51,19 +51,15 @@ def load_settings():
                 if "symbol_sl" in saved: del saved["symbol_sl"]
                 if "qty_mult" in saved: del saved["qty_mult"]
                 if "ratios" in saved: del saved["ratios"]
-            
             else:
-                # Check if modes exist but symbol_sl is missing inside them (Intermediate format)
+                # Integrity check for missing symbol_sl in specific modes
                 for m in ["LIVE", "PAPER", "SIMULATOR"]:
                     if m in saved["modes"]:
                         if "symbol_sl" not in saved["modes"][m]:
-                            # If global symbol_sl exists, inherit it, else empty
                             saved["modes"][m]["symbol_sl"] = saved.get("symbol_sl", {}).copy()
-                
-                # Cleanup global symbol_sl if it exists
                 if "symbol_sl" in saved: del saved["symbol_sl"]
 
-            # Ensure keys exist
+            # Ensure Top-Level Keys exist
             if "exchanges" not in saved: saved["exchanges"] = defaults["exchanges"]
             if "watchlist" not in saved: saved["watchlist"] = []
 

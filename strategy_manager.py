@@ -92,8 +92,8 @@ def move_to_history(trade, final_status, exit_price):
     if trade['status'] == 'PENDING':
         trade['pnl'] = 0
     elif trade.get('order_type') == 'SIMULATION' and ("SL" in final_status or "SL_HIT" in final_status):
-        # Requirement: For Simulator, if SL Hit, Log actual loss but set Final P/L to 0
-        log_event(trade, f"Simulator SL Hit. Actual Loss: {real_pnl} | Final P/L ₹ 0.00")
+        # Requirement: For Simulator, if SL Hit, Log actual loss amount but set Final P/L to 0
+        log_event(trade, f"Simulator SL Hit. Actual Loss: {real_pnl} | P/L ₹ {real_pnl:.2f}")
         trade['pnl'] = 0
     else:
         # Normal calculation
@@ -104,8 +104,8 @@ def move_to_history(trade, final_status, exit_price):
     trade['exit_time'] = get_time_str()
     trade['exit_type'] = final_status
     
-    # Requirement: Show calculated amount in Log
     if "Closed:" not in str(trade['logs']):
+         # Use the stored pnl for the final close log, or real_pnl if we want to show what happened
          log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}")
     
     try:
@@ -364,8 +364,7 @@ def process_eod_data(kite):
                     else:
                         real_exit = trade.get('exit_price', 0)
                         if real_exit > 0:
-                            real_pnl = round((real_exit - trade['entry_price']) * trade['quantity'], 2)
-                            trade['pnl'] = real_pnl
+                            trade['pnl'] = round((real_exit - trade['entry_price']) * trade['quantity'], 2)
                         log_event(trade, f"EOD Scan: Real PnL Confirmed | P/L ₹ {trade['pnl']:.2f}")
                     
                     db.session.merge(TradeHistory(id=trade['id'], data=json.dumps(trade)))
@@ -407,6 +406,10 @@ def update_risk_engine(kite):
                         )
                     except Exception as e:
                         log_event(t, f"Auto-Exit Broker Error: {e}")
+
+                # Calc P/L for auto exit
+                pnl_amt = round((exit_p - t['entry_price']) * t['quantity'], 2)
+                log_event(t, f"Auto Squareoff Triggered @ {exit_p} | P/L ₹ {pnl_amt:.2f}")
 
                 reason = "AUTO_SQUAREOFF"
                 if t['status'] == 'PENDING': reason = "CANCELLED_AUTO"
@@ -468,7 +471,6 @@ def update_risk_engine(kite):
                     
                     # Calculate Potential Profit based on New High
                     pot_pnl = round((ltp - t['entry_price']) * t['quantity'], 2)
-                    log_event(t, f"Made High Auto-Updated to {ltp} | P/L ₹ {pot_pnl:.2f}")
                     
                     # For Simulator: PnL tracks Made High IF NOT SL HIT
                     if t.get('order_type') == 'SIMULATION':
@@ -476,9 +478,13 @@ def update_risk_engine(kite):
                         if not is_sl_hit:
                              t['pnl'] = pot_pnl
                              t['exit_price'] = ltp
+                             log_event(t, f"Made High Auto-Updated to {ltp} (Live) | P/L ₹ {pot_pnl:.2f}")
                         else:
                              # STRICT: Simulator SL Hit = PnL 0
                              t['pnl'] = 0
+                    else:
+                        # For Live/Paper, just log the high update, don't change PnL
+                        log_event(t, f"Made High Auto-Updated to {ltp} (Live) | P/L ₹ {pot_pnl:.2f}")
                     
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
                     history_updated = True
@@ -526,7 +532,7 @@ def update_risk_engine(kite):
             if should_activate:
                 t['status'] = "OPEN"
                 t['highest_ltp'] = t['entry_price'] 
-                log_event(t, f"Price Reached {ltp}. Order ACTIVATED.")
+                log_event(t, f"Price Reached {ltp}. Order ACTIVATED. | P/L ₹ 0.00")
                 log_event(t, f"Trade Activated/Entered @ {ltp} | P/L ₹ 0.00") 
                 if t['mode'] == 'LIVE':
                     try:

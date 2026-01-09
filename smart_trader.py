@@ -182,62 +182,70 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         trade_active = False
         if not is_limit_order:
             trade_active = True
-            logs.append(f"[{first['date']}] Trade Activated/Entered @ {entry}")
+            logs.append(f"[{first['date']}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
             
         targets_hit_indices = [] 
         made_high = entry
         high_locked = False
         
         for c in candles:
+            # STOP Simulation if trade is closed
+            if status in ["SL_HIT", "COST_EXIT", "TARGET_HIT"]:
+                break
+
             curr_high = c['high']
             curr_low = c['low']
-            c_time = str(c['date']) # Force string conversion for consistency
+            c_time = str(c['date']) 
             
             if not trade_active and status == "PENDING":
                 if curr_low <= entry <= curr_high:
                     status = "OPEN"
                     trade_active = True
-                    logs.append(f"[{c_time}] Trade Activated/Entered @ {entry}")
+                    logs.append(f"[{c_time}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
                     made_high = entry 
                     high_locked = False
                 else:
                     continue 
             
-            if status != "PENDING":
+            # Update Made High only if trade is active
+            if status == "OPEN":
                 if curr_high > made_high:
                     made_high = curr_high
                     high_locked = False
-                
                 elif not high_locked:
                     if curr_low <= entry and made_high > entry:
                         high_locked = True
             
-            if trade_active:
-                if status == "OPEN": 
-                    if curr_low <= sl:
-                        if sl >= entry:
-                            status = "COST_EXIT"
-                            logs.append(f"[{c_time}] Price returned to Entry (Cost) @ {sl}. Safe Exit.")
-                            high_locked = True
-                        else:
-                            status = "SL_HIT"
-                            logs.append(f"[{c_time}] SL Hit @ {sl}")
-                            
-                        exit_p = sl
-                        exit_t = c_time
+            if trade_active and status == "OPEN":
+                # Check SL
+                if curr_low <= sl:
+                    loss_amt = (sl - entry) * quantity
+                    if sl >= entry:
+                        status = "COST_EXIT"
+                        logs.append(f"[{c_time}] Price returned to Entry (Cost) @ {sl} | P/L ₹ {loss_amt:.2f}")
+                    else:
+                        status = "SL_HIT"
+                        logs.append(f"[{c_time}] SL Hit @ {sl} | P/L ₹ {loss_amt:.2f}")
                         
-                    elif status == "OPEN":
-                        for i, t_price in enumerate(tgts):
-                            if i not in targets_hit_indices and curr_high >= t_price:
-                                targets_hit_indices.append(i)
-                                logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price}")
-                                
-                                if i == len(tgts) - 1:
-                                    status = "TARGET_HIT"
-                                    exit_p = t_price
-                                    exit_t = c_time
-                                    logs.append(f"[{c_time}] Final Target Hit @ {t_price}")
+                    exit_p = sl
+                    exit_t = c_time
+                    
+                # Check Targets
+                elif status == "OPEN":
+                    for i, t_price in enumerate(tgts):
+                        if i not in targets_hit_indices and curr_high >= t_price:
+                            targets_hit_indices.append(i)
+                            
+                            gain_amt = (t_price - entry) * quantity
+                            logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price} | P/L ₹ {gain_amt:.2f}")
+                            
+                            if i == len(tgts) - 1:
+                                status = "TARGET_HIT"
+                                exit_p = t_price
+                                exit_t = c_time
+                                logs.append(f"[{c_time}] Final Target Hit @ {t_price} | P/L ₹ {gain_amt:.2f}")
 
+        # Final Log
         profit_pts = made_high - entry
         profit_amt = profit_pts * quantity
         
@@ -245,7 +253,8 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
              logs.append("Trade Never Triggered (Price did not reach Entry)")
              made_high = 0
              profit_amt = 0
-
+        
+        # Only show Made High log if it was meaningful (not immediately hit SL on candle 1 without a move)
         logs.append(f"Made High: {made_high} (Max Potential Profit: ₹ {profit_amt:.2f})")
 
         active = (status == "OPEN")

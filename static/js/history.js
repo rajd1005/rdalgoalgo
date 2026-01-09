@@ -7,18 +7,36 @@ function loadClosedTrades() {
         else {
             filtered.forEach(t => {
                 dayTotal += t.pnl; let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
-                let cat = getTradeCategory(t); let badge = getMarkBadge(cat);
-                let editBtn = (t.order_type === 'SIMULATION') ? `<span class="action-btn text-primary" onclick="editSim('${t.id}')">✏️</span>` : '';
-                let delBtn = `<span class="action-btn text-danger" onclick="deleteTrade('${t.id}')">🗑️</span>`;
-                let ltpBadge = t.current_ltp ? `<span class="badge bg-light text-dark border ms-1" style="font-size:0.7rem;">LTP:${t.current_ltp.toFixed(2)}</span>` : '';
-                html += `<div class="card mb-3 border shadow-sm"><div class="card-body p-2">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <h6 class="fw-bold mb-0" style="font-size:0.9rem;">${t.symbol}</h6> <div>${editBtn}${delBtn}${badge}<span class="badge bg-secondary ms-1" style="font-size:0.7rem;">${t.status}</span></div>
+                let cat = getTradeCategory(t); 
+                let badge = getMarkBadge(cat);
+                
+                // Action Buttons
+                let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-xs btn-outline-primary" onclick="editSim('${t.id}')">✏️ Edit</button>` : '';
+                let delBtn = `<button class="btn btn-xs btn-outline-danger" onclick="deleteTrade('${t.id}')">🗑️</button>`;
+                
+                html += `<div class="trade-row">
+                    <div class="trade-info">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
+                            ${badge}
+                        </div>
+                        <div class="text-end">
+                             <span class="fw-bold ${color}" style="font-size:1rem;">${t.pnl.toFixed(2)}</span>
+                        </div>
                     </div>
-                    <div class="d-flex justify-content-between mt-1"><small>Entry: <b>${t.entry_price.toFixed(2)}</b></small><small>Exit: <b>${t.exit_price.toFixed(2)}</b>${ltpBadge}</small></div>
-                    <div class="d-flex justify-content-between mt-1 align-items-center"><small class="text-muted" style="font-size:0.7rem;">${t.exit_time.slice(11,16)}</small><h5 class="mb-0 fw-bold ${color}">${t.pnl.toFixed(2)}</h5></div>
-                    <div class="mt-2 text-center"><button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'closed')">📄 Logs</button></div>
-                </div></div>`;
+                    <div class="trade-details">
+                        <span class="text-uppercase fw-bold" style="font-size:0.7rem; color:#666;">${t.status}</span>
+                        <span>Q: <b>${t.quantity}</b></span>
+                        <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
+                        <span>Ext: <b>${t.exit_price.toFixed(2)}</b></span>
+                    </div>
+                    <div class="trade-actions">
+                        <span class="text-muted me-auto" style="font-size:0.75rem;">${t.exit_time.slice(11,16)}</span>
+                        ${editBtn}
+                        ${delBtn}
+                        <button class="btn btn-xs btn-outline-secondary" onclick="showLogs('${t.id}', 'closed')">Logs</button>
+                    </div>
+                </div>`;
             });
         }
         $('#hist-container').html(html); $('#day_pnl').text("₹ " + dayTotal.toFixed(2));

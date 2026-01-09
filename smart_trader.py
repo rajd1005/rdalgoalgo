@@ -34,45 +34,68 @@ def get_indices_ltp(kite):
 def get_zerodha_symbol(common_name):
     if not common_name: return ""
     
-    # NEW: Handle "SYMBOL (EXCHANGE) : LTP" format
-    # Example: "RELIANCE (NSE) : 2500.0" -> "RELIANCE"
+    # Handle "SYMBOL (EXCHANGE) : LTP" format
     cleaned = common_name
     if "(" in cleaned:
         cleaned = cleaned.split("(")[0]
     
     u = cleaned.upper().strip()
-    
     if u in ["BANKNIFTY", "NIFTY BANK", "BANK NIFTY"]: return "BANKNIFTY"
     if u in ["NIFTY", "NIFTY 50", "NIFTY50"]: return "NIFTY"
     if u == "SENSEX": return "SENSEX"
     if u == "FINNIFTY": return "FINNIFTY"
     return u
 
-# Updated to accept kite and fetch LTPs
 def search_symbols(kite, keyword):
+    """
+    Optimized Search: Fetches quotes in batch to prevent delay.
+    Returns format: "SYMBOL (EXCHANGE) : LTP"
+    """
     global instrument_dump
     if instrument_dump is None: return []
     k = keyword.upper()
     
-    # Filter by 'exchange' to capture ALL segments
     valid_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
+    # 1. Filter Matches
     mask = (instrument_dump['exchange'].isin(valid_exchanges)) & (instrument_dump['name'].str.startswith(k))
+    matches = instrument_dump[mask]
     
-    # Get unique combinations of Name and Exchange
-    matches = instrument_dump[mask].drop_duplicates(subset=['name', 'exchange']).head(10)
-    
-    results = []
-    
-    for _, row in matches.iterrows():
-        # Fetch Details (LTP) for each result
-        # We pass the specific exchange to get the correct price (NSE vs BSE vs MCX)
-        details = get_symbol_details(kite, row['name'], preferred_exchange=row['exchange'])
-        ltp = details.get('ltp', 0)
+    if matches.empty:
+        return []
         
-        # Format: "SYMBOL (EXCHANGE) : LTP"
-        display_str = f"{row['name']} ({row['exchange']}) : {ltp}"
-        results.append(display_str)
+    # 2. Select Top 10 Unique (Name + Exchange)
+    # We prioritize showing unique combinations so user can pick NSE vs BSE
+    unique_matches = matches.drop_duplicates(subset=['name', 'exchange']).head(10)
+    
+    # 3. Prepare Batch Quote Request
+    items_to_quote = []
+    
+    for _, row in unique_matches.iterrows():
+        key = f"{row['exchange']}:{row['tradingsymbol']}"
+        items_to_quote.append(key)
+        
+    # 4. Fetch All Quotes in ONE API Call (Fixes Delay)
+    quotes = {}
+    try:
+        if items_to_quote:
+            quotes = kite.quote(items_to_quote)
+    except Exception as e:
+        print(f"Search Quote Error: {e}")
+    
+    # 5. Format Results
+    results = []
+    for _, row in unique_matches.iterrows():
+        exch = row['exchange']
+        name = row['name']
+        ts = row['tradingsymbol']
+        key = f"{exch}:{ts}"
+        
+        ltp = 0
+        if key in quotes:
+            ltp = quotes[key].get('last_price', 0)
+            
+        results.append(f"{name} ({exch}) : {ltp}")
         
     return results
 
@@ -90,23 +113,31 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     if instrument_dump is None: fetch_instruments(kite)
     if instrument_dump is None: return {}
     
+    # Extract preferred exchange from string "RELIANCE (NSE) : 2500" if present
+    if "(" in symbol and ")" in symbol:
+        try:
+            parts = symbol.split('(')
+            if len(parts) > 1:
+                preferred_exchange = parts[1].split(')')[0].strip()
+        except:
+            pass
+
     clean = get_zerodha_symbol(symbol)
     today = datetime.now(IST).date()
     
     # 1. Determine Exchange & Fetch LTP (Spot/Future)
     ltp = 0
-    exchange_to_use = "NSE"
+    exchange_to_use = "NSE" 
     
     rows = instrument_dump[instrument_dump['name'] == clean]
     
     if not rows.empty:
         exchanges = rows['exchange'].unique().tolist()
         
-        # Use preferred exchange if available and valid
+        # Priority: Use user selected exchange if valid, else default logic
         if preferred_exchange and preferred_exchange in exchanges:
             exchange_to_use = preferred_exchange
         else:
-            # Default Priority
             if 'MCX' in exchanges: exchange_to_use = 'MCX'
             elif 'CDS' in exchanges: exchange_to_use = 'CDS'
             elif 'BFO' in exchanges: exchange_to_use = 'BSE' 
@@ -125,21 +156,19 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     except:
         ltp = 0
         
-    # Fallback: If Spot LTP is 0 (or not found), fetch Near Future LTP
-    # This is common for MCX/CDS where 'Spot' isn't easily quotable
+    # Fallback: If Spot LTP is 0, fetch Near Future LTP
     if ltp == 0 and not rows.empty:
         try:
-            # If we are looking for MCX, we must look at MCX Futures
-            # If we are looking for NFO (but failed to get Spot), look at NFO Futures
-            target_exch = exchange_to_use if exchange_to_use in ['MCX', 'CDS'] else 'NFO'
-            if preferred_exchange in ['MCX', 'CDS']: target_exch = preferred_exchange
-
+            # Determine correct futures exchange based on Spot Exchange
+            fut_exch = exchange_to_use
+            if exchange_to_use == 'NSE': fut_exch = 'NFO'
+            if exchange_to_use == 'BSE': fut_exch = 'BFO'
+            
             futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]
             
-            # Filter by exchange if needed to avoid mixing NSE/BSE futures if any
-            if exchange_to_use in ['MCX', 'CDS']:
-                futs_all = futs_all[futs_all['exchange'] == exchange_to_use]
-
+            # Narrow down to matching exchange family
+            futs_all = futs_all[futs_all['exchange'] == fut_exch]
+            
             if not futs_all.empty:
                 futs_all = futs_all.sort_values('expiry_date')
                 near_fut = futs_all.iloc[0]

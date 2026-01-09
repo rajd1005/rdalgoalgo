@@ -92,11 +92,11 @@ def move_to_history(trade, final_status, exit_price):
     if trade['status'] == 'PENDING':
         trade['pnl'] = 0
     elif trade.get('order_type') == 'SIMULATION' and ("SL" in final_status or "SL_HIT" in final_status):
-        # Requirement 1: For Simulator, if SL Hit, Log calculated loss but set Final P/L to 0
-        log_event(trade, f"Simulator SL Hit. Actual Loss: {real_pnl}")
+        # Requirement: For Simulator, if SL Hit, Log actual loss but set Final P/L to 0
+        log_event(trade, f"Simulator SL Hit. Actual Loss Amount: {real_pnl}")
         trade['pnl'] = 0
     else:
-        # Normal calculation for Live/Paper or Simulator (if Target Hit)
+        # Normal calculation
         trade['pnl'] = real_pnl
     
     trade['status'] = final_status
@@ -288,7 +288,12 @@ def inject_simulated_trade(trade_data, is_active):
              trade_data['pnl'] = 0
              trade_data['exit_price'] = 0
         else:
-             trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
+             # If SL was hit, PnL is 0 for Simulator
+             if "SL" in trade_data.get('status', '') or "SL" in trade_data.get('exit_type', ''):
+                 trade_data['pnl'] = 0
+             else:
+                 trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
+             
              trade_data['exit_price'] = trade_data.get('made_high', 0)
         
         if not trade_data.get('exit_time'):
@@ -346,8 +351,7 @@ def process_eod_data(kite):
                     log_event(trade, f"EOD Scan: Made High Updated to {max_high}. Potential PnL: {pot_pnl}")
                     
                     if trade.get('order_type') == 'SIMULATION':
-                        # CHECK: If SL was hit, DO NOT calculate potential profit, ensure PnL is 0
-                        # Check status or exit_type for SL indicators
+                        # STRICT CHECK: If SL was hit, FORCE 0 PnL
                         is_sl_hit = ("SL" in trade.get('status', '')) or ("SL" in trade.get('exit_type', ''))
                         
                         if not is_sl_hit:
@@ -355,10 +359,10 @@ def process_eod_data(kite):
                             trade['pnl'] = pot_pnl
                             log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
                         else:
-                            # Requirement 2: Simulator SL Hit = PnL 0 (Made High ignored for PnL)
                             trade['pnl'] = 0 
                             log_event(trade, "EOD Scan: SL Hit previously. Final PnL kept at 0.")
                     else:
+                        # For Live/Paper, PnL is realized, just update Made High
                         real_exit = trade.get('exit_price', 0)
                         if real_exit > 0:
                             trade['pnl'] = round((real_exit - trade['entry_price']) * trade['quantity'], 2)
@@ -473,7 +477,7 @@ def update_risk_engine(kite):
                              t['pnl'] = pot_pnl
                              t['exit_price'] = ltp
                         else:
-                             # Requirement 2: Simulator SL Hit = PnL 0 (Made High ignored for PnL)
+                             # STRICT: Simulator SL Hit = PnL 0
                              t['pnl'] = 0
                     
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))

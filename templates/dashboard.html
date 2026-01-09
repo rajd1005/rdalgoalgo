@@ -200,6 +200,7 @@
       <div class="modal-body">
         <input type="hidden" id="edit_trade_id">
         <label class="pos-grid-label">New Stop Loss</label><input type="number" step="0.05" id="edit_sl" class="form-control mb-3 text-danger fw-bold">
+        <label class="pos-grid-label">Trailing SL (Points)</label><input type="number" step="0.05" id="edit_trail" class="form-control mb-3 text-info fw-bold" placeholder="0 to disable">
         <label class="pos-grid-label">New Targets</label>
         <div class="input-group mb-2"><span class="input-group-text text-success">T1</span><input type="number" step="0.05" id="edit_t1" class="form-control"></div>
         <div class="input-group mb-2"><span class="input-group-text text-success">T2</span><input type="number" step="0.05" id="edit_t2" class="form-control"></div>
@@ -492,6 +493,7 @@
         
         $('#edit_trade_id').val(t.id);
         $('#edit_sl').val(t.sl);
+        $('#edit_trail').val(t.trailing_sl || 0);
         $('#edit_t1').val(t.targets[0] || 0);
         $('#edit_t2').val(t.targets[1] || 0);
         $('#edit_t3').val(t.targets[2] || 0);
@@ -504,6 +506,7 @@
         let d = {
             id: $('#edit_trade_id').val(),
             sl: parseFloat($('#edit_sl').val()),
+            trailing_sl: parseFloat($('#edit_trail').val()),
             targets: [
                 parseFloat($('#edit_t1').val()) || 0,
                 parseFloat($('#edit_t2').val()) || 0,

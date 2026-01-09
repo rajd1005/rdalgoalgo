@@ -467,6 +467,8 @@
                     let cat = getTradeCategory(t);
                     let badge = getMarkBadge(cat);
                     
+                    let logs = t.logs ? t.logs.map(l => `<div class="log-entry">${l}</div>`).join('') : '';
+                    
                     // Add Edit Button for Live/Paper
                     let editBtn = '';
                     if (cat !== 'SIMULATOR') {
@@ -478,6 +480,7 @@
                         <div class="text-center py-2 bg-light rounded mb-3"><small class="text-muted fw-bold">P&L</small><h3 class="mb-0 fw-bold ${color}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</h3></div>
                         <div class="row text-center mb-2"><div class="col-6 border-end"><div class="pos-grid-label">Entry</div><div class="pos-grid-val">${t.entry_price.toFixed(2)}</div></div><div class="col-6"><div class="pos-grid-label">LTP</div><div class="pos-grid-val text-primary">${t.current_ltp.toFixed(2)}</div></div></div>
                         <div class="row text-center border-top pt-2"><div class="col-3"><div class="pos-grid-label text-danger">SL</div><small class="fw-bold">${t.sl.toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T1</div><small class="fw-bold">${t.targets[0].toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T2</div><small class="fw-bold">${t.targets[1].toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T3</div><small class="fw-bold">${t.targets[2].toFixed(1)}</small></div></div>
+                        <div class="mt-2 pt-2 border-top bg-light p-2 rounded" style="max-height: 120px; overflow-y: auto;"><small class="fw-bold text-muted">Logs:</small>${logs}</div>
                         <div class="mt-3 d-flex justify-content-between"><a href="/close_trade/${t.id}" class="btn btn-sm btn-dark w-100 fw-bold">${t.status==='PENDING'?'Cancel Order':'Exit Position'}</a>${t.mode=='PAPER' ? `<a href="/promote/${t.id}" class="btn btn-sm btn-outline-danger ms-2 fw-bold">Live</a>` : ''}</div></div></div>`;
                 });
             }

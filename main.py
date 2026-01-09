@@ -23,6 +23,7 @@ def load_settings():
     # New default structure: symbol_sl is now per-mode
     default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
     defaults = {
+        "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
         "modes": {
             "LIVE": default_mode_settings.copy(),
             "PAPER": default_mode_settings.copy(),
@@ -60,6 +61,10 @@ def load_settings():
                 
                 # Cleanup global symbol_sl if it exists
                 if "symbol_sl" in saved: del saved["symbol_sl"]
+
+            # Ensure exchanges key exists
+            if "exchanges" not in saved:
+                saved["exchanges"] = defaults["exchanges"]
 
             return saved
     except:
@@ -154,8 +159,10 @@ def api_indices():
 
 @app.route('/api/search')
 def api_search():
-    # Pass kite to search_symbols to enable batch LTP fetching
-    return jsonify(smart_trader.search_symbols(kite, request.args.get('q', '')))
+    # Load settings to get allowed exchanges
+    settings = load_settings()
+    allowed = settings.get('exchanges', None) 
+    return jsonify(smart_trader.search_symbols(kite, request.args.get('q', ''), allowed))
 
 @app.route('/api/details')
 def api_details():

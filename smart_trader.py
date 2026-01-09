@@ -44,7 +44,11 @@ def search_symbols(keyword):
     global instrument_dump
     if instrument_dump is None: return []
     k = keyword.upper()
-    mask = ((instrument_dump['segment'] == 'NFO-FUT') | (instrument_dump['segment'] == 'NSE')) & (instrument_dump['name'].str.startswith(k))
+    
+    # Updated: Allow MCX, CDS (Currency), and BFO (BSE Options) segments
+    valid_segments = ['NFO-FUT', 'NSE', 'MCX', 'CDS-FUT', 'BFO-FUT', 'BFO-OPT']
+    mask = (instrument_dump['segment'].isin(valid_segments) | (instrument_dump['segment'] == 'MCX')) & (instrument_dump['name'].str.startswith(k))
+    
     return instrument_dump[mask]['name'].unique().tolist()[:10]
 
 def get_symbol_details(kite, symbol):
@@ -59,25 +63,35 @@ def get_symbol_details(kite, symbol):
 
     ltp = 0
     try:
+        # Basic LTP fetch, might fail for MCX if not specific, but Dashboard uses get_specific_ltp mostly
         quote_sym = f"NSE:{clean}"
         if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
         if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
         if clean == "SENSEX": quote_sym = "BSE:SENSEX"
+        
+        # Try finding exact match in dump for correct exchange if basic NSE fails
+        row = instrument_dump[instrument_dump['name'] == clean]
+        if not row.empty and 'MCX' in row.iloc[0]['segment']:
+             quote_sym = f"MCX:{clean}" # For commodity futures often the name works
+             
         ltp = kite.quote(quote_sym)[quote_sym]['last_price']
     except:
         ltp = 0
 
     lot = 1
-    futs = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['segment'] == 'NFO-FUT')]
+    # Updated: Search widely for the Lot Size (MCX, NFO, CDS, BFO)
+    # Priority: Futures -> Options
+    futs = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT')]
     if not futs.empty: 
         lot = int(futs.iloc[0]['lot_size'])
     else:
-        opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['segment'] == 'NFO-OPT')]
+        # Fallback to Options (useful if only Options exist or strict name match)
+        opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE']))]
         if not opts.empty: lot = int(opts.iloc[0]['lot_size'])
 
-    f_exp = sorted(futs[futs['expiry_date'] >= today]['expiry_str'].unique().tolist())
-    opts = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'CE')]
-    o_exp = sorted(opts[opts['expiry_date'] >= today]['expiry_str'].unique().tolist())
+    # Get Expiries
+    f_exp = sorted(instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'] == 'FUT') & (instrument_dump['expiry_date'] >= today)]['expiry_str'].unique().tolist())
+    o_exp = sorted(instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['instrument_type'].isin(['CE', 'PE'])) & (instrument_dump['expiry_date'] >= today)]['expiry_str'].unique().tolist())
     
     return {
         "symbol": clean, 
@@ -133,7 +147,14 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     ts = get_exact_symbol(symbol, expiry, strike, inst_type)
     if not ts: return 0
     try:
-        exch = "NSE" if inst_type == "EQ" else "NFO"
+        # Updated: Dynamic Exchange Lookup
+        global instrument_dump
+        exch = "NFO" # Default
+        if instrument_dump is not None:
+             row = instrument_dump[instrument_dump['tradingsymbol'] == ts]
+             if not row.empty:
+                 exch = row.iloc[0]['exchange']
+        
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except:
         return 0
@@ -151,10 +172,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
     token = token_row.iloc[0]['instrument_token']
     
     try:
-        # Timezone aware logic
         start_dt = datetime.strptime(time_str.replace("T", " "), "%Y-%m-%d %H:%M")
-        
-        # IST End Time
         end_dt = datetime.now(IST) + timedelta(days=1)
         
         candles = kite.historical_data(token, start_dt, end_dt, "minute")
@@ -188,13 +206,10 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         made_high = entry
         
         for c in candles:
-            # We do NOT break here anymore, to allow Made High tracking for the full duration
-            
             curr_high = c['high']
             curr_low = c['low']
             c_time = str(c['date']) 
             
-            # --- 1. Entry Logic ---
             if not trade_active and status == "PENDING":
                 if curr_low <= entry <= curr_high:
                     status = "OPEN"
@@ -202,17 +217,14 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                     logs.append(f"[{c_time}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
                     made_high = entry 
                 else:
-                    # If not entered yet, we cannot track 'Made High' relative to entry
                     continue 
             
-            # --- 2. Track Made High (Always runs if trade has been activated) ---
+            # Continuous High Tracking (Simulator Fix)
             if status != "PENDING":
                 if curr_high > made_high:
                     made_high = curr_high
             
-            # --- 3. Exit Logic (SL / Target) - Only if OPEN ---
             if status == "OPEN":
-                # Check SL
                 if curr_low <= sl:
                     loss_amt = (sl - entry) * quantity
                     if sl >= entry:
@@ -221,31 +233,25 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                     else:
                         status = "SL_HIT"
                         logs.append(f"[{c_time}] SL Hit @ {sl} | P/L ₹ {loss_amt:.2f}")
-                        
                     exit_p = sl
                     exit_t = c_time
                     
-                # Check Targets
                 elif status == "OPEN":
                     for i, t_price in enumerate(tgts):
                         if i not in targets_hit_indices and curr_high >= t_price:
                             targets_hit_indices.append(i)
-                            
                             gain_amt = (t_price - entry) * quantity
                             logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price} | P/L ₹ {gain_amt:.2f}")
-                            
                             if i == len(tgts) - 1:
                                 status = "TARGET_HIT"
                                 exit_p = t_price
                                 exit_t = c_time
                                 logs.append(f"[{c_time}] Final Target Hit @ {t_price} | P/L ₹ {gain_amt:.2f}")
 
-        # Final Log
         profit_pts = made_high - entry
         profit_amt = profit_pts * quantity
-        
         if status == "PENDING":
-             logs.append("Trade Never Triggered (Price did not reach Entry)")
+             logs.append("Trade Never Triggered")
              made_high = 0
              profit_amt = 0
         
@@ -255,20 +261,11 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         ltp = candles[-1]['close'] if active else exit_p
         
         return {
-            "status": "success",
-            "is_active": active,
+            "status": "success", "is_active": active,
             "trade_data": {
-                "symbol": tradingsymbol,
-                "entry_price": entry,
-                "current_ltp": ltp,
-                "sl": sl,
-                "targets": tgts,
-                "status": status,
-                "exit_price": exit_p,
-                "exit_time": exit_t,
-                "logs": logs,
-                "quantity": 0,
-                "made_high": made_high
+                "symbol": tradingsymbol, "entry_price": entry, "current_ltp": ltp,
+                "sl": sl, "targets": tgts, "status": status, "exit_price": exit_p,
+                "exit_time": exit_t, "logs": logs, "quantity": 0, "made_high": made_high
             }
         }
     except Exception as e:

@@ -33,30 +33,50 @@ def get_indices_ltp(kite):
 
 def get_zerodha_symbol(common_name):
     if not common_name: return ""
-    u = common_name.upper().strip()
+    
+    # NEW: Handle "SYMBOL (EXCHANGE) : LTP" format
+    # Example: "RELIANCE (NSE) : 2500.0" -> "RELIANCE"
+    cleaned = common_name
+    if "(" in cleaned:
+        cleaned = cleaned.split("(")[0]
+    
+    u = cleaned.upper().strip()
+    
     if u in ["BANKNIFTY", "NIFTY BANK", "BANK NIFTY"]: return "BANKNIFTY"
     if u in ["NIFTY", "NIFTY 50", "NIFTY50"]: return "NIFTY"
     if u == "SENSEX": return "SENSEX"
     if u == "FINNIFTY": return "FINNIFTY"
     return u
 
-def search_symbols(keyword):
+# Updated to accept kite and fetch LTPs
+def search_symbols(kite, keyword):
     global instrument_dump
     if instrument_dump is None: return []
     k = keyword.upper()
     
-    # Filter by 'exchange' to capture ALL segments (NFO, MCX, CDS, BFO)
+    # Filter by 'exchange' to capture ALL segments
     valid_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
     mask = (instrument_dump['exchange'].isin(valid_exchanges)) & (instrument_dump['name'].str.startswith(k))
     
-    return instrument_dump[mask]['name'].unique().tolist()[:10]
+    # Get unique combinations of Name and Exchange
+    matches = instrument_dump[mask].drop_duplicates(subset=['name', 'exchange']).head(10)
+    
+    results = []
+    
+    for _, row in matches.iterrows():
+        # Fetch Details (LTP) for each result
+        # We pass the specific exchange to get the correct price (NSE vs BSE vs MCX)
+        details = get_symbol_details(kite, row['name'], preferred_exchange=row['exchange'])
+        ltp = details.get('ltp', 0)
+        
+        # Format: "SYMBOL (EXCHANGE) : LTP"
+        display_str = f"{row['name']} ({row['exchange']}) : {ltp}"
+        results.append(display_str)
+        
+    return results
 
 def adjust_cds_lot_size(symbol, lot_size):
-    """
-    Zerodha API returns lot_size=1 for CDS. 
-    We must apply standard multipliers manually.
-    """
     s = symbol.upper()
     if lot_size == 1:
         if "JPYINR" in s:
@@ -65,7 +85,7 @@ def adjust_cds_lot_size(symbol, lot_size):
             return 1000
     return lot_size
 
-def get_symbol_details(kite, symbol):
+def get_symbol_details(kite, symbol, preferred_exchange=None):
     global instrument_dump
     if instrument_dump is None: fetch_instruments(kite)
     if instrument_dump is None: return {}
@@ -75,19 +95,23 @@ def get_symbol_details(kite, symbol):
     
     # 1. Determine Exchange & Fetch LTP (Spot/Future)
     ltp = 0
-    exchange_to_use = "NSE" 
+    exchange_to_use = "NSE"
     
     rows = instrument_dump[instrument_dump['name'] == clean]
     
     if not rows.empty:
         exchanges = rows['exchange'].unique().tolist()
         
-        # Priority for LTP Fetching
-        if 'MCX' in exchanges: exchange_to_use = 'MCX'
-        elif 'CDS' in exchanges: exchange_to_use = 'CDS'
-        elif 'BFO' in exchanges: exchange_to_use = 'BSE' 
-        elif 'NFO' in exchanges: exchange_to_use = 'NSE'
-        elif 'BSE' in exchanges: exchange_to_use = 'BSE'
+        # Use preferred exchange if available and valid
+        if preferred_exchange and preferred_exchange in exchanges:
+            exchange_to_use = preferred_exchange
+        else:
+            # Default Priority
+            if 'MCX' in exchanges: exchange_to_use = 'MCX'
+            elif 'CDS' in exchanges: exchange_to_use = 'CDS'
+            elif 'BFO' in exchanges: exchange_to_use = 'BSE' 
+            elif 'NFO' in exchanges: exchange_to_use = 'NSE'
+            elif 'BSE' in exchanges: exchange_to_use = 'BSE'
     
     quote_sym = f"{exchange_to_use}:{clean}"
     if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
@@ -101,10 +125,21 @@ def get_symbol_details(kite, symbol):
     except:
         ltp = 0
         
-    # Fallback: If Spot LTP is 0, fetch Near Future LTP
+    # Fallback: If Spot LTP is 0 (or not found), fetch Near Future LTP
+    # This is common for MCX/CDS where 'Spot' isn't easily quotable
     if ltp == 0 and not rows.empty:
         try:
+            # If we are looking for MCX, we must look at MCX Futures
+            # If we are looking for NFO (but failed to get Spot), look at NFO Futures
+            target_exch = exchange_to_use if exchange_to_use in ['MCX', 'CDS'] else 'NFO'
+            if preferred_exchange in ['MCX', 'CDS']: target_exch = preferred_exchange
+
             futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]
+            
+            # Filter by exchange if needed to avoid mixing NSE/BSE futures if any
+            if exchange_to_use in ['MCX', 'CDS']:
+                futs_all = futs_all[futs_all['exchange'] == exchange_to_use]
+
             if not futs_all.empty:
                 futs_all = futs_all.sort_values('expiry_date')
                 near_fut = futs_all.iloc[0]
@@ -113,7 +148,7 @@ def get_symbol_details(kite, symbol):
         except:
             pass
 
-    # 2. Get Lot Size (Robust Logic for NFO, MCX, CDS)
+    # 2. Get Lot Size
     lot = 1
     priority_exchanges = ['MCX', 'CDS', 'BFO', 'NFO']
     found_lot = False
@@ -155,8 +190,6 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
     global instrument_dump
     if instrument_dump is None: return []
     
-    # FIX: Clean the symbol input to match the Instrument Dump Name column
-    # This prevents failures if input is lowercase (e.g., "nifty") or has spacing issues
     clean_symbol = get_zerodha_symbol(symbol)
     
     c = instrument_dump[(instrument_dump['name'] == clean_symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]

@@ -297,9 +297,9 @@ def process_eod_data(kite):
     """
     3:35 PM Trigger: 
     1. Checks closed trades for the day.
-    2. Updates 'Made High' using Historical Data API for ALL trades.
-    3. For SIMULATOR: Updates P&L based on High (Potential).
-    4. For LIVE/PAPER: Updates Made High but PRESERVES Real P&L.
+    2. Updates 'Made High' using Historical Data API.
+    3. Simulator: Updates P&L based on High ONLY IF NOT SL HIT.
+    4. Live/Paper: Updates Made High.
     """
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
     history = load_history()
@@ -318,7 +318,7 @@ def process_eod_data(kite):
                 quote_data = kite.quote(f"{exchange}:{symbol}")
                 token = quote_data[f"{exchange}:{symbol}"]['instrument_token']
                 
-                # Define Time Range (Entry Time to Market Close/Exit)
+                # Define Time Range
                 entry_dt = datetime.strptime(trade['entry_time'], "%Y-%m-%d %H:%M:%S")
                 end_dt = datetime.now(IST)
                 
@@ -326,28 +326,28 @@ def process_eod_data(kite):
                 candles = kite.historical_data(token, entry_dt, end_dt, "minute")
                 
                 if candles:
-                    # Calculate Max High during the period
                     max_high = max([c['high'] for c in candles])
                     
                     trade['made_high'] = max_high
-                    trade['highest_ltp'] = max_high # Sync both fields
+                    trade['highest_ltp'] = max_high
                     trade['eod_scan_done'] = True
                     
                     log_event(trade, f"EOD Scan: Made High Updated to {max_high}")
                     
                     if trade.get('order_type') == 'SIMULATION':
-                        # For Simulator: Show Potential P&L based on High
-                        trade['exit_price'] = max_high
-                        trade['pnl'] = round((max_high - trade['entry_price']) * trade['quantity'], 2)
-                        log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
+                        # CHECK: If SL was hit, DO NOT calculate potential profit
+                        if "SL" not in trade.get('status', '') and "SL" not in trade.get('exit_type', ''):
+                            trade['exit_price'] = max_high
+                            trade['pnl'] = round((max_high - trade['entry_price']) * trade['quantity'], 2)
+                            log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
+                        else:
+                            log_event(trade, "EOD Scan: SL Hit previously. Showing Real PnL.")
                     else:
-                        # For Live/Paper: Show Real P&L (Recalculate to be sure)
                         real_exit = trade.get('exit_price', 0)
                         if real_exit > 0:
                             trade['pnl'] = round((real_exit - trade['entry_price']) * trade['quantity'], 2)
                         log_event(trade, f"EOD Scan: Real PnL Confirmed at {trade['pnl']} (Made High was {max_high})")
                     
-                    # Save back to DB
                     db.session.merge(TradeHistory(id=trade['id'], data=json.dumps(trade)))
                     updated_count += 1
             
@@ -393,9 +393,8 @@ def update_risk_engine(kite):
                 
                 move_to_history(t, reason, exit_p)
             
-            # Clear Active Trades
             save_trades([])
-            return # Stop processing further
+            return
 
     # --- 2. Auto Trigger: Check Made High at 3:35 PM ---
     if now.hour == 15 and now.minute >= 35:
@@ -407,7 +406,7 @@ def update_risk_engine(kite):
     history_trades = load_history()
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
     
-    # Gather distinct instruments to fetch
+    # Gather distinct instruments (Active + Today's Closed)
     instruments_to_fetch = set()
     
     # 1. Active Trades
@@ -430,7 +429,7 @@ def update_risk_engine(kite):
             print(f"Batch Quote Error: {e}")
             return # Cannot process without prices
 
-    # --- 3. Live Update Closed Trades Made High (Today) ---
+    # --- 3. Live Update Closed Trades (Made High + Live LTP) ---
     history_updated = False
     
     for t in todays_closed_trades:
@@ -439,18 +438,27 @@ def update_risk_engine(kite):
             try:
                 ltp = live_prices[inst_key]['last_price']
                 
+                # ALWAYS Update Current LTP for Live View
+                t['current_ltp'] = ltp
+                history_updated = True # Flag to save
+                
                 # Check if current LTP > Stored Made High
                 if ltp > t.get('made_high', 0):
                     t['made_high'] = ltp
                     log_event(t, f"Made High Auto-Updated to {ltp} (Live)")
                     
-                    # For Simulator, PnL tracks Made High (Potential Profit)
+                    # For Simulator: PnL tracks Made High IF NOT SL HIT
                     if t.get('order_type') == 'SIMULATION':
-                         t['pnl'] = round((ltp - t['entry_price']) * t['quantity'], 2)
-                         t['exit_price'] = ltp 
+                        if "SL" not in t.get('status', '') and "SL" not in t.get('exit_type', ''):
+                             t['pnl'] = round((ltp - t['entry_price']) * t['quantity'], 2)
+                             t['exit_price'] = ltp
                     
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
                     history_updated = True
+                else:
+                    # Update DB even if Made High didn't change, to save 'current_ltp'
+                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+
             except:
                 pass
     
@@ -471,11 +479,9 @@ def update_risk_engine(kite):
             t['current_ltp'] = ltp
             updated = True
         else:
-            # If fetch failed for this specific symbol, keep it but don't process rules
             active_list.append(t)
             continue
             
-        # Update Live High Tracker (Internal)
         if t['status'] != "PENDING":
             if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
             if ltp > t['highest_ltp']:
@@ -518,19 +524,14 @@ def update_risk_engine(kite):
             exit_reason = ""
             exit_p = ltp
             
-            # --- Trailing SL Logic ---
             trail_pts = t.get('trailing_sl', 0)
             if trail_pts > 0:
-                # Calculate what SL should be based on current LTP
                 new_calculated_sl = ltp - trail_pts
-                
-                # Only move SL UP
                 if new_calculated_sl > t['sl']:
                     old_sl_val = t['sl']
                     t['sl'] = new_calculated_sl
                     log_event(t, f"Trailing SL Moved: {old_sl_val:.2f} -> {t['sl']:.2f} (LTP: {ltp})")
 
-            # --- Stop Loss Check ---
             if ltp <= t['sl']:
                 exit_triggered = True
                 exit_p = t['sl']
@@ -541,15 +542,12 @@ def update_risk_engine(kite):
                     exit_reason = "SL_HIT"
                     log_event(t, f"SL Hit @ {ltp}")
 
-            # --- Target Check ---
             if not exit_triggered:
                 if 'targets_hit_indices' not in t: t['targets_hit_indices'] = []
-                
                 for i, tgt in enumerate(t['targets']):
                     if i not in t['targets_hit_indices'] and ltp >= tgt:
                         t['targets_hit_indices'].append(i)
                         log_event(t, f"Target {i+1} Hit @ {tgt}")
-                        
                         if i == len(t['targets']) - 1:
                             exit_reason = "TARGET_HIT"
                             log_event(t, f"Final Target Hit @ {ltp}")

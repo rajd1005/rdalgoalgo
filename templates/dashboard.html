@@ -70,8 +70,14 @@
                 <div class="card-head"><span>New Order</span> <span id="inst_ltp" class="badge bg-primary">LTP: 0</span></div>
                 <div class="card-body">
                     <div class="mb-3">
-                        <label class="pos-grid-label">SYMBOL</label>
-                        <input type="text" id="sym" name="index" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list" required>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="pos-grid-label">SYMBOL</label>
+                            <select id="trade_watch" class="form-select form-select-sm" style="width: auto;" onchange="loadWatchlist('trade_watch', '#sym')"><option value="">📺 Watchlist</option></select>
+                        </div>
+                        <div class="input-group">
+                            <input type="text" id="sym" name="index" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list" required>
+                            <button class="btn btn-outline-secondary" type="button" onclick="addToWatchlist('#sym')">➕</button>
+                        </div>
                         <datalist id="sym_list"></datalist>
                     </div>
                     <div class="mb-3">
@@ -163,7 +169,17 @@
         <div class="custom-card">
             <div class="card-head">📅 Trade Simulator</div>
             <div class="card-body">
-                <div class="mb-3"><label class="pos-grid-label">SEARCH SYMBOL</label><input type="text" id="h_sym" class="form-control fw-bold" placeholder="Symbol" list="h_sym_list"><datalist id="h_sym_list"></datalist></div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="pos-grid-label">SEARCH SYMBOL</label>
+                        <select id="sim_watch" class="form-select form-select-sm" style="width: auto;" onchange="loadWatchlist('sim_watch', '#h_sym')"><option value="">📺 Watchlist</option></select>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" id="h_sym" class="form-control fw-bold" placeholder="Symbol" list="h_sym_list">
+                        <button class="btn btn-outline-secondary" type="button" onclick="addToWatchlist('#h_sym')">➕</button>
+                    </div>
+                    <datalist id="h_sym_list"></datalist>
+                </div>
                 <div class="row g-2 mb-3">
                     <div class="col-4"><select id="h_type" class="form-select"><option>CE</option><option>PE</option><option>FUT</option></select></div>
                     <div class="col-8"><select id="h_exp" class="form-select"></select></div>
@@ -304,6 +320,7 @@
 <script>
     let settings = { 
         exchanges: ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO'],
+        watchlist: [],
         modes: {
             LIVE: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
             PAPER: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
@@ -323,6 +340,9 @@
                         $(`#exch_${e}`).prop('checked', true);
                     });
                 }
+                
+                // Render Watchlists
+                renderWatchlist();
                 
                 ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
                     let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
@@ -353,8 +373,51 @@
             settings.modes[m].ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
         });
 
+        // Watchlist is updated via addToWatchlist, but ensure it's synced if needed
         $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { $('#settingsModal').modal('hide'); loadSettings(); } });
     }
+    
+    // --- WATCHLIST FUNCTIONS ---
+    function renderWatchlist() {
+        let wl = settings.watchlist || [];
+        let opts = '<option value="">📺 Watchlist</option>';
+        wl.forEach(w => {
+            opts += `<option value="${w}">${w}</option>`;
+        });
+        $('#trade_watch').html(opts);
+        $('#sim_watch').html(opts);
+    }
+    
+    function addToWatchlist(inputId) {
+        let val = $(inputId).val();
+        if(val && val.length > 2) {
+            if(!settings.watchlist) settings.watchlist = [];
+            // Avoid Duplicates
+            if(!settings.watchlist.includes(val)) {
+                settings.watchlist.push(val);
+                // Save immediately
+                $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { 
+                    renderWatchlist();
+                    // Alert success briefly?
+                    let btn = $(inputId).next();
+                    let originalText = btn.text();
+                    btn.text("✅");
+                    setTimeout(() => btn.text(originalText), 1000);
+                }});
+            } else {
+                alert("Symbol already in Watchlist");
+            }
+        }
+    }
+    
+    function loadWatchlist(selectId, inputId) {
+        let val = $('#' + selectId).val();
+        if(val) {
+            $(inputId).val(val).trigger('change');
+            $(inputId).trigger('input'); // Trigger search bind
+        }
+    }
+    // ---------------------------
 
     function renderSLTable(mode) {
         let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();

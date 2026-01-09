@@ -154,7 +154,8 @@ def api_indices():
 
 @app.route('/api/search')
 def api_search():
-    return jsonify(smart_trader.search_symbols(request.args.get('q', '')))
+    # Pass 'kite' to allow fetching LTPs in search results
+    return jsonify(smart_trader.search_symbols(kite, request.args.get('q', '')))
 
 @app.route('/api/details')
 def api_details():

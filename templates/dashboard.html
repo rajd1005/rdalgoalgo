@@ -306,9 +306,17 @@
     let allClosedTrades = [];
     let curLTP = 0;
 
+    // Helper: Normalize Symbol to match keys in Settings
+    function normalizeSymbol(s) {
+        if(!s) return "";
+        s = s.toUpperCase();
+        if(s === 'NIFTY 50' || s === 'NIFTY50') return 'NIFTY';
+        if(s === 'NIFTY BANK' || s === 'BANKNIFTY' || s === 'BANK NIFTY') return 'BANKNIFTY';
+        return s;
+    }
+
     $(document).ready(function() {
-        // Initialize basic settings immediately to avoid undefined errors
-        renderWatchlist();
+        renderWatchlist(); // Render immediately with empty/default
         loadSettings();
         
         let now = new Date(); const offset = now.getTimezoneOffset(); let localDate = new Date(now.getTime() - (offset*60*1000));
@@ -316,7 +324,6 @@
         $('#hist_date, #hist_filter').change(loadClosedTrades);
         $('#active_filter').change(updateData);
         
-        // Setup Type Change Listeners
         $('input[name="type"]').change(function() {
             let s = $('#sym').val();
             if(s) loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts');
@@ -326,12 +333,8 @@
             if(s) loadDetails('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_qty', '#h_sl_pts');
         });
         
-        // Trigger calcRisk on inputs
         $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
-        
-        // Clock
         setInterval(updateClock, 1000); updateClock();
-        // Data Loop
         setInterval(updateData, 1000); updateData();
     });
 
@@ -411,7 +414,6 @@
         let val = $('#' + selectId).val();
         if(val) {
             $(inputId).val(val).trigger('change');
-            // Trigger input to ensure any search binding also sees it
             $(inputId).trigger('input'); 
         }
     }
@@ -487,7 +489,6 @@
         if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); $('#s_lp').text(d.SENSEX); });
         
-        // Polling for LTP if type is selected
         let currentSym = $('#sym').val();
         if(currentSym && $('#trade').is(':visible')) {
              let tVal = $('input[name="type"]:checked').val();
@@ -500,7 +501,6 @@
         }
         if ($('#closed').is(':visible')) loadClosedTrades();
         
-        // Active Positions Update
         let filterType = $('#active_filter').val();
         $.get('/api/positions', trades => {
             activeTradesList = trades; 
@@ -624,11 +624,16 @@
         else if ($('#history').is(':visible')) mode = 'SIMULATOR';
         else mode = $('#mode_input').val();
         
+        // Auto SL Logic Fix: Use Normalized Symbol Key
+        let normS = normalizeSymbol(s);
         let modeSettings = settings.modes[mode] || settings.modes.PAPER;
-        // Fix: Use uppercase symbol key
-        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[s]) || 20;
+        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[normS]) || 20;
         $(slId).val(savedSL);
         
+        // Explicitly trigger risk calculation for UI update
+        if(mode === 'SIMULATOR') calcSimSL('pts'); 
+        else calcRisk();
+
         $.get('/api/details?symbol='+s, d => { 
             symLTP[symId] = d.ltp; 
             if(d.lot_size > 0) {
@@ -722,6 +727,7 @@
             let price = parseFloat($('#h_p_sl').val()) || 0;
             $('#h_sl_pts').val((entry - price).toFixed(2));
         }
+        // Force update of targets manually since 'input' event might not bubble perfectly from programmatic change
         $('#h_entry').trigger('input'); 
     }
 
@@ -732,8 +738,10 @@
         let p = parseFloat($('#sl_pts').val())||0; let qty = parseInt($('#qty').val())||1;
         let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
         
-        if ($('#p_sl').val() == "" && p > 0 && basePrice > 0) {
-             $('#p_sl').val((basePrice - p).toFixed(2));
+        // If the active element is NOT the SL Price field, update it based on points
+        if (document.activeElement.id !== 'p_sl') {
+             let calculatedPrice = basePrice - p;
+             if(basePrice > 0) $('#p_sl').val(calculatedPrice.toFixed(2));
         }
 
         let mode = $('#mode_input').val(); let ratios = settings.modes[mode].ratios;

@@ -96,16 +96,17 @@ def move_to_history(trade, final_status, exit_price):
         log_event(trade, f"Simulator SL Hit. Actual Loss Amount: {real_pnl}")
         trade['pnl'] = 0
     else:
-        # Normal calculation
+        # Normal calculation for Live/Paper or Simulator (if Target Hit)
         trade['pnl'] = real_pnl
     
     trade['status'] = final_status
     trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str()
+    trade['exit_type'] = final_status
     
-    # Requirement 2: Show calculated amount in Log
+    # Requirement 2: Show calculated amount in Log for closing event
     if "Closed:" not in str(trade['logs']):
-         log_event(trade, f"Closed: {final_status} @ {exit_price}. PnL: {real_pnl}")
+         log_event(trade, f"Closed: {final_status} @ {exit_price}. Final PnL: {trade['pnl']}")
     
     try:
         hist = TradeHistory(id=trade['id'], data=json.dumps(trade))
@@ -347,7 +348,10 @@ def process_eod_data(kite):
                     
                     if trade.get('order_type') == 'SIMULATION':
                         # CHECK: If SL was hit, DO NOT calculate potential profit, ensure PnL is 0
-                        if "SL" not in trade.get('status', '') and "SL" not in trade.get('exit_type', ''):
+                        # Check status or exit_type for SL indicators
+                        is_sl_hit = ("SL" in trade.get('status', '')) or ("SL" in trade.get('exit_type', ''))
+                        
+                        if not is_sl_hit:
                             trade['exit_price'] = max_high
                             trade['pnl'] = pot_pnl
                             log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
@@ -464,9 +468,13 @@ def update_risk_engine(kite):
                     
                     # For Simulator: PnL tracks Made High IF NOT SL HIT
                     if t.get('order_type') == 'SIMULATION':
-                        if "SL" not in t.get('status', '') and "SL" not in t.get('exit_type', ''):
+                        is_sl_hit = ("SL" in t.get('status', '')) or ("SL" in t.get('exit_type', ''))
+                        if not is_sl_hit:
                              t['pnl'] = pot_pnl
                              t['exit_price'] = ltp
+                        else:
+                             # Ensure Simulator SL stays 0 PnL even if Made High updates
+                             t['pnl'] = 0
                     
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
                     history_updated = True

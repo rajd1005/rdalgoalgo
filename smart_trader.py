@@ -44,8 +44,8 @@ def get_zerodha_symbol(common_name):
 
 def get_display_name(tradingsymbol):
     """
-    Formats the trading symbol to: SymbolName - Strike - CE/PE - [Exp Date]
-    Example: BANKNIFTY - 59300 - PE - [26 JAN]
+    Formats the trading symbol to: SymbolName Strike CE/PE ExpDate
+    Example: BANKNIFTY 59300 PE 26 JAN
     """
     global instrument_dump
     if instrument_dump is None:
@@ -65,11 +65,11 @@ def get_display_name(tradingsymbol):
             
             if inst_type in ["CE", "PE"]:
                 strike = int(data['strike'])
-                return f"{name} - {strike} - {inst_type} - [{expiry_str}]"
+                return f"{name} {strike} {inst_type} {expiry_str}"
             elif inst_type == "FUT":
-                 return f"{name} - FUT - [{expiry_str}]"
+                 return f"{name} FUT {expiry_str}"
             else:
-                 return f"{name} - {inst_type}"
+                 return f"{name} {inst_type}"
                  
         return tradingsymbol
     except:

@@ -408,6 +408,7 @@ def update_risk_engine(kite):
     history_updated = False
     
     for t in history_trades:
+        # Only check trades from today
         if t.get('exit_time', '').startswith(today_str):
             try:
                 # Fetch Current LTP for Closed Trade
@@ -419,10 +420,12 @@ def update_risk_engine(kite):
                     t['made_high'] = ltp
                     log_event(t, f"Made High Auto-Updated to {ltp} (Live)")
                     
-                    # For Simulator, PnL tracks Made High
+                    # For Simulator, PnL tracks Made High (Potential Profit)
                     if t.get('order_type') == 'SIMULATION':
                          t['pnl'] = round((ltp - t['entry_price']) * t['quantity'], 2)
                          t['exit_price'] = ltp 
+                    
+                    # For Live/Paper, PnL is realized, so we ONLY update Made High (already done above)
                     
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
                     history_updated = True

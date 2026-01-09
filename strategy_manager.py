@@ -402,18 +402,42 @@ def update_risk_engine(kite):
         process_eod_data(kite)
         return
 
-    # --- 3. Live Update Closed Trades Made High (Today) ---
-    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    # --- Prepare Data for Batch Request ---
+    trades = load_trades()
     history_trades = load_history()
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    
+    # Gather distinct instruments to fetch
+    instruments_to_fetch = set()
+    
+    # 1. Active Trades
+    for t in trades:
+        instruments_to_fetch.add(f"{t['exchange']}:{t['symbol']}")
+        
+    # 2. Today's Closed Trades
+    todays_closed_trades = []
+    for t in history_trades:
+        if t.get('exit_time', '').startswith(today_str):
+            todays_closed_trades.append(t)
+            instruments_to_fetch.add(f"{t['exchange']}:{t['symbol']}")
+            
+    # --- Batch Fetch LTP ---
+    live_prices = {}
+    if instruments_to_fetch:
+        try:
+            live_prices = kite.quote(list(instruments_to_fetch))
+        except Exception as e:
+            print(f"Batch Quote Error: {e}")
+            return # Cannot process without prices
+
+    # --- 3. Live Update Closed Trades Made High (Today) ---
     history_updated = False
     
-    for t in history_trades:
-        # Only check trades from today
-        if t.get('exit_time', '').startswith(today_str):
+    for t in todays_closed_trades:
+        inst_key = f"{t['exchange']}:{t['symbol']}"
+        if inst_key in live_prices:
             try:
-                # Fetch Current LTP for Closed Trade
-                q = kite.quote(f"{t['exchange']}:{t['symbol']}")
-                ltp = q[f"{t['exchange']}:{t['symbol']}"]["last_price"]
+                ltp = live_prices[inst_key]['last_price']
                 
                 # Check if current LTP > Stored Made High
                 if ltp > t.get('made_high', 0):
@@ -425,8 +449,6 @@ def update_risk_engine(kite):
                          t['pnl'] = round((ltp - t['entry_price']) * t['quantity'], 2)
                          t['exit_price'] = ltp 
                     
-                    # For Live/Paper, PnL is realized, so we ONLY update Made High (already done above)
-                    
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
                     history_updated = True
             except:
@@ -435,25 +457,29 @@ def update_risk_engine(kite):
     if history_updated:
         db.session.commit()
 
-    # --- 4. Normal Risk Management (Before 3:25 PM) ---
-    trades = load_trades()
+    # --- 4. Normal Risk Management (Active Trades) ---
     active_list = []
     updated = False
     
     for t in trades:
-        try:
-            ltp = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]["last_price"]
+        inst_key = f"{t['exchange']}:{t['symbol']}"
+        
+        # Get LTP from batch results
+        ltp = 0
+        if inst_key in live_prices:
+            ltp = live_prices[inst_key]['last_price']
             t['current_ltp'] = ltp
             updated = True
-            
-            if t['status'] != "PENDING":
-                if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
-                if ltp > t['highest_ltp']:
-                    t['highest_ltp'] = ltp
-            
-        except:
+        else:
+            # If fetch failed for this specific symbol, keep it but don't process rules
             active_list.append(t)
             continue
+            
+        # Update Live High Tracker (Internal)
+        if t['status'] != "PENDING":
+            if 'highest_ltp' not in t: t['highest_ltp'] = t['entry_price']
+            if ltp > t['highest_ltp']:
+                t['highest_ltp'] = ltp
 
         if t['status'] == "PENDING":
             should_activate = False

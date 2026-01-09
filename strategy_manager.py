@@ -85,18 +85,27 @@ def log_event(trade, message):
     trade['logs'].append(f"[{get_time_str()}] {message}")
 
 def move_to_history(trade, final_status, exit_price):
+    real_pnl = 0
+    if trade['status'] != 'PENDING':
+        real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
+
     if trade['status'] == 'PENDING':
         trade['pnl'] = 0
+    elif trade.get('order_type') == 'SIMULATION' and ("SL" in final_status or final_status == "SL_HIT"):
+        # Requirement 1: For Simulator, if SL Hit, Log loss but set Final P/L to 0
+        log_event(trade, f"Simulator SL Hit. Actual Loss Amount: {real_pnl}")
+        trade['pnl'] = 0
     else:
-        # Real PnL Calculation
-        trade['pnl'] = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
+        # Normal calculation
+        trade['pnl'] = real_pnl
     
     trade['status'] = final_status
     trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str()
     
+    # Requirement 2: Show calculated amount in Log
     if "Closed:" not in str(trade['logs']):
-         log_event(trade, f"Closed: {final_status} @ {exit_price}")
+         log_event(trade, f"Closed: {final_status} @ {exit_price}. PnL: {real_pnl}")
     
     try:
         hist = TradeHistory(id=trade['id'], data=json.dumps(trade))
@@ -332,16 +341,19 @@ def process_eod_data(kite):
                     trade['highest_ltp'] = max_high
                     trade['eod_scan_done'] = True
                     
-                    log_event(trade, f"EOD Scan: Made High Updated to {max_high}")
+                    # Calculate potential profit at high
+                    pot_pnl = round((max_high - trade['entry_price']) * trade['quantity'], 2)
+                    log_event(trade, f"EOD Scan: Made High Updated to {max_high}. Potential PnL: {pot_pnl}")
                     
                     if trade.get('order_type') == 'SIMULATION':
-                        # CHECK: If SL was hit, DO NOT calculate potential profit
+                        # CHECK: If SL was hit, DO NOT calculate potential profit, ensure PnL is 0
                         if "SL" not in trade.get('status', '') and "SL" not in trade.get('exit_type', ''):
                             trade['exit_price'] = max_high
-                            trade['pnl'] = round((max_high - trade['entry_price']) * trade['quantity'], 2)
+                            trade['pnl'] = pot_pnl
                             log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
                         else:
-                            log_event(trade, "EOD Scan: SL Hit previously. Showing Real PnL.")
+                            trade['pnl'] = 0 # Ensure 0 for Simulator SL
+                            log_event(trade, "EOD Scan: SL Hit previously. Final PnL kept at 0.")
                     else:
                         real_exit = trade.get('exit_price', 0)
                         if real_exit > 0:
@@ -535,25 +547,32 @@ def update_risk_engine(kite):
                     t['sl'] = new_calculated_sl
                     log_event(t, f"Trailing SL Moved: {old_sl_val:.2f} -> {t['sl']:.2f} (LTP: {ltp})")
 
+            # --- Check SL ---
             if ltp <= t['sl']:
                 exit_triggered = True
                 exit_p = t['sl']
+                pnl_amt = round((t['sl'] - t['entry_price']) * t['quantity'], 2)
+                
                 if t['sl'] >= t['entry_price']:
                     exit_reason = "COST_EXIT"
-                    log_event(t, f"Price returned to Entry/Cost @ {ltp}. Safe Exit triggered.")
+                    log_event(t, f"Price returned to Entry/Cost @ {ltp}. PnL: {pnl_amt}")
                 else:
                     exit_reason = "SL_HIT"
-                    log_event(t, f"SL Hit @ {ltp}")
+                    log_event(t, f"SL Hit @ {ltp}. PnL: {pnl_amt}")
 
+            # --- Check Target ---
             if not exit_triggered:
                 if 'targets_hit_indices' not in t: t['targets_hit_indices'] = []
                 for i, tgt in enumerate(t['targets']):
                     if i not in t['targets_hit_indices'] and ltp >= tgt:
                         t['targets_hit_indices'].append(i)
-                        log_event(t, f"Target {i+1} Hit @ {tgt}")
+                        
+                        pnl_amt = round((tgt - t['entry_price']) * t['quantity'], 2)
+                        log_event(t, f"Target {i+1} Hit @ {tgt}. PnL: {pnl_amt}")
+                        
                         if i == len(t['targets']) - 1:
                             exit_reason = "TARGET_HIT"
-                            log_event(t, f"Final Target Hit @ {ltp}")
+                            log_event(t, f"Final Target Hit @ {ltp}. PnL: {pnl_amt}")
                             exit_triggered = True
                             exit_p = tgt
             

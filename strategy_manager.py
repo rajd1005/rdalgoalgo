@@ -50,7 +50,7 @@ def delete_trade(trade_id):
         db.session.rollback()
         return False
 
-def update_trade_protection(trade_id, sl, targets):
+def update_trade_protection(trade_id, sl, targets, trailing_sl=0):
     trades = load_trades()
     updated = False
     for t in trades:
@@ -58,7 +58,13 @@ def update_trade_protection(trade_id, sl, targets):
             old_sl = t['sl']
             t['sl'] = float(sl)
             t['targets'] = [float(x) for x in targets]
-            log_event(t, f"Manual Update: SL changed {old_sl} -> {t['sl']}, Targets updated.")
+            t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
+            
+            msg = f"Manual Update: SL {old_sl} -> {t['sl']}, Targets Updated"
+            if t['trailing_sl'] > 0:
+                msg += f", Trailing SL set to {t['trailing_sl']} pts"
+            
+            log_event(t, msg)
             updated = True
             break
     
@@ -82,6 +88,7 @@ def move_to_history(trade, final_status, exit_price):
     if trade['status'] == 'PENDING':
         trade['pnl'] = 0
     else:
+        # Real PnL Calculation
         trade['pnl'] = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
     
     trade['status'] = final_status
@@ -179,6 +186,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "quantity": quantity,
         "sl": calc_price - sl_points,
         "targets": targets,
+        "trailing_sl": 0, # Default 0
         "targets_hit_indices": [],
         "highest_ltp": entry_price, 
         "made_high": entry_price,
@@ -287,8 +295,11 @@ def inject_simulated_trade(trade_data, is_active):
 
 def process_eod_data(kite):
     """
-    3:35 PM Trigger: Checks closed trades for the day and updates 'Made High'
-    using Historical Data API. Also updates P&L for Simulator trades based on Made High.
+    3:35 PM Trigger: 
+    1. Checks closed trades for the day.
+    2. Updates 'Made High' using Historical Data API for ALL trades.
+    3. For SIMULATOR: Updates P&L based on High (Potential).
+    4. For LIVE/PAPER: Updates Made High but PRESERVES Real P&L.
     """
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
     history = load_history()
@@ -322,14 +333,19 @@ def process_eod_data(kite):
                     trade['highest_ltp'] = max_high # Sync both fields
                     trade['eod_scan_done'] = True
                     
-                    # Log event
                     log_event(trade, f"EOD Scan: Made High Updated to {max_high}")
                     
-                    # Update PnL specifically for SIMULATOR trades based on new Made High
                     if trade.get('order_type') == 'SIMULATION':
+                        # For Simulator: Show Potential P&L based on High
                         trade['exit_price'] = max_high
                         trade['pnl'] = round((max_high - trade['entry_price']) * trade['quantity'], 2)
-                        log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Made High)")
+                        log_event(trade, f"EOD Scan: SIM PnL Updated to {trade['pnl']} (Based on Made High)")
+                    else:
+                        # For Live/Paper: Show Real P&L (Recalculate to be sure)
+                        real_exit = trade.get('exit_price', 0)
+                        if real_exit > 0:
+                            trade['pnl'] = round((real_exit - trade['entry_price']) * trade['quantity'], 2)
+                        log_event(trade, f"EOD Scan: Real PnL Confirmed at {trade['pnl']} (Made High was {max_high})")
                     
                     # Save back to DB
                     db.session.merge(TradeHistory(id=trade['id'], data=json.dumps(trade)))
@@ -443,6 +459,19 @@ def update_risk_engine(kite):
             exit_reason = ""
             exit_p = ltp
             
+            # --- Trailing SL Logic ---
+            trail_pts = t.get('trailing_sl', 0)
+            if trail_pts > 0:
+                # Calculate what SL should be based on current LTP
+                new_calculated_sl = ltp - trail_pts
+                
+                # Only move SL UP
+                if new_calculated_sl > t['sl']:
+                    old_sl_val = t['sl']
+                    t['sl'] = new_calculated_sl
+                    log_event(t, f"Trailing SL Moved: {old_sl_val:.2f} -> {t['sl']:.2f} (LTP: {ltp})")
+
+            # --- Stop Loss Check ---
             if ltp <= t['sl']:
                 exit_triggered = True
                 exit_p = t['sl']
@@ -453,6 +482,7 @@ def update_risk_engine(kite):
                     exit_reason = "SL_HIT"
                     log_event(t, f"SL Hit @ {ltp}")
 
+            # --- Target Check ---
             if not exit_triggered:
                 if 'targets_hit_indices' not in t: t['targets_hit_indices'] = []
                 

@@ -30,7 +30,6 @@
         .action-btn:hover { background: #e9ecef; }
         .sticky-footer { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 12px 15px; box-shadow: 0 -4px 12px rgba(0,0,0,0.1); z-index: 1050; border-top: 1px solid #e9ecef; display: flex; align-items: center; justify-content: center; }
         
-        /* Button Group Radio Style */
         .btn-group-check input[type="radio"] { display: none; }
         .btn-group-check label { cursor: pointer; font-weight: bold; font-size: 0.9rem; }
         .btn-group-check input[type="radio"]:checked + label { background-color: #0d6efd; color: #fff; border-color: #0d6efd; }
@@ -98,7 +97,7 @@
 
                     <div class="mb-3">
                         <div class="btn-group w-100 btn-group-check" role="group">
-                            <input type="radio" class="btn-check" name="type" id="t_ce" value="CE" checked autocomplete="off">
+                            <input type="radio" class="btn-check" name="type" id="t_ce" value="CE" autocomplete="off">
                             <label class="btn btn-outline-secondary" for="t_ce">CE</label>
                             <input type="radio" class="btn-check" name="type" id="t_pe" value="PE" autocomplete="off">
                             <label class="btn btn-outline-secondary" for="t_pe">PE</label>
@@ -226,9 +225,9 @@
                     <datalist id="h_sym_list"></datalist>
                 </div>
                 
-                 <div class="mb-3">
+                <div class="mb-3">
                     <div class="btn-group w-100 btn-group-check" role="group">
-                        <input type="radio" class="btn-check" name="h_type" id="ht_ce" value="CE" checked autocomplete="off">
+                        <input type="radio" class="btn-check" name="h_type" id="ht_ce" value="CE" autocomplete="off">
                         <label class="btn btn-outline-secondary" for="ht_ce">CE</label>
                         <input type="radio" class="btn-check" name="h_type" id="ht_pe" value="PE" autocomplete="off">
                         <label class="btn btn-outline-secondary" for="ht_pe">PE</label>
@@ -301,8 +300,40 @@
         }
     };
     
-    // Global var to store lot size
     let curLotSize = 1;
+    let symLTP = {}; 
+    let activeTradesList = []; 
+    let allClosedTrades = [];
+    let curLTP = 0;
+
+    $(document).ready(function() {
+        // Initialize basic settings immediately to avoid undefined errors
+        renderWatchlist();
+        loadSettings();
+        
+        let now = new Date(); const offset = now.getTimezoneOffset(); let localDate = new Date(now.getTime() - (offset*60*1000));
+        $('#hist_date').val(localDate.toISOString().slice(0,10)); $('#h_time').val(localDate.toISOString().slice(0,16));
+        $('#hist_date, #hist_filter').change(loadClosedTrades);
+        $('#active_filter').change(updateData);
+        
+        // Setup Type Change Listeners
+        $('input[name="type"]').change(function() {
+            let s = $('#sym').val();
+            if(s) loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts');
+        });
+        $('input[name="h_type"]').change(function() {
+            let s = $('#h_sym').val();
+            if(s) loadDetails('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_qty', '#h_sl_pts');
+        });
+        
+        // Trigger calcRisk on inputs
+        $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
+        
+        // Clock
+        setInterval(updateClock, 1000); updateClock();
+        // Data Loop
+        setInterval(updateData, 1000); updateData();
+    });
 
     function loadSettings() {
         $.get('/api/settings/load', function(data) {
@@ -380,6 +411,7 @@
         let val = $('#' + selectId).val();
         if(val) {
             $(inputId).val(val).trigger('change');
+            // Trigger input to ensure any search binding also sees it
             $(inputId).trigger('input'); 
         }
     }
@@ -437,14 +469,6 @@
         calcRisk();
         if ($('#history').is(':visible')) { let entry = parseFloat($('#h_entry').val()) || 0; if (entry > 0) $('#h_entry').trigger('input'); }
     }
-    
-    $(document).ready(function() {
-        loadSettings();
-        let now = new Date(); const offset = now.getTimezoneOffset(); let localDate = new Date(now.getTime() - (offset*60*1000));
-        $('#hist_date').val(localDate.toISOString().slice(0,10)); $('#h_time').val(localDate.toISOString().slice(0,16));
-        $('#hist_date, #hist_filter').change(loadClosedTrades);
-        $('#active_filter').change(updateData);
-    });
 
     function switchTab(id) { 
         $('.dashboard-tab').hide(); $(`#${id}`).show(); 
@@ -459,23 +483,25 @@
     function getTradeCategory(t) { if (t.order_type === 'SIMULATION') return 'SIMULATOR'; if (t.mode === 'LIVE') return 'LIVE'; return 'PAPER'; }
     function getMarkBadge(category) { if (category === 'SIMULATOR') return '<span class="badge bg-info text-dark" style="font-size:0.7rem;">SIM</span>'; if (category === 'LIVE') return '<span class="badge bg-danger" style="font-size:0.7rem;">LIVE</span>'; return '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">PAPER</span>'; }
 
-    let curLTP=0; let symLTP={}; let activeTradesList = []; 
-
     function updateData() {
         if(!document.getElementById('n_lp')) return;
         $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); $('#s_lp').text(d.SENSEX); });
         
+        // Polling for LTP if type is selected
         let currentSym = $('#sym').val();
         if(currentSym && $('#trade').is(':visible')) {
-             $.get(`/api/specific_ltp?symbol=${currentSym}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('input[name="type"]:checked').val()}`, d => {
-                curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP);
-                // Also update SL Price if Pts is focused (to show live price moving)
-                if (document.activeElement.id !== 'p_sl') calcSLPriceFromPts('#sl_pts', '#p_sl');
-             });
+             let tVal = $('input[name="type"]:checked').val();
+             if(tVal) {
+                 $.get(`/api/specific_ltp?symbol=${currentSym}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${tVal}`, d => {
+                    curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP);
+                    if (document.activeElement.id !== 'p_sl') calcSLPriceFromPts('#sl_pts', '#p_sl');
+                 });
+             }
         }
         if ($('#closed').is(':visible')) loadClosedTrades();
+        
+        // Active Positions Update
         let filterType = $('#active_filter').val();
-
         $.get('/api/positions', trades => {
             activeTradesList = trades; 
             let sumLive = 0, sumPaper = 0, sumSim = 0;
@@ -526,9 +552,8 @@
             $('#pos-container').html(html);
         });
     }
-    setInterval(updateData, 1000); updateData();
 
-    function updateClock() { $('#live_clock').text(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })); } setInterval(updateClock, 1000); updateClock();
+    function updateClock() { $('#live_clock').text(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })); }
 
     function showLogs(tradeId, type) {
         let trade = (type === 'active') ? activeTradesList.find(x => x.id == tradeId) : allClosedTrades.find(x => x.id == tradeId);
@@ -546,7 +571,6 @@
         $.ajax({ type: "POST", url: '/api/update_trade', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#editTradeModal').modal('hide'); updateData(); } else alert("Failed to update: " + r.message); } });
     }
 
-    let allClosedTrades = [];
     function loadClosedTrades() {
         let filterDate = $('#hist_date').val(); let filterType = $('#hist_filter').val();
         $.get('/api/closed_trades', trades => {
@@ -593,9 +617,17 @@
     function loadDetails(symId, expId, typeSelector, qtyId, slId) {
         let s = $(symId).val(); if(!s) return;
         if(s.includes(':')) s = s.split(':')[0].trim();
-        let mode = $('#history').is(':visible') ? 'SIMULATOR' : $('#mode_input').val();
+        s = s.toUpperCase(); 
+
+        let mode = 'PAPER';
+        if (symId === '#h_sym') mode = 'SIMULATOR'; 
+        else if ($('#history').is(':visible')) mode = 'SIMULATOR';
+        else mode = $('#mode_input').val();
+        
         let modeSettings = settings.modes[mode] || settings.modes.PAPER;
-        $(slId).val(modeSettings.symbol_sl && modeSettings.symbol_sl[s.toUpperCase()] || 20);
+        // Fix: Use uppercase symbol key
+        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[s]) || 20;
+        $(slId).val(savedSL);
         
         $.get('/api/details?symbol='+s, d => { 
             symLTP[symId] = d.ltp; 
@@ -606,11 +638,18 @@
                 $(qtyId).val(curLotSize * mult).attr('step', curLotSize).attr('min', curLotSize);
             }
             window[symId+'_fut'] = d.fut_expiries; window[symId+'_opt'] = d.opt_expiries;
-            fillExp(expId, typeSelector, symId);
+            
+            let typeVal = $(typeSelector).val();
+            if (typeVal) {
+                fillExp(expId, typeSelector, symId);
+            } else {
+                $(expId).empty();
+                let strId = (expId === '#exp') ? '#str' : '#h_str';
+                $(strId).empty().append('<option>Select Type First</option>');
+            }
         });
     }
     
-    // Quantity Increment/Decrement
     function adjQty(inputId, dir) {
         let val = parseInt($(inputId).val()) || curLotSize;
         let step = curLotSize;
@@ -630,8 +669,6 @@
         if(expId === '#exp') fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str');
         if(expId === '#h_exp') fillChain('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_str');
     }
-    $('input[name="type"]').change(() => fillExp('#exp', 'input[name="type"]:checked', '#sym'));
-    $('input[name="h_type"]').change(() => fillExp('#h_exp', 'input[name="h_type"]:checked', '#h_sym'));
 
     function fillChain(sym, exp, typeSelector, str) {
         let spot = symLTP[sym] || 0; let sVal = $(sym).val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
@@ -654,7 +691,6 @@
         });
     }
     
-    // Auto Calculate SL Price <-> Points for Trade Tab
     function calcSLPriceFromPts(ptsId, priceId) {
         let pts = parseFloat($(ptsId).val()) || 0;
         let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
@@ -675,7 +711,6 @@
         }
     }
     
-    // Auto Calculate SL Price <-> Points for Simulator Tab
     function calcSimSL(source) {
         let entry = parseFloat($('#h_entry').val()) || 0;
         if(entry <= 0) return;
@@ -687,10 +722,9 @@
             let price = parseFloat($('#h_p_sl').val()) || 0;
             $('#h_sl_pts').val((entry - price).toFixed(2));
         }
-        $('#h_entry').trigger('input'); // Trigger existing logic
+        $('#h_entry').trigger('input'); 
     }
 
-    $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
     function calcPnl(id) { let val = parseFloat($('#p_' + id).val()) || 0; let qty = parseInt($('#qty').val()) || 1; let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP; if (val > 0) $('#pnl_' + id).text(`₹ ${((val - basePrice) * qty).toFixed(0)}`); }
     function calcSimManual(id) { let val = parseFloat($('#h_' + id).val()) || 0; let qty = parseInt($('#h_qty').val()) || 1; let entry = parseFloat($('#h_entry').val()) || 0; if (val > 0 && entry > 0) $('#h_pnl_' + id).text(`₹ ${((val - entry) * qty).toFixed(0)}`); }
 
@@ -698,7 +732,6 @@
         let p = parseFloat($('#sl_pts').val())||0; let qty = parseInt($('#qty').val())||1;
         let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
         
-        // If Price field is empty but Pts exists (and basePrice exists), fill Price
         if ($('#p_sl').val() == "" && p > 0 && basePrice > 0) {
              $('#p_sl').val((basePrice - p).toFixed(2));
         }

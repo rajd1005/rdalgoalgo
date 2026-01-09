@@ -8,7 +8,7 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <style>
-        body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-bottom: 100px; } /* Increased padding for sticky footer */
+        body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-bottom: 100px; }
         .ticker-bar { background: #111; color: #fff; padding: 8px; font-size: 0.85rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; }
         .ticker-item { margin-right: 15px; font-weight: 600; }
         .auth-btn { font-size: 0.75rem; padding: 4px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; background: #dc3545; color: white; }
@@ -28,24 +28,13 @@
         .sl-table td { vertical-align: middle; }
         .action-btn { cursor: pointer; font-size: 0.9rem; padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; background: #f8f9fa; margin-left: 5px; text-decoration: none; color: #333; }
         .action-btn:hover { background: #e9ecef; }
+        .sticky-footer { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 12px 15px; box-shadow: 0 -4px 12px rgba(0,0,0,0.1); z-index: 1050; border-top: 1px solid #e9ecef; display: flex; align-items: center; justify-content: center; }
         
-        /* Sticky Footer for Execute Button */
-        .sticky-footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background: #fff;
-            padding: 12px 15px;
-            box-shadow: 0 -4px 12px rgba(0,0,0,0.1);
-            z-index: 1050;
-            border-top: 1px solid #e9ecef;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+        /* Button Group Radio Style */
+        .btn-group-check input[type="radio"] { display: none; }
+        .btn-group-check label { cursor: pointer; font-weight: bold; font-size: 0.9rem; }
+        .btn-group-check input[type="radio"]:checked + label { background-color: #0d6efd; color: #fff; border-color: #0d6efd; }
         
-        /* Mobile Specific Tweaks */
         @media (max-width: 576px) {
             .nav-btn { font-size: 0.8rem; padding: 8px 5px; }
             .card-body { padding: 12px; }
@@ -94,8 +83,11 @@
                 <div class="card-body">
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <label class="pos-grid-label">SYMBOL</label>
-                            <select id="trade_watch" class="form-select form-select-sm fw-bold border-secondary" style="width: auto;" onchange="loadWatchlist('trade_watch', '#sym')"><option value="">📺 Watchlist</option></select>
+                            <label class="pos-grid-label">WATCHLIST</label>
+                            <div class="input-group input-group-sm" style="width: auto;">
+                                <select id="trade_watch" class="form-select fw-bold border-secondary" onchange="loadWatchlist('trade_watch', '#sym')"><option value="">📺 Select</option></select>
+                                <button class="btn btn-outline-danger" type="button" onclick="removeFromWatchlist('trade_watch')">🗑️</button>
+                            </div>
                         </div>
                         <div class="input-group">
                             <input type="text" id="sym" name="index" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list" required>
@@ -103,17 +95,33 @@
                         </div>
                         <datalist id="sym_list"></datalist>
                     </div>
+
                     <div class="mb-3">
-                        <select name="type" id="type" class="form-select fw-bold"><option value="CE">CE</option><option value="PE">PE</option><option value="FUT">FUT</option><option value="EQ">EQ</option></select>
+                        <div class="btn-group w-100 btn-group-check" role="group">
+                            <input type="radio" class="btn-check" name="type" id="t_ce" value="CE" checked autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="t_ce">CE</label>
+                            <input type="radio" class="btn-check" name="type" id="t_pe" value="PE" autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="t_pe">PE</label>
+                            <input type="radio" class="btn-check" name="type" id="t_fut" value="FUT" autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="t_fut">FUT</label>
+                            <input type="radio" class="btn-check" name="type" id="t_eq" value="EQ" autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="t_eq">EQ</label>
+                        </div>
                     </div>
+
                     <div class="row g-2 mb-3">
                         <div class="col-6"><select name="expiry" id="exp" class="form-select"></select></div>
                         <div class="col-6"><select name="strike" id="str" class="form-select"></select></div>
                     </div>
+                    
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <label class="pos-grid-label">QTY (<span id="lot">1</span> x <span id="qty_mult_disp">1</span>)</label>
-                            <input type="number" name="qty" id="qty" class="form-control fw-bold" value="1">
+                            <div class="input-group">
+                                <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#qty', -1)">-</button>
+                                <input type="number" name="qty" id="qty" class="form-control fw-bold text-center" value="1">
+                                <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#qty', 1)">+</button>
+                            </div>
                         </div>
                         <div class="col-6"><label class="pos-grid-label">ORDER</label><select name="order_type" id="ord" class="form-select fw-bold"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select></div>
                     </div>
@@ -128,28 +136,36 @@
             <div class="custom-card">
                 <div class="card-head">🛡️ Projected P&L</div>
                 <div class="card-body">
-                    <div class="input-group mb-3"><span class="input-group-text">SL Pts</span><input type="number" id="sl_pts" name="sl_points" class="form-control fw-bold text-center" value="20"></div>
+                    <div class="row g-2 align-items-center mb-3">
+                         <div class="col-6">
+                             <label class="pos-grid-label">SL Points (Auto)</label>
+                             <input type="number" id="sl_pts" name="sl_points" class="form-control fw-bold text-center" value="20" oninput="calcSLPriceFromPts('#sl_pts', '#p_sl')">
+                         </div>
+                         <div class="col-6">
+                             <label class="pos-grid-label">SL Price (Edit)</label>
+                             <input type="number" step="0.05" id="p_sl" class="form-control text-center text-danger fw-bold border-danger" oninput="calcSLPtsFromPrice('#p_sl', '#sl_pts')">
+                         </div>
+                    </div>
+                    
                     <div class="row g-2 text-center">
-                        <div class="col-3 px-1">
-                            <small class="text-danger fw-bold">SL</small>
-                            <input type="text" id="p_sl" class="form-control form-control-sm text-center text-danger fw-bold mb-1" readonly>
-                            <span id="pnl_sl" class="pnl-red">₹ 0</span>
-                        </div>
-                        <div class="col-3 px-1">
+                         <div class="col-4 px-1">
                             <small class="text-success fw-bold">T1 (<span id="r_t1">0.5</span>x)</small>
                             <input type="number" step="0.05" id="p_t1" name="t1_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t1')">
                             <span id="pnl_t1" class="pnl-green">₹ 0</span>
                         </div>
-                        <div class="col-3 px-1">
+                        <div class="col-4 px-1">
                             <small class="text-success fw-bold">T2 (<span id="r_t2">1.0</span>x)</small>
                             <input type="number" step="0.05" id="p_t2" name="t2_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t2')">
                             <span id="pnl_t2" class="pnl-green">₹ 0</span>
                         </div>
-                        <div class="col-3 px-1">
+                        <div class="col-4 px-1">
                             <small class="text-success fw-bold">T3 (<span id="r_t3">1.5</span>x)</small>
                             <input type="number" step="0.05" id="p_t3" name="t3_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t3')">
                             <span id="pnl_t3" class="pnl-green">₹ 0</span>
                         </div>
+                    </div>
+                    <div class="text-center mt-2">
+                        <small class="text-danger fw-bold">Est. Loss: </small><span id="pnl_sl" class="pnl-red" style="display:inline;">₹ 0</span>
                     </div>
                 </div>
             </div>
@@ -197,8 +213,11 @@
             <div class="card-body">
                 <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-1">
-                        <label class="pos-grid-label">SEARCH SYMBOL</label>
-                        <select id="sim_watch" class="form-select form-select-sm fw-bold border-secondary" style="width: auto;" onchange="loadWatchlist('sim_watch', '#h_sym')"><option value="">📺 Watchlist</option></select>
+                        <label class="pos-grid-label">WATCHLIST</label>
+                        <div class="input-group input-group-sm" style="width: auto;">
+                            <select id="sim_watch" class="form-select fw-bold border-secondary" onchange="loadWatchlist('sim_watch', '#h_sym')"><option value="">📺 Select</option></select>
+                            <button class="btn btn-outline-danger" type="button" onclick="removeFromWatchlist('sim_watch')">🗑️</button>
+                        </div>
                     </div>
                     <div class="input-group">
                         <input type="text" id="h_sym" class="form-control fw-bold" placeholder="Symbol" list="h_sym_list">
@@ -206,20 +225,50 @@
                     </div>
                     <datalist id="h_sym_list"></datalist>
                 </div>
+                
+                 <div class="mb-3">
+                    <div class="btn-group w-100 btn-group-check" role="group">
+                        <input type="radio" class="btn-check" name="h_type" id="ht_ce" value="CE" checked autocomplete="off">
+                        <label class="btn btn-outline-secondary" for="ht_ce">CE</label>
+                        <input type="radio" class="btn-check" name="h_type" id="ht_pe" value="PE" autocomplete="off">
+                        <label class="btn btn-outline-secondary" for="ht_pe">PE</label>
+                        <input type="radio" class="btn-check" name="h_type" id="ht_fut" value="FUT" autocomplete="off">
+                        <label class="btn btn-outline-secondary" for="ht_fut">FUT</label>
+                    </div>
+                </div>
+
                 <div class="row g-2 mb-3">
-                    <div class="col-4"><select id="h_type" class="form-select"><option>CE</option><option>PE</option><option>FUT</option></select></div>
-                    <div class="col-8"><select id="h_exp" class="form-select"></select></div>
+                     <div class="col-12"><select id="h_exp" class="form-select"></select></div>
                 </div>
                 <select id="h_str" class="form-select mb-3"><option>Select Expiry First</option></select>
                 <div class="row g-2 mb-3">
                     <div class="col-6"><label class="pos-grid-label">ENTRY PRICE <span class="text-danger">*</span></label><input type="number" step="0.05" id="h_entry" class="form-control fw-bold border-primary" placeholder="Required"></div>
                     <div class="col-6"><label class="pos-grid-label">ENTRY TIME</label><input type="datetime-local" id="h_time" class="form-control"></div>
                 </div>
+                
                 <div class="p-2 bg-light rounded border mb-3">
-                    <div class="row g-2 align-items-end mb-2">
-                        <div class="col-6"><label class="pos-grid-label">SL Points</label><input type="number" id="h_sl_pts" class="form-control" value="20"></div>
-                        <div class="col-6"><label class="pos-grid-label">Qty (Mult: <span id="h_qty_mult">1</span>)</label><input type="number" id="h_qty" class="form-control fw-bold" value="50"></div>
+                    <div class="row g-2 align-items-center mb-2">
+                        <div class="col-6">
+                            <label class="pos-grid-label">Qty (Mult: <span id="h_qty_mult">1</span>)</label>
+                            <div class="input-group input-group-sm">
+                                <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#h_qty', -1)">-</button>
+                                <input type="number" id="h_qty" class="form-control fw-bold text-center" value="50">
+                                <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#h_qty', 1)">+</button>
+                            </div>
+                        </div>
                     </div>
+                    
+                    <div class="row g-2 align-items-center mb-2">
+                         <div class="col-6">
+                             <label class="pos-grid-label">SL Points</label>
+                             <input type="number" id="h_sl_pts" class="form-control fw-bold text-center" value="20" oninput="calcSimSL('pts')">
+                         </div>
+                         <div class="col-6">
+                             <label class="pos-grid-label">SL Price</label>
+                             <input type="number" step="0.05" id="h_p_sl" class="form-control text-center text-danger fw-bold border-danger" oninput="calcSimSL('price')">
+                         </div>
+                    </div>
+
                     <hr class="my-2">
                     <div class="row g-2 text-center">
                         <div class="col-4 px-1"><small class="text-success fw-bold">T1 (<span id="hr_t1">0.5</span>x)</small><input type="number" step="0.05" id="h_t1" class="form-control form-control-sm mb-1" oninput="calcSimManual('t1')"><span id="h_pnl_t1" class="pnl-green">₹ 0</span></div>
@@ -237,123 +286,9 @@
     {% endif %}
 </div>
 
-<div class="modal fade" id="logModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">📄 Trade Logs</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body bg-light" id="logModalBody" style="font-family: monospace; font-size: 0.85rem;">
-        </div>
-    </div>
-  </div>
-</div>
-
-<div class="modal fade" id="editTradeModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">✏️ Edit Trade Protection</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-      <div class="modal-body">
-        <input type="hidden" id="edit_trade_id">
-        <label class="pos-grid-label">New Stop Loss</label><input type="number" step="0.05" id="edit_sl" class="form-control mb-3 text-danger fw-bold">
-        <label class="pos-grid-label">Trailing SL (Points)</label><input type="number" step="0.05" id="edit_trail" class="form-control mb-3 text-info fw-bold" placeholder="0 to disable">
-        <label class="pos-grid-label">New Targets</label>
-        <div class="input-group mb-2"><span class="input-group-text text-success">T1</span><input type="number" step="0.05" id="edit_t1" class="form-control"></div>
-        <div class="input-group mb-2"><span class="input-group-text text-success">T2</span><input type="number" step="0.05" id="edit_t2" class="form-control"></div>
-        <div class="input-group mb-2"><span class="input-group-text text-success">T3</span><input type="number" step="0.05" id="edit_t3" class="form-control"></div>
-      </div>
-      <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveTradeUpdate()">💾 Update Protection</button></div>
-    </div>
-  </div>
-</div>
-
-<div class="modal fade" id="settingsModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-      <div class="modal-body">
-        <ul class="nav nav-tabs mb-3" id="settingTabs" role="tablist">
-            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general">General</button></li>
-            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li>
-            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-live">Live</button></li>
-            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-sim">Simulator</button></li>
-        </ul>
-
-        <div class="tab-content" id="settingTabsContent">
-            <div class="tab-pane fade show active" id="tab-general">
-                <h6 class="mb-2">Active Exchanges (For Search)</h6>
-                <div class="d-flex flex-wrap gap-2 mb-3">
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NSE" id="exch_NSE"><label class="form-check-label" for="exch_NSE">NSE</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NFO" id="exch_NFO"><label class="form-check-label" for="exch_NFO">NFO</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="MCX" id="exch_MCX"><label class="form-check-label" for="exch_MCX">MCX</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="CDS" id="exch_CDS"><label class="form-check-label" for="exch_CDS">CDS</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BSE" id="exch_BSE"><label class="form-check-label" for="exch_BSE">BSE</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BFO" id="exch_BFO"><label class="form-check-label" for="exch_BFO">BFO</label></div>
-                </div>
-            </div>
-            
-            <div class="tab-pane fade" id="tab-paper">
-                <h6 class="mb-2 text-warning">Paper Trade Config</h6>
-                <label class="pos-grid-label">Bulk Update (SYMBOL|SL)</label>
-                <textarea id="paper_bulk_sl" class="form-control mb-2" rows="3" placeholder="ACC|8&#10;RELIANCE|20"></textarea>
-                <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('PAPER')">Apply Bulk SL</button>
-
-                <div class="input-group mb-2"><input type="text" id="paper_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="paper_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('PAPER')">Add</button></div>
-                <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
-                    <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="paper_sl_table_body"></tbody></table>
-                </div>
-                <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="paper_qty_mult" class="form-control mb-2" value="1" min="1">
-                <label class="pos-grid-label">Target Ratios</label>
-                <div class="input-group mb-2">
-                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="paper_r1" class="form-control">
-                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="paper_r2" class="form-control">
-                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="paper_r3" class="form-control">
-                </div>
-            </div>
-            <div class="tab-pane fade" id="tab-live">
-                <h6 class="mb-2 text-danger">Live Trade Config</h6>
-                <label class="pos-grid-label">Bulk Update (SYMBOL|SL)</label>
-                <textarea id="live_bulk_sl" class="form-control mb-2" rows="3" placeholder="ACC|8&#10;RELIANCE|20"></textarea>
-                <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('LIVE')">Apply Bulk SL</button>
-
-                <div class="input-group mb-2"><input type="text" id="live_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="live_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('LIVE')">Add</button></div>
-                <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
-                    <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="live_sl_table_body"></tbody></table>
-                </div>
-                <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="live_qty_mult" class="form-control mb-2" value="1" min="1">
-                <label class="pos-grid-label">Target Ratios</label>
-                <div class="input-group mb-2">
-                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="live_r1" class="form-control">
-                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="live_r2" class="form-control">
-                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="live_r3" class="form-control">
-                </div>
-            </div>
-            <div class="tab-pane fade" id="tab-sim">
-                <h6 class="mb-2 text-info">Simulator Config</h6>
-                <label class="pos-grid-label">Bulk Update (SYMBOL|SL)</label>
-                <textarea id="sim_bulk_sl" class="form-control mb-2" rows="3" placeholder="ACC|8&#10;RELIANCE|20"></textarea>
-                <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('SIMULATOR')">Apply Bulk SL</button>
-
-                <div class="input-group mb-2"><input type="text" id="sim_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="sim_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('SIMULATOR')">Add</button></div>
-                <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
-                    <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="sim_sl_table_body"></tbody></table>
-                </div>
-                <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="sim_qty_mult" class="form-control mb-2" value="1" min="1">
-                <label class="pos-grid-label">Target Ratios</label>
-                <div class="input-group mb-2">
-                    <span class="input-group-text">T1</span><input type="number" step="0.1" id="sim_r1" class="form-control">
-                    <span class="input-group-text">T2</span><input type="number" step="0.1" id="sim_r2" class="form-control">
-                    <span class="input-group-text">T3</span><input type="number" step="0.1" id="sim_r3" class="form-control">
-                </div>
-            </div>
-        </div>
-
-      </div>
-      <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button></div>
-    </div>
-  </div>
-</div>
+<div class="modal fade" id="logModal" tabindex="-1"> <div class="modal-dialog modal-dialog-scrollable"> <div class="modal-content"> <div class="modal-header"> <h5 class="modal-title">📄 Trade Logs</h5> <button type="button" class="btn-close" data-bs-dismiss="modal"></button> </div> <div class="modal-body bg-light" id="logModalBody" style="font-family: monospace; font-size: 0.85rem;"> </div> </div> </div> </div>
+<div class="modal fade" id="editTradeModal" tabindex="-1"> <div class="modal-dialog"> <div class="modal-content"> <div class="modal-header"><h5 class="modal-title">✏️ Edit Trade Protection</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div> <div class="modal-body"> <input type="hidden" id="edit_trade_id"> <label class="pos-grid-label">New Stop Loss</label><input type="number" step="0.05" id="edit_sl" class="form-control mb-3 text-danger fw-bold"> <label class="pos-grid-label">Trailing SL (Points)</label><input type="number" step="0.05" id="edit_trail" class="form-control mb-3 text-info fw-bold" placeholder="0 to disable"> <label class="pos-grid-label">New Targets</label> <div class="input-group mb-2"><span class="input-group-text text-success">T1</span><input type="number" step="0.05" id="edit_t1" class="form-control"></div> <div class="input-group mb-2"><span class="input-group-text text-success">T2</span><input type="number" step="0.05" id="edit_t2" class="form-control"></div> <div class="input-group mb-2"><span class="input-group-text text-success">T3</span><input type="number" step="0.05" id="edit_t3" class="form-control"></div> </div> <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveTradeUpdate()">💾 Update Protection</button></div> </div> </div> </div>
+<div class="modal fade" id="settingsModal" tabindex="-1"> <div class="modal-dialog"> <div class="modal-content"> <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div> <div class="modal-body"> <ul class="nav nav-tabs mb-3" id="settingTabs" role="tablist"> <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general">General</button></li> <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li> <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-live">Live</button></li> <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-sim">Simulator</button></li> </ul> <div class="tab-content" id="settingTabsContent"> <div class="tab-pane fade show active" id="tab-general"> <h6 class="mb-2">Active Exchanges (For Search)</h6> <div class="d-flex flex-wrap gap-2 mb-3"> <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NSE" id="exch_NSE"><label class="form-check-label" for="exch_NSE">NSE</label></div> <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NFO" id="exch_NFO"><label class="form-check-label" for="exch_NFO">NFO</label></div> <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="MCX" id="exch_MCX"><label class="form-check-label" for="exch_MCX">MCX</label></div> <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="CDS" id="exch_CDS"><label class="form-check-label" for="exch_CDS">CDS</label></div> <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BSE" id="exch_BSE"><label class="form-check-label" for="exch_BSE">BSE</label></div> <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BFO" id="exch_BFO"><label class="form-check-label" for="exch_BFO">BFO</label></div> </div> </div> <div class="tab-pane fade" id="tab-paper"> <h6 class="mb-2 text-warning">Paper Trade Config</h6> <label class="pos-grid-label">Bulk Update (SYMBOL|SL)</label> <textarea id="paper_bulk_sl" class="form-control mb-2" rows="3" placeholder="ACC|8&#10;RELIANCE|20"></textarea> <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('PAPER')">Apply Bulk SL</button> <div class="input-group mb-2"><input type="text" id="paper_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="paper_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('PAPER')">Add</button></div> <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;"> <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="paper_sl_table_body"></tbody></table> </div> <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="paper_qty_mult" class="form-control mb-2" value="1" min="1"> <label class="pos-grid-label">Target Ratios</label> <div class="input-group mb-2"> <span class="input-group-text">T1</span><input type="number" step="0.1" id="paper_r1" class="form-control"> <span class="input-group-text">T2</span><input type="number" step="0.1" id="paper_r2" class="form-control"> <span class="input-group-text">T3</span><input type="number" step="0.1" id="paper_r3" class="form-control"> </div> </div> <div class="tab-pane fade" id="tab-live"> <h6 class="mb-2 text-danger">Live Trade Config</h6> <label class="pos-grid-label">Bulk Update (SYMBOL|SL)</label> <textarea id="live_bulk_sl" class="form-control mb-2" rows="3" placeholder="ACC|8&#10;RELIANCE|20"></textarea> <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('LIVE')">Apply Bulk SL</button> <div class="input-group mb-2"><input type="text" id="live_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="live_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('LIVE')">Add</button></div> <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;"> <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="live_sl_table_body"></tbody></table> </div> <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="live_qty_mult" class="form-control mb-2" value="1" min="1"> <label class="pos-grid-label">Target Ratios</label> <div class="input-group mb-2"> <span class="input-group-text">T1</span><input type="number" step="0.1" id="live_r1" class="form-control"> <span class="input-group-text">T2</span><input type="number" step="0.1" id="live_r2" class="form-control"> <span class="input-group-text">T3</span><input type="number" step="0.1" id="live_r3" class="form-control"> </div> </div> <div class="tab-pane fade" id="tab-sim"> <h6 class="mb-2 text-info">Simulator Config</h6> <label class="pos-grid-label">Bulk Update (SYMBOL|SL)</label> <textarea id="sim_bulk_sl" class="form-control mb-2" rows="3" placeholder="ACC|8&#10;RELIANCE|20"></textarea> <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('SIMULATOR')">Apply Bulk SL</button> <div class="input-group mb-2"><input type="text" id="sim_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="sim_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('SIMULATOR')">Add</button></div> <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;"> <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="sim_sl_table_body"></tbody></table> </div> <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="sim_qty_mult" class="form-control mb-2" value="1" min="1"> <label class="pos-grid-label">Target Ratios</label> <div class="input-group mb-2"> <span class="input-group-text">T1</span><input type="number" step="0.1" id="sim_r1" class="form-control"> <span class="input-group-text">T2</span><input type="number" step="0.1" id="sim_r2" class="form-control"> <span class="input-group-text">T3</span><input type="number" step="0.1" id="sim_r3" class="form-control"> </div> </div> </div> </div> <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button></div> </div> </div> </div>
 
 <script>
     let settings = { 
@@ -365,23 +300,19 @@
             SIMULATOR: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}}
         }
     };
+    
+    // Global var to store lot size
+    let curLotSize = 1;
 
     function loadSettings() {
         $.get('/api/settings/load', function(data) {
             if(data) {
                 settings = data;
-                
-                // Load Exchange Checkboxes
                 if(settings.exchanges) {
                     $('input[name="exch_select"]').prop('checked', false);
-                    settings.exchanges.forEach(e => {
-                        $(`#exch_${e}`).prop('checked', true);
-                    });
+                    settings.exchanges.forEach(e => $(`#exch_${e}`).prop('checked', true));
                 }
-                
-                // Render Watchlists
                 renderWatchlist();
-                
                 ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
                     let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
                     let s = settings.modes[m];
@@ -391,18 +322,14 @@
                     $(`#${k}_r3`).val(s.ratios[2]);
                     renderSLTable(m);
                 });
-
                 updateDisplayValues(); 
             }
         });
     }
 
     function saveSettings() {
-        // Save Exchanges
         let selectedExchanges = [];
-        $('input[name="exch_select"]:checked').each(function() {
-            selectedExchanges.push($(this).val());
-        });
+        $('input[name="exch_select"]:checked').each(function() { selectedExchanges.push($(this).val()); });
         settings.exchanges = selectedExchanges;
 
         ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
@@ -411,18 +338,13 @@
             settings.modes[m].ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
         });
 
-        // Watchlist is updated via addToWatchlist, but ensure it's synced if needed
         $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { $('#settingsModal').modal('hide'); loadSettings(); } });
     }
     
-    // --- WATCHLIST FUNCTIONS ---
     function renderWatchlist() {
         let wl = settings.watchlist || [];
-        let opts = '<option value="">📺 Watchlist</option>';
-        wl.forEach(w => {
-            // Display as stored. We ensure clean storage in addToWatchlist.
-            opts += `<option value="${w}">${w}</option>`;
-        });
+        let opts = '<option value="">📺 Select</option>';
+        wl.forEach(w => { opts += `<option value="${w}">${w}</option>`; });
         $('#trade_watch').html(opts);
         $('#sim_watch').html(opts);
     }
@@ -430,26 +352,26 @@
     function addToWatchlist(inputId) {
         let val = $(inputId).val();
         if(val && val.length > 2) {
-            // CLEANING: "RELIANCE (NSE) : 2500" -> "RELIANCE (NSE)"
-            if(val.includes(':')) {
-                val = val.split(':')[0].trim();
-            }
-            
+            if(val.includes(':')) val = val.split(':')[0].trim();
             if(!settings.watchlist) settings.watchlist = [];
-            
-            // Avoid Duplicates
             if(!settings.watchlist.includes(val)) {
                 settings.watchlist.push(val);
-                // Save immediately
                 $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { 
                     renderWatchlist();
-                    let btn = $(inputId).next();
-                    let originalText = btn.text();
-                    btn.text("✅");
-                    setTimeout(() => btn.text(originalText), 1000);
+                    let btn = $(inputId).next(); let originalText = btn.text(); btn.text("✅"); setTimeout(() => btn.text(originalText), 1000);
                 }});
-            } else {
-                alert("Symbol already in Watchlist");
+            } else { alert("Symbol already in Watchlist"); }
+        }
+    }
+    
+    function removeFromWatchlist(selectId) {
+        let val = $('#' + selectId).val();
+        if(val) {
+            if(confirm("Remove " + val + " from watchlist?")) {
+                settings.watchlist = settings.watchlist.filter(item => item !== val);
+                $.ajax({ type: "POST", url: '/api/settings/save', data: JSON.stringify(settings), contentType: "application/json", success: () => { 
+                    renderWatchlist();
+                }});
             }
         }
     }
@@ -458,49 +380,33 @@
         let val = $('#' + selectId).val();
         if(val) {
             $(inputId).val(val).trigger('change');
-            $(inputId).trigger('input'); // Trigger search bind
+            $(inputId).trigger('input'); 
         }
     }
-    // ---------------------------
     
-    // --- BULK UPDATE FUNCTION ---
     function applyBulkSL(mode) {
         let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
         let text = $(`#${k}_bulk_sl`).val();
         if(!text) { alert("Please enter SYMBOL|SL"); return; }
-        
-        let lines = text.split('\n');
-        let count = 0;
+        let lines = text.split('\n'); let count = 0;
         if(!settings.modes[mode].symbol_sl) settings.modes[mode].symbol_sl = {};
-        
         lines.forEach(l => {
             let parts = l.split('|');
             if(parts.length === 2) {
-                let s = parts[0].trim().toUpperCase();
-                let v = parseInt(parts[1].trim());
-                if(s && v > 0) {
-                    settings.modes[mode].symbol_sl[s] = v;
-                    count++;
-                }
+                let s = parts[0].trim().toUpperCase(); let v = parseInt(parts[1].trim());
+                if(s && v > 0) { settings.modes[mode].symbol_sl[s] = v; count++; }
             }
         });
-        
-        renderSLTable(mode);
-        $(`#${k}_bulk_sl`).val('');
-        alert(`Successfully updated ${count} symbols for ${mode}. Click Save Changes to confirm.`);
+        renderSLTable(mode); $(`#${k}_bulk_sl`).val('');
+        alert(`Successfully updated ${count} symbols for ${mode}. Click Save Changes.`);
     }
-    // ----------------------------
 
     function renderSLTable(mode) {
         let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
         let tbody = $(`#${k}_sl_table_body`).empty();
         let slMap = settings.modes[mode].symbol_sl || {};
-        
         Object.keys(slMap).forEach(sym => {
-            tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${slMap[sym]}</td><td>
-                <button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${mode}', '${sym}')">✏️</button> 
-                <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${mode}', '${sym}')">🗑️</button>
-            </td></tr>`);
+            tbody.append(`<tr><td class="fw-bold">${sym}</td><td>${slMap[sym]}</td><td><button class="btn btn-sm btn-outline-secondary py-0" onclick="editSymSL('${mode}', '${sym}')">✏️</button> <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSymSL('${mode}', '${sym}')">🗑️</button></td></tr>`);
         });
     }
 
@@ -508,7 +414,6 @@
         let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
         let s = $(`#${k}_set_sym`).val().toUpperCase();
         let p = parseInt($(`#${k}_set_sl`).val());
-        
         if(s && p) {
             if(!settings.modes[mode].symbol_sl) settings.modes[mode].symbol_sl = {};
             settings.modes[mode].symbol_sl[s] = p;
@@ -516,137 +421,74 @@
             $(`#${k}_set_sym`).val(''); $(`#${k}_set_sl`).val('');
         }
     }
-
-    function editSymSL(mode, sym) {
-        let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
-        $(`#${k}_set_sym`).val(sym);
-        $(`#${k}_set_sl`).val(settings.modes[mode].symbol_sl[sym]);
-    }
-
-    function deleteSymSL(mode, sym) {
-        delete settings.modes[mode].symbol_sl[sym];
-        renderSLTable(mode);
-    }
+    function editSymSL(mode, sym) { let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase(); $(`#${k}_set_sym`).val(sym); $(`#${k}_set_sl`).val(settings.modes[mode].symbol_sl[sym]); }
+    function deleteSymSL(mode, sym) { delete settings.modes[mode].symbol_sl[sym]; renderSLTable(mode); }
 
     function updateDisplayValues() {
         let mode = 'PAPER';
-        if ($('#history').is(':visible')) {
-            mode = 'SIMULATOR';
-        } else {
-            mode = $('#mode_input').val(); 
-        }
+        if ($('#history').is(':visible')) mode = 'SIMULATOR';
+        else mode = $('#mode_input').val(); 
         
-        let s = settings.modes[mode];
-        if(!s) return;
-
-        $('#qty_mult_disp').text(s.qty_mult); 
-        $('#h_qty_mult').text(settings.modes.SIMULATOR.qty_mult);
-
+        let s = settings.modes[mode]; if(!s) return;
+        $('#qty_mult_disp').text(s.qty_mult); $('#h_qty_mult').text(settings.modes.SIMULATOR.qty_mult);
         $('#r_t1').text(s.ratios[0]); $('#hr_t1').text(settings.modes.SIMULATOR.ratios[0]);
         $('#r_t2').text(s.ratios[1]); $('#hr_t2').text(settings.modes.SIMULATOR.ratios[1]);
         $('#r_t3').text(s.ratios[2]); $('#hr_t3').text(settings.modes.SIMULATOR.ratios[2]);
-        
         calcRisk();
-        if ($('#history').is(':visible')) {
-             let entry = parseFloat($('#h_entry').val()) || 0;
-             if (entry > 0) $('#h_entry').trigger('input');
-        }
+        if ($('#history').is(':visible')) { let entry = parseFloat($('#h_entry').val()) || 0; if (entry > 0) $('#h_entry').trigger('input'); }
     }
     
     $(document).ready(function() {
         loadSettings();
-        
-        let now = new Date();
-        const offset = now.getTimezoneOffset();
-        let localDate = new Date(now.getTime() - (offset*60*1000));
-        let dateStr = localDate.toISOString().slice(0,10);
-        let timeStr = localDate.toISOString().slice(0,16);
-
-        $('#hist_date').val(dateStr);
-        $('#h_time').val(timeStr);
-        
+        let now = new Date(); const offset = now.getTimezoneOffset(); let localDate = new Date(now.getTime() - (offset*60*1000));
+        $('#hist_date').val(localDate.toISOString().slice(0,10)); $('#h_time').val(localDate.toISOString().slice(0,16));
         $('#hist_date, #hist_filter').change(loadClosedTrades);
         $('#active_filter').change(updateData);
     });
 
     function switchTab(id) { 
-        $('.dashboard-tab').hide(); 
-        $(`#${id}`).show(); 
-        $('.nav-btn').removeClass('active'); 
-        $(event.target).addClass('active'); 
+        $('.dashboard-tab').hide(); $(`#${id}`).show(); 
+        $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); 
         if(id==='closed') loadClosedTrades(); 
         updateDisplayValues(); 
-        
-        // Handle Sticky Footer Visibility
         if(id === 'trade') $('.sticky-footer').show(); else $('.sticky-footer').hide();
     }
     
-    function setMode(el, mode) { 
-        $('#mode_input').val(mode); 
-        $(el).parent().find('.btn').removeClass('active'); 
-        $(el).addClass('active'); 
-        updateDisplayValues();
-        loadDetails('#sym', '#exp', '#type', '#qty', '#sl_pts');
-    }
+    function setMode(el, mode) { $('#mode_input').val(mode); $(el).parent().find('.btn').removeClass('active'); $(el).addClass('active'); updateDisplayValues(); loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'); }
 
-    function getTradeCategory(t) {
-        if (t.order_type === 'SIMULATION') return 'SIMULATOR';
-        if (t.mode === 'LIVE') return 'LIVE';
-        return 'PAPER';
-    }
+    function getTradeCategory(t) { if (t.order_type === 'SIMULATION') return 'SIMULATOR'; if (t.mode === 'LIVE') return 'LIVE'; return 'PAPER'; }
+    function getMarkBadge(category) { if (category === 'SIMULATOR') return '<span class="badge bg-info text-dark" style="font-size:0.7rem;">SIM</span>'; if (category === 'LIVE') return '<span class="badge bg-danger" style="font-size:0.7rem;">LIVE</span>'; return '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">PAPER</span>'; }
 
-    function getMarkBadge(category) {
-        if (category === 'SIMULATOR') return '<span class="badge bg-info text-dark" style="font-size:0.7rem;">SIM</span>';
-        if (category === 'LIVE') return '<span class="badge bg-danger" style="font-size:0.7rem;">LIVE</span>';
-        return '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">PAPER</span>';
-    }
-
-    let curLTP=0; let symLTP={};
-    let activeTradesList = []; 
+    let curLTP=0; let symLTP={}; let activeTradesList = []; 
 
     function updateData() {
         if(!document.getElementById('n_lp')) return;
-        $.get('/api/indices', d => { 
-            $('#n_lp').text(d.NIFTY); 
-            $('#b_lp').text(d.BANKNIFTY); 
-            $('#s_lp').text(d.SENSEX);
-        });
+        $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); $('#s_lp').text(d.SENSEX); });
         
         let currentSym = $('#sym').val();
         if(currentSym && $('#trade').is(':visible')) {
-             $.get(`/api/specific_ltp?symbol=${currentSym}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
+             $.get(`/api/specific_ltp?symbol=${currentSym}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('input[name="type"]:checked').val()}`, d => {
                 curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP);
+                // Also update SL Price if Pts is focused (to show live price moving)
+                if (document.activeElement.id !== 'p_sl') calcSLPriceFromPts('#sl_pts', '#p_sl');
              });
         }
-
-        // Live update Closed Trades if tab is active
-        if ($('#closed').is(':visible')) {
-            loadClosedTrades();
-        }
-
+        if ($('#closed').is(':visible')) loadClosedTrades();
         let filterType = $('#active_filter').val();
 
         $.get('/api/positions', trades => {
             activeTradesList = trades; 
-
-            // Calculate Totals Separately
             let sumLive = 0, sumPaper = 0, sumSim = 0;
             trades.forEach(t => {
                 let pnl = (t.status === 'PENDING') ? 0 : (t.current_ltp - t.entry_price) * t.quantity;
                 let cat = getTradeCategory(t);
-                if(cat === 'LIVE') sumLive += pnl;
-                else if(cat === 'PAPER') sumPaper += pnl;
-                else if(cat === 'SIMULATOR') sumSim += pnl;
+                if(cat === 'LIVE') sumLive += pnl; else if(cat === 'PAPER') sumPaper += pnl; else if(cat === 'SIMULATOR') sumSim += pnl;
             });
-            
-            // Update Summary Display
             $('#sum_live').text("₹ " + sumLive.toFixed(2)).attr('class', sumLive >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
             $('#sum_paper').text("₹ " + sumPaper.toFixed(2)).attr('class', sumPaper >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
             $('#sum_sim').text("₹ " + sumSim.toFixed(2)).attr('class', sumSim >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
 
-            // Filter Active Trades
             let filtered = trades.filter(t => filterType === 'ALL' || getTradeCategory(t) === filterType);
-            
             let html = '';
             if(filtered.length === 0) html = '<div class="text-center p-4 text-muted">No Active Trades for selected filter</div>';
             else {
@@ -654,17 +496,9 @@
                     let pnl = (t.current_ltp - t.entry_price) * t.quantity;
                     let color = pnl >= 0 ? 'pnl-green' : 'pnl-red';
                     if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
-                    
-                    let cat = getTradeCategory(t);
-                    let badge = getMarkBadge(cat);
-                    
-                    // Edit Button for Live/Paper
-                    let editBtn = '';
-                    if (cat !== 'SIMULATOR') {
-                         editBtn = `<span class="action-btn text-primary" onclick="openEditTradeModal('${t.id}')">✏️</span>`;
-                    }
+                    let cat = getTradeCategory(t); let badge = getMarkBadge(cat);
+                    let editBtn = (cat !== 'SIMULATOR') ? `<span class="action-btn text-primary" onclick="openEditTradeModal('${t.id}')">✏️</span>` : '';
 
-                    // Responsive Card Layout
                     html += `<div class="card mb-3 border shadow-sm"><div class="card-body p-2">
                         <div class="d-flex justify-content-between mb-2 align-items-center">
                             <div style="font-size:0.9rem; font-weight:700;">${t.symbol} <span class="badge bg-light text-dark border">Q:${t.quantity}</span></div>
@@ -684,362 +518,225 @@
                             <div class="col-3 px-1"><div class="pos-grid-label text-success">T2</div><small class="fw-bold" style="font-size:0.8rem;">${t.targets[1].toFixed(1)}</small></div>
                             <div class="col-3 px-1"><div class="pos-grid-label text-success">T3</div><small class="fw-bold" style="font-size:0.8rem;">${t.targets[2].toFixed(1)}</small></div>
                         </div>
-                        <div class="mt-2 text-center">
-                            <button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'active')">📄 Logs</button>
-                        </div>
-                        <div class="mt-2 d-flex justify-content-between gap-2">
-                            <a href="/close_trade/${t.id}" class="btn btn-sm btn-dark flex-grow-1 fw-bold">${t.status==='PENDING'?'Cancel':'Exit'}</a>
-                            ${t.mode=='PAPER' ? `<a href="/promote/${t.id}" class="btn btn-sm btn-outline-danger fw-bold">Live</a>` : ''}
-                        </div>
+                        <div class="mt-2 text-center"><button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'active')">📄 Logs</button></div>
+                        <div class="mt-2 d-flex justify-content-between gap-2"><a href="/close_trade/${t.id}" class="btn btn-sm btn-dark flex-grow-1 fw-bold">${t.status==='PENDING'?'Cancel':'Exit'}</a>${t.mode=='PAPER' ? `<a href="/promote/${t.id}" class="btn btn-sm btn-outline-danger fw-bold">Live</a>` : ''}</div>
                     </div></div>`;
                 });
             }
             $('#pos-container').html(html);
         });
     }
-    // Update Interval set to 1 Second
     setInterval(updateData, 1000); updateData();
 
-    // Clock Function
-    function updateClock() {
-        let now = new Date();
-        let str = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-        $('#live_clock').text(str);
-    }
-    setInterval(updateClock, 1000); updateClock();
+    function updateClock() { $('#live_clock').text(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })); } setInterval(updateClock, 1000); updateClock();
 
-    // Log Display Logic
     function showLogs(tradeId, type) {
-        let trade = null;
-        if (type === 'active') {
-            trade = activeTradesList.find(x => x.id == tradeId);
-        } else {
-            trade = allClosedTrades.find(x => x.id == tradeId);
-        }
-
-        if (trade && trade.logs) {
-            let logsHtml = trade.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
-            $('#logModalBody').html(logsHtml);
-            new bootstrap.Modal(document.getElementById('logModal')).show();
-        } else {
-            alert("No logs available.");
-        }
+        let trade = (type === 'active') ? activeTradesList.find(x => x.id == tradeId) : allClosedTrades.find(x => x.id == tradeId);
+        if (trade && trade.logs) { $('#logModalBody').html(trade.logs.map(l => `<div class="log-entry">${l}</div>`).join('')); new bootstrap.Modal(document.getElementById('logModal')).show(); } else alert("No logs available.");
     }
 
-    // Edit Modal Logic
     function openEditTradeModal(id) {
-        let t = activeTradesList.find(x => x.id == id);
-        if(!t) return;
-        
-        $('#edit_trade_id').val(t.id);
-        $('#edit_sl').val(t.sl);
-        $('#edit_trail').val(t.trailing_sl || 0);
-        $('#edit_t1').val(t.targets[0] || 0);
-        $('#edit_t2').val(t.targets[1] || 0);
-        $('#edit_t3').val(t.targets[2] || 0);
-        
-        var myModal = new bootstrap.Modal(document.getElementById('editTradeModal'));
-        myModal.show();
+        let t = activeTradesList.find(x => x.id == id); if(!t) return;
+        $('#edit_trade_id').val(t.id); $('#edit_sl').val(t.sl); $('#edit_trail').val(t.trailing_sl || 0);
+        $('#edit_t1').val(t.targets[0] || 0); $('#edit_t2').val(t.targets[1] || 0); $('#edit_t3').val(t.targets[2] || 0);
+        new bootstrap.Modal(document.getElementById('editTradeModal')).show();
     }
-
     function saveTradeUpdate() {
-        let d = {
-            id: $('#edit_trade_id').val(),
-            sl: parseFloat($('#edit_sl').val()),
-            trailing_sl: parseFloat($('#edit_trail').val()),
-            targets: [
-                parseFloat($('#edit_t1').val()) || 0,
-                parseFloat($('#edit_t2').val()) || 0,
-                parseFloat($('#edit_t3').val()) || 0
-            ]
-        };
-        $.ajax({
-            type: "POST", url: '/api/update_trade',
-            data: JSON.stringify(d), contentType: "application/json",
-            success: function(r) {
-                if(r.status==='success') {
-                    $('#editTradeModal').modal('hide');
-                    updateData();
-                } else alert("Failed to update: " + r.message);
-            }
-        });
+        let d = { id: $('#edit_trade_id').val(), sl: parseFloat($('#edit_sl').val()), trailing_sl: parseFloat($('#edit_trail').val()), targets: [parseFloat($('#edit_t1').val())||0, parseFloat($('#edit_t2').val())||0, parseFloat($('#edit_t3').val())||0] };
+        $.ajax({ type: "POST", url: '/api/update_trade', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#editTradeModal').modal('hide'); updateData(); } else alert("Failed to update: " + r.message); } });
     }
 
     let allClosedTrades = [];
     function loadClosedTrades() {
-        let filterDate = $('#hist_date').val();
-        let filterType = $('#hist_filter').val();
-
+        let filterDate = $('#hist_date').val(); let filterType = $('#hist_filter').val();
         $.get('/api/closed_trades', trades => {
-            allClosedTrades = trades; 
-            let html = '';
-            let dayTotal = 0;
-            
-            let filtered = trades.filter(t => {
-                let matchDate = t.exit_time && t.exit_time.startsWith(filterDate);
-                let matchType = (filterType === 'ALL' || getTradeCategory(t) === filterType);
-                return matchDate && matchType;
-            });
-            
+            allClosedTrades = trades; let html = ''; let dayTotal = 0;
+            let filtered = trades.filter(t => t.exit_time && t.exit_time.startsWith(filterDate) && (filterType === 'ALL' || getTradeCategory(t) === filterType));
             if(filtered.length === 0) html = '<div class="text-center p-4 text-muted">No History for this Date/Filter</div>';
             else {
                 filtered.forEach(t => {
-                    dayTotal += t.pnl;
-                    let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
-                    
-                    let cat = getTradeCategory(t);
-                    let badge = getMarkBadge(cat);
-                    
+                    dayTotal += t.pnl; let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
+                    let cat = getTradeCategory(t); let badge = getMarkBadge(cat);
                     let editBtn = (t.order_type === 'SIMULATION') ? `<span class="action-btn text-primary" onclick="editSim('${t.id}')">✏️</span>` : '';
                     let delBtn = `<span class="action-btn text-danger" onclick="deleteTrade('${t.id}')">🗑️</span>`;
-
-                    // Live LTP Badge
                     let ltpBadge = t.current_ltp ? `<span class="badge bg-light text-dark border ms-1" style="font-size:0.7rem;">LTP:${t.current_ltp.toFixed(2)}</span>` : '';
-
                     html += `<div class="card mb-3 border shadow-sm"><div class="card-body p-2">
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <h6 class="fw-bold mb-0" style="font-size:0.9rem;">${t.symbol}</h6>
-                            <div>${editBtn}${delBtn}${badge}<span class="badge bg-secondary ms-1" style="font-size:0.7rem;">${t.status}</span></div>
+                            <h6 class="fw-bold mb-0" style="font-size:0.9rem;">${t.symbol}</h6> <div>${editBtn}${delBtn}${badge}<span class="badge bg-secondary ms-1" style="font-size:0.7rem;">${t.status}</span></div>
                         </div>
                         <div class="d-flex justify-content-between mt-1"><small>Entry: <b>${t.entry_price.toFixed(2)}</b></small><small>Exit: <b>${t.exit_price.toFixed(2)}</b>${ltpBadge}</small></div>
                         <div class="d-flex justify-content-between mt-1 align-items-center"><small class="text-muted" style="font-size:0.7rem;">${t.exit_time.slice(11,16)}</small><h5 class="mb-0 fw-bold ${color}">${t.pnl.toFixed(2)}</h5></div>
-                        <div class="mt-2 text-center">
-                            <button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'closed')">📄 Logs</button>
-                        </div>
+                        <div class="mt-2 text-center"><button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'closed')">📄 Logs</button></div>
                     </div></div>`;
                 });
             }
-            $('#hist-container').html(html);
-            $('#day_pnl').text("₹ " + dayTotal.toFixed(2));
-            if(dayTotal >= 0) $('#day_pnl').removeClass('bg-danger').addClass('bg-success');
-            else $('#day_pnl').removeClass('bg-success').addClass('bg-danger');
+            $('#hist-container').html(html); $('#day_pnl').text("₹ " + dayTotal.toFixed(2));
+            if(dayTotal >= 0) $('#day_pnl').removeClass('bg-danger').addClass('bg-success'); else $('#day_pnl').removeClass('bg-success').addClass('bg-danger');
         });
     }
 
-    function deleteTrade(id) {
-        if(confirm("Are you sure you want to delete this trade history?")) {
-            $.ajax({
-                url: '/api/delete_trade/' + id,
-                type: 'POST',
-                success: function(r) {
-                    if(r.status === 'success') loadClosedTrades();
-                    else alert('Failed to delete');
-                }
-            });
-        }
-    }
-
+    function deleteTrade(id) { if(confirm("Delete trade?")) $.post('/api/delete_trade/' + id, r => { if(r.status === 'success') loadClosedTrades(); else alert('Failed to delete'); }); }
     function editSim(id) {
-        let t = allClosedTrades.find(x => x.id == id);
-        if(!t) return;
-        
-        $('.dashboard-tab').hide(); 
-        $('#history').show(); 
-        $('.nav-btn').removeClass('active'); 
-        $('.nav-btn').last().addClass('active');
-
+        let t = allClosedTrades.find(x => x.id == id); if(!t) return;
+        $('.dashboard-tab').hide(); $('#history').show(); $('.nav-btn').removeClass('active'); $('.nav-btn').last().addClass('active');
         if(t.raw_params) {
-            $('#h_sym').val(t.raw_params.symbol);
-            $('#h_entry').val(t.entry_price);
-            $('#h_qty').val(t.quantity);
-            $('#h_time').val(t.raw_params.time);
-            $('#h_type').val(t.raw_params.type);
-            
-            loadDetails('#h_sym', '#h_exp', '#h_type', '#h_qty', '#h_sl_pts');
-            
-            setTimeout(() => {
-                 $('#h_exp').val(t.raw_params.expiry).change();
-                 setTimeout(() => {
-                     $('#h_str').val(t.raw_params.strike).change();
-                 }, 500);
-            }, 800);
-        } else {
-             $('#h_sym').val(t.symbol);
-             $('#h_entry').val(t.entry_price);
-             $('#h_qty').val(t.quantity);
-             alert("Old trade format: Some fields might not autofill perfectly.");
-        }
+            $('#h_sym').val(t.raw_params.symbol); $('#h_entry').val(t.entry_price); $('#h_qty').val(t.quantity); $('#h_time').val(t.raw_params.time);
+            $(`input[name="h_type"][value="${t.raw_params.type}"]`).prop('checked', true);
+            loadDetails('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_qty', '#h_sl_pts');
+            setTimeout(() => { $('#h_exp').val(t.raw_params.expiry).change(); setTimeout(() => { $('#h_str').val(t.raw_params.strike).change(); }, 500); }, 800);
+        } else alert("Old trade format.");
     }
 
     function bindSearch(id, listId) { $(id).on('input', function() { if(this.value.length>1) $.get('/api/search?q='+this.value, d => { $(listId).empty(); d.forEach(s=>$(listId).append(`<option value="${s}">`)) }); }); }
     bindSearch('#sym', '#sym_list'); bindSearch('#h_sym', '#h_sym_list');
 
-    function loadDetails(symId, expId, typeId, qtyId, slId) {
+    function loadDetails(symId, expId, typeSelector, qtyId, slId) {
         let s = $(symId).val(); if(!s) return;
-        
-        // Remove Price if present for search purposes
         if(s.includes(':')) s = s.split(':')[0].trim();
-
-        let mode = 'PAPER';
-        if ($('#history').is(':visible')) mode = 'SIMULATOR';
-        else mode = $('#mode_input').val();
-        
+        let mode = $('#history').is(':visible') ? 'SIMULATOR' : $('#mode_input').val();
         let modeSettings = settings.modes[mode] || settings.modes.PAPER;
-        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[s.toUpperCase()]) || 20;
-        $(slId).val(savedSL);
+        $(slId).val(modeSettings.symbol_sl && modeSettings.symbol_sl[s.toUpperCase()] || 20);
         
-        let mult = modeSettings.qty_mult || 1;
-
         $.get('/api/details?symbol='+s, d => { 
             symLTP[symId] = d.ltp; 
             if(d.lot_size > 0) {
-                let totalQty = d.lot_size * mult;
-                if(symId === '#sym') { $('#lot').text(d.lot_size); }
-                $(qtyId).val(totalQty).attr('step', d.lot_size).attr('min', d.lot_size);
+                curLotSize = d.lot_size;
+                $('#lot').text(curLotSize); 
+                let mult = parseInt(modeSettings.qty_mult) || 1;
+                $(qtyId).val(curLotSize * mult).attr('step', curLotSize).attr('min', curLotSize);
             }
             window[symId+'_fut'] = d.fut_expiries; window[symId+'_opt'] = d.opt_expiries;
-            fillExp(expId, typeId, symId);
+            fillExp(expId, typeSelector, symId);
         });
     }
-    $('#sym').change(() => loadDetails('#sym', '#exp', '#type', '#qty', '#sl_pts'));
-    $('#h_sym').change(() => loadDetails('#h_sym', '#h_exp', '#h_type', '#h_qty', '#h_sl_pts'));
-
-    function fillExp(expId, typeId, symId) { 
-        let l = $(typeId).val()=='FUT' ? window[symId+'_fut'] : window[symId+'_opt']; 
-        let $e = $(expId).empty(); 
-        if(l) l.forEach(d => $e.append(`<option value="${d}">${d}</option>`)); 
-        if(expId === '#exp') fillChain('#sym', '#exp', '#type', '#str');
-        if(expId === '#h_exp') fillChain('#h_sym', '#h_exp', '#h_type', '#h_str');
+    
+    // Quantity Increment/Decrement
+    function adjQty(inputId, dir) {
+        let val = parseInt($(inputId).val()) || curLotSize;
+        let step = curLotSize;
+        let newVal = val + (dir * step);
+        if(newVal >= step) {
+            $(inputId).val(newVal).trigger('input');
+        }
     }
-    $('#type').change(() => fillExp('#exp', '#type', '#sym'));
-    $('#h_type').change(() => fillExp('#h_exp', '#h_type', '#h_sym'));
 
-    function fillChain(sym, exp, type, str) {
-        let spot = symLTP[sym] || 0;
-        let sVal = $(sym).val();
-        if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
-        
-        $.get(`/api/chain?symbol=${sVal}&expiry=${$(exp).val()}&type=${$(type).val()}&ltp=${spot}`, d => {
+    $('#sym').change(() => loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'));
+    $('#h_sym').change(() => loadDetails('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_qty', '#h_sl_pts'));
+
+    function fillExp(expId, typeSelector, symId) { 
+        let typeVal = $(typeSelector).val();
+        let l = typeVal=='FUT' ? window[symId+'_fut'] : window[symId+'_opt']; 
+        let $e = $(expId).empty(); if(l) l.forEach(d => $e.append(`<option value="${d}">${d}</option>`)); 
+        if(expId === '#exp') fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str');
+        if(expId === '#h_exp') fillChain('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_str');
+    }
+    $('input[name="type"]').change(() => fillExp('#exp', 'input[name="type"]:checked', '#sym'));
+    $('input[name="h_type"]').change(() => fillExp('#h_exp', 'input[name="h_type"]:checked', '#h_sym'));
+
+    function fillChain(sym, exp, typeSelector, str) {
+        let spot = symLTP[sym] || 0; let sVal = $(sym).val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
+        $.get(`/api/chain?symbol=${sVal}&expiry=${$(exp).val()}&type=${$(typeSelector).val()}&ltp=${spot}`, d => {
             let $s = $(str).empty(); 
-            d.forEach(r => {
-                let mark = r.label.includes('ATM') ? '🔴' : '';
-                let style = r.label.includes('ATM') ? 'style="color:red; font-weight:bold;"' : '';
-                let selected = r.label.includes('ATM') ? 'selected' : '';
-                $s.append(`<option value="${r.strike}" ${selected} ${style}>${mark} ${r.strike} ${r.label}</option>`);
-            });
+            d.forEach(r => { let mark = r.label.includes('ATM') ? '🔴' : ''; let style = r.label.includes('ATM') ? 'style="color:red; font-weight:bold;"' : ''; let selected = r.label.includes('ATM') ? 'selected' : ''; $s.append(`<option value="${r.strike}" ${selected} ${style}>${mark} ${r.strike} ${r.label}</option>`); });
             if(str === '#str') fetchLTP();
         });
     }
-    $('#exp').change(() => fillChain('#sym', '#exp', '#type', '#str'));
-    $('#h_exp').change(() => fillChain('#h_sym', '#h_exp', '#h_type', '#h_str'));
-
-    $('#ord').change(function() {
-        if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide();
-    });
-
+    $('#exp').change(() => fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str'));
+    $('#h_exp').change(() => fillChain('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_str'));
+    $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
     $('#str').change(fetchLTP);
+
     function fetchLTP() {
-        let sVal = $('#sym').val();
-        if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
-        
-        $.get(`/api/specific_ltp?symbol=${sVal}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('#type').val()}`, d => {
-            curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP); 
-            if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
+        let sVal = $('#sym').val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
+        $.get(`/api/specific_ltp?symbol=${sVal}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('input[name="type"]:checked').val()}`, d => {
+            curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP); if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
             calcRisk();
         });
     }
-    $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
     
-    // Add calcPnl listener for Manual Target Inputs
-    function calcPnl(id) {
-        let val = parseFloat($('#p_' + id).val()) || 0;
-        let qty = parseInt($('#qty').val()) || 1;
+    // Auto Calculate SL Price <-> Points for Trade Tab
+    function calcSLPriceFromPts(ptsId, priceId) {
+        let pts = parseFloat($(ptsId).val()) || 0;
         let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
-        
-        if (val > 0) {
-            let pnl = (val - basePrice) * qty;
-            $('#pnl_' + id).text(`₹ ${pnl.toFixed(0)}`);
+        if(basePrice > 0) {
+            let price = basePrice - pts;
+            $(priceId).val(price.toFixed(2));
+            calcRisk();
         }
     }
     
-    // Manual Calculation for Simulator Inputs
-    function calcSimManual(id) {
-        let val = parseFloat($('#h_' + id).val()) || 0;
-        let qty = parseInt($('#h_qty').val()) || 1;
-        let entry = parseFloat($('#h_entry').val()) || 0;
-        
-        if (val > 0 && entry > 0) {
-            let pnl = (val - entry) * qty;
-            $('#h_pnl_' + id).text(`₹ ${pnl.toFixed(0)}`);
+    function calcSLPtsFromPrice(priceId, ptsId) {
+        let price = parseFloat($(priceId).val()) || 0;
+        let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
+        if(basePrice > 0 && price > 0) {
+            let pts = basePrice - price;
+            $(ptsId).val(pts.toFixed(2));
+            calcRisk();
         }
     }
+    
+    // Auto Calculate SL Price <-> Points for Simulator Tab
+    function calcSimSL(source) {
+        let entry = parseFloat($('#h_entry').val()) || 0;
+        if(entry <= 0) return;
+        
+        if(source === 'pts') {
+            let pts = parseFloat($('#h_sl_pts').val()) || 0;
+            $('#h_p_sl').val((entry - pts).toFixed(2));
+        } else {
+            let price = parseFloat($('#h_p_sl').val()) || 0;
+            $('#h_sl_pts').val((entry - price).toFixed(2));
+        }
+        $('#h_entry').trigger('input'); // Trigger existing logic
+    }
+
+    $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
+    function calcPnl(id) { let val = parseFloat($('#p_' + id).val()) || 0; let qty = parseInt($('#qty').val()) || 1; let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP; if (val > 0) $('#pnl_' + id).text(`₹ ${((val - basePrice) * qty).toFixed(0)}`); }
+    function calcSimManual(id) { let val = parseFloat($('#h_' + id).val()) || 0; let qty = parseInt($('#h_qty').val()) || 1; let entry = parseFloat($('#h_entry').val()) || 0; if (val > 0 && entry > 0) $('#h_pnl_' + id).text(`₹ ${((val - entry) * qty).toFixed(0)}`); }
 
     function calcRisk() {
-        let p = parseFloat($('#sl_pts').val())||0;
-        let qty = parseInt($('#qty').val())||1;
+        let p = parseFloat($('#sl_pts').val())||0; let qty = parseInt($('#qty').val())||1;
         let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
         
-        let mode = $('#mode_input').val(); // LIVE or PAPER
-        let ratios = settings.modes[mode].ratios;
-
-        let sl = basePrice - p;
-        
-        let t1 = basePrice + p * ratios[0];
-        let t2 = basePrice + p * ratios[1];
-        let t3 = basePrice + p * ratios[2];
-
-        $('#p_sl').val(sl.toFixed(2)); 
-        
-        if (!document.activeElement || (document.activeElement.id !== 'p_t1' && document.activeElement.id !== 'p_t2' && document.activeElement.id !== 'p_t3')) {
-             $('#p_t1').val(t1.toFixed(2)); 
-             $('#p_t2').val(t2.toFixed(2)); 
-             $('#p_t3').val(t3.toFixed(2));
-             
-             $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`);
-             $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`);
-             $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);
+        // If Price field is empty but Pts exists (and basePrice exists), fill Price
+        if ($('#p_sl').val() == "" && p > 0 && basePrice > 0) {
+             $('#p_sl').val((basePrice - p).toFixed(2));
         }
 
+        let mode = $('#mode_input').val(); let ratios = settings.modes[mode].ratios;
+        let sl = basePrice - p;
+        let t1 = basePrice + p * ratios[0]; let t2 = basePrice + p * ratios[1]; let t3 = basePrice + p * ratios[2];
+
+        if (!document.activeElement || !['p_t1', 'p_t2', 'p_t3'].includes(document.activeElement.id)) {
+             $('#p_t1').val(t1.toFixed(2)); $('#p_t2').val(t2.toFixed(2)); $('#p_t3').val(t3.toFixed(2));
+             $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`); $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`); $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);
+        }
         $('#pnl_sl').text(`₹ ${((sl-basePrice)*qty).toFixed(0)}`);
     }
 
     $('#h_entry, #h_sl_pts, #h_qty').on('input', function() {
-        let entry = parseFloat($('#h_entry').val()) || 0;
-        let pts = parseFloat($('#h_sl_pts').val()) || 0;
-        let qty = parseInt($('#h_qty').val()) || 1;
-        let ratios = settings.modes.SIMULATOR.ratios;
-
+        let entry = parseFloat($('#h_entry').val()) || 0; let pts = parseFloat($('#h_sl_pts').val()) || 0; let qty = parseInt($('#h_qty').val()) || 1; let ratios = settings.modes.SIMULATOR.ratios;
         if(entry > 0) {
-            let sl = entry - pts;
-            $('#h_pnl_sl').text(`₹ ${((sl-entry)*qty).toFixed(0)}`);
-            
-            // Only update targets if NOT manually focused
-            if (!document.activeElement || (document.activeElement.id !== 'h_t1' && document.activeElement.id !== 'h_t2' && document.activeElement.id !== 'h_t3')) {
-                let t1 = entry + pts * ratios[0];
-                let t2 = entry + pts * ratios[1];
-                let t3 = entry + pts * ratios[2];
+            let sl = entry - pts; $('#h_pnl_sl').text(`₹ ${((sl-entry)*qty).toFixed(0)}`);
+            if (!document.activeElement || !['h_t1', 'h_t2', 'h_t3'].includes(document.activeElement.id)) {
+                let t1 = entry + pts * ratios[0]; let t2 = entry + pts * ratios[1]; let t3 = entry + pts * ratios[2];
                 $('#h_t1').val(t1.toFixed(2)); $('#h_t2').val(t2.toFixed(2)); $('#h_t3').val(t3.toFixed(2));
-                $('#h_pnl_t1').text(`₹ ${((t1-entry)*qty).toFixed(0)}`);
-                $('#h_pnl_t2').text(`₹ ${((t2-entry)*qty).toFixed(0)}`);
-                $('#h_pnl_t3').text(`₹ ${((t3-entry)*qty).toFixed(0)}`);
+                $('#h_pnl_t1').text(`₹ ${((t1-entry)*qty).toFixed(0)}`); $('#h_pnl_t2').text(`₹ ${((t2-entry)*qty).toFixed(0)}`); $('#h_pnl_t3').text(`₹ ${((t3-entry)*qty).toFixed(0)}`);
             }
         }
     });
 
     window.checkHistory = function() {
-        let entry = $('#h_entry').val();
-        if(!entry) { alert("Entry Price required!"); return; }
-        
-        let sVal = $('#h_sym').val();
-        if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
-
+        let entry = $('#h_entry').val(); if(!entry) { alert("Entry Price required!"); return; }
+        let sVal = $('#h_sym').val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
         let d = {
-            symbol: sVal, type:$('#h_type').val(), expiry:$('#h_exp').val(), 
+            symbol: sVal, type:$('input[name="h_type"]:checked').val(), expiry:$('#h_exp').val(), 
             strike:$('#h_str').val(), time:$('#h_time').val(), 
             sl_points:$('#h_sl_pts').val(), qty:$('#h_qty').val(),
             entry_price: entry, t1: $('#h_t1').val(), t2: $('#h_t2').val(), t3: $('#h_t3').val()
         };
         $('#h_res').show().text("Simulating...");
-        $.ajax({
-            type: "POST", url: '/api/history_check',
-            data: JSON.stringify(d), contentType: "application/json",
-            success: function(r) {
-                if(r.status==='success') {
-                    $('#h_res').html(`<b class="text-success">${r.message}</b>`);
-                    setTimeout(() => { if(r.is_active) switchTab('pos'); else switchTab('closed'); }, 1500);
-                } else $('#h_res').text(r.message);
-            }
-        });
+        $.ajax({ type: "POST", url: '/api/history_check', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#h_res').html(`<b class="text-success">${r.message}</b>`); setTimeout(() => { if(r.is_active) switchTab('pos'); else switchTab('closed'); }, 1500); } else $('#h_res').text(r.message); } });
     };
 </script>
 

@@ -129,8 +129,8 @@ def get_exchange(symbol):
     if "SENSEX" in s or "BANKEX" in s:
         # Check if it looks like an option/future
         if any(char.isdigit() for char in s): 
-            return "BFO" # BSE F&O
-        return "BSE" # BSE Equity (Spot)
+            return "BFO" 
+        return "BSE" 
 
     # Standard NFO/NSE check
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol:
@@ -296,7 +296,6 @@ def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time())
     trade_data['mode'] = "PAPER"
     trade_data['order_type'] = "SIMULATION"
-    # Exchange is now already set correctly in trade_data or needs setting
     if 'exchange' not in trade_data or not trade_data['exchange']:
          trade_data['exchange'] = get_exchange(trade_data['symbol'])
          

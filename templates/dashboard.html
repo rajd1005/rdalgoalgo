@@ -193,6 +193,19 @@
     {% endif %}
 </div>
 
+<div class="modal fade" id="logModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">📄 Trade Logs</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body bg-light" id="logModalBody" style="font-family: monospace; font-size: 0.85rem;">
+        </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="editTradeModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -433,6 +446,11 @@
              });
         }
 
+        // Live update Closed Trades if tab is active
+        if ($('#closed').is(':visible')) {
+            loadClosedTrades();
+        }
+
         let filterType = $('#active_filter').val();
 
         $.get('/api/positions', trades => {
@@ -467,9 +485,7 @@
                     let cat = getTradeCategory(t);
                     let badge = getMarkBadge(cat);
                     
-                    let logs = t.logs ? t.logs.map(l => `<div class="log-entry">${l}</div>`).join('') : '';
-                    
-                    // Add Edit Button for Live/Paper
+                    // Edit Button for Live/Paper
                     let editBtn = '';
                     if (cat !== 'SIMULATOR') {
                          editBtn = `<span class="action-btn text-primary" onclick="openEditTradeModal('${t.id}')">✏️</span>`;
@@ -480,14 +496,35 @@
                         <div class="text-center py-2 bg-light rounded mb-3"><small class="text-muted fw-bold">P&L</small><h3 class="mb-0 fw-bold ${color}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</h3></div>
                         <div class="row text-center mb-2"><div class="col-6 border-end"><div class="pos-grid-label">Entry</div><div class="pos-grid-val">${t.entry_price.toFixed(2)}</div></div><div class="col-6"><div class="pos-grid-label">LTP</div><div class="pos-grid-val text-primary">${t.current_ltp.toFixed(2)}</div></div></div>
                         <div class="row text-center border-top pt-2"><div class="col-3"><div class="pos-grid-label text-danger">SL</div><small class="fw-bold">${t.sl.toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T1</div><small class="fw-bold">${t.targets[0].toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T2</div><small class="fw-bold">${t.targets[1].toFixed(1)}</small></div><div class="col-3"><div class="pos-grid-label text-success">T3</div><small class="fw-bold">${t.targets[2].toFixed(1)}</small></div></div>
-                        <div class="mt-2 pt-2 border-top bg-light p-2 rounded" style="max-height: 120px; overflow-y: auto;"><small class="fw-bold text-muted">Logs:</small>${logs}</div>
+                        <div class="mt-2 text-center">
+                            <button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'active')">📄 View Logs</button>
+                        </div>
                         <div class="mt-3 d-flex justify-content-between"><a href="/close_trade/${t.id}" class="btn btn-sm btn-dark w-100 fw-bold">${t.status==='PENDING'?'Cancel Order':'Exit Position'}</a>${t.mode=='PAPER' ? `<a href="/promote/${t.id}" class="btn btn-sm btn-outline-danger ms-2 fw-bold">Live</a>` : ''}</div></div></div>`;
                 });
             }
             $('#pos-container').html(html);
         });
     }
-    setInterval(updateData, 2000); updateData();
+    // Update Interval set to 1 Second
+    setInterval(updateData, 1000); updateData();
+
+    // Log Display Logic
+    function showLogs(tradeId, type) {
+        let trade = null;
+        if (type === 'active') {
+            trade = activeTradesList.find(x => x.id == tradeId);
+        } else {
+            trade = allClosedTrades.find(x => x.id == tradeId);
+        }
+
+        if (trade && trade.logs) {
+            let logsHtml = trade.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
+            $('#logModalBody').html(logsHtml);
+            new bootstrap.Modal(document.getElementById('logModal')).show();
+        } else {
+            alert("No logs available.");
+        }
+    }
 
     // Edit Modal Logic
     function openEditTradeModal(id) {
@@ -549,7 +586,6 @@
                 filtered.forEach(t => {
                     dayTotal += t.pnl;
                     let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
-                    let logs = t.logs ? t.logs.map(l => `<div class="log-entry">${l}</div>`).join('') : '';
                     
                     let cat = getTradeCategory(t);
                     let badge = getMarkBadge(cat);
@@ -561,7 +597,10 @@
                         <div class="d-flex justify-content-between align-items-center"><h6 class="fw-bold mb-0">${t.symbol}</h6><div>${editBtn}${delBtn}${badge}<span class="badge bg-secondary ms-1">${t.status}</span></div></div>
                         <div class="d-flex justify-content-between mt-2"><small>Entry: <b>${t.entry_price.toFixed(2)}</b></small><small>Exit: <b>${t.exit_price.toFixed(2)}</b></small></div>
                         <div class="d-flex justify-content-between mt-2 align-items-center"><small class="text-muted">${t.exit_time}</small><h5 class="mb-0 fw-bold ${color}">${t.pnl}</h5></div>
-                        <div class="mt-2 pt-2 border-top bg-light p-2 rounded"><small class="fw-bold text-muted">Logs:</small>${logs}</div></div></div>`;
+                        <div class="mt-2 text-center">
+                            <button class="btn btn-sm btn-outline-secondary w-100" onclick="showLogs('${t.id}', 'closed')">📄 View Logs</button>
+                        </div>
+                    </div></div>`;
                 });
             }
             $('#hist-container').html(html);

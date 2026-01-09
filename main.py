@@ -23,6 +23,10 @@ bot_active = False
 @app.route('/')
 def home():
     trades = strategy_manager.load_trades()
+    # Format symbol for display
+    for t in trades:
+        t['symbol'] = smart_trader.get_display_name(t['symbol'])
+        
     active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
     return render_template('dashboard.html', is_active=bot_active, login_url=kite.login_url(), trades=active)
 
@@ -64,11 +68,22 @@ def api_settings_save():
 def api_positions():
     if bot_active:
         strategy_manager.update_risk_engine(kite)
-    return jsonify(strategy_manager.load_trades())
+    
+    trades = strategy_manager.load_trades()
+    # Format symbol for display
+    for t in trades:
+        t['symbol'] = smart_trader.get_display_name(t['symbol'])
+        
+    return jsonify(trades)
 
 @app.route('/api/closed_trades')
 def api_closed_trades():
-    return jsonify(strategy_manager.load_history())
+    trades = strategy_manager.load_history()
+    # Format symbol for display
+    for t in trades:
+        t['symbol'] = smart_trader.get_display_name(t['symbol'])
+        
+    return jsonify(trades)
 
 @app.route('/api/delete_trade/<trade_id>', methods=['POST'])
 def api_delete_trade(trade_id):

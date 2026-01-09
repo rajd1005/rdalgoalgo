@@ -45,8 +45,7 @@ def search_symbols(keyword):
     if instrument_dump is None: return []
     k = keyword.upper()
     
-    # FIX: Filter by 'exchange' to capture ALL segments (NFO, MCX, CDS, BFO)
-    # This fixes the issue where NFO-OPT or specific MCX contracts were hidden
+    # Filter by 'exchange' to capture ALL segments (NFO, MCX, CDS, BFO)
     valid_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
     mask = (instrument_dump['exchange'].isin(valid_exchanges)) & (instrument_dump['name'].str.startswith(k))
@@ -78,7 +77,6 @@ def get_symbol_details(kite, symbol):
     ltp = 0
     exchange_to_use = "NSE" 
     
-    # Filter rows matching the name
     rows = instrument_dump[instrument_dump['name'] == clean]
     
     if not rows.empty:
@@ -103,7 +101,7 @@ def get_symbol_details(kite, symbol):
     except:
         ltp = 0
         
-    # Fallback: If Spot LTP is 0 (Common for MCX/CDS), fetch Near Future LTP
+    # Fallback: If Spot LTP is 0, fetch Near Future LTP
     if ltp == 0 and not rows.empty:
         try:
             futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]
@@ -117,15 +115,11 @@ def get_symbol_details(kite, symbol):
 
     # 2. Get Lot Size (Robust Logic for NFO, MCX, CDS)
     lot = 1
-    
-    # Priority: MCX -> CDS -> BFO -> NFO
     priority_exchanges = ['MCX', 'CDS', 'BFO', 'NFO']
-    
     found_lot = False
     used_exchange = ""
     
     for ex in priority_exchanges:
-        # Check for Futures in this exchange
         futs = rows[(rows['exchange'] == ex) & (rows['instrument_type'] == 'FUT')]
         if not futs.empty:
             lot = int(futs.iloc[0]['lot_size'])
@@ -133,7 +127,6 @@ def get_symbol_details(kite, symbol):
             found_lot = True
             break
             
-    # If no future found, try Options
     if not found_lot:
         for ex in priority_exchanges:
             opts = rows[(rows['exchange'] == ex) & (rows['instrument_type'].isin(['CE', 'PE']))]
@@ -143,7 +136,6 @@ def get_symbol_details(kite, symbol):
                 found_lot = True
                 break
     
-    # FIX: Apply CDS Multiplier if needed
     if used_exchange == 'CDS':
         lot = adjust_cds_lot_size(clean, lot)
 
@@ -163,7 +155,11 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
     global instrument_dump
     if instrument_dump is None: return []
     
-    c = instrument_dump[(instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
+    # FIX: Clean the symbol input to match the Instrument Dump Name column
+    # This prevents failures if input is lowercase (e.g., "nifty") or has spacing issues
+    clean_symbol = get_zerodha_symbol(symbol)
+    
+    c = instrument_dump[(instrument_dump['name'] == clean_symbol) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
     if c.empty: return []
     
     strikes = sorted(c['strike'].unique().tolist())
@@ -185,18 +181,19 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
     if instrument_dump is None: return None
     if option_type == "EQ": return symbol
     
+    clean_symbol = get_zerodha_symbol(symbol)
+    
     if option_type == "FUT":
-        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
+        mask = (instrument_dump['name'] == clean_symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
     else:
         if not strike or str(strike).strip().lower() == 'null': 
             return None
-            
         try:
             strike_price = float(strike)
         except ValueError:
             return None
 
-        mask = (instrument_dump['name'] == symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == strike_price) & (instrument_dump['instrument_type'] == option_type)
+        mask = (instrument_dump['name'] == clean_symbol) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == strike_price) & (instrument_dump['instrument_type'] == option_type)
         
     if not mask.any(): return None
     return instrument_dump[mask].iloc[0]['tradingsymbol']
@@ -205,7 +202,6 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     ts = get_exact_symbol(symbol, expiry, strike, inst_type)
     if not ts: return 0
     try:
-        # Dynamic Exchange Lookup
         global instrument_dump
         exch = "NFO" 
         if instrument_dump is not None:

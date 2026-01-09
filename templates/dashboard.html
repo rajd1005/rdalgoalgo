@@ -306,17 +306,22 @@
     let allClosedTrades = [];
     let curLTP = 0;
 
-    // Helper: Normalize Symbol to match keys in Settings
+    // Aggressive Normalization
     function normalizeSymbol(s) {
         if(!s) return "";
-        s = s.toUpperCase();
-        if(s === 'NIFTY 50' || s === 'NIFTY50') return 'NIFTY';
-        if(s === 'NIFTY BANK' || s === 'BANKNIFTY' || s === 'BANK NIFTY') return 'BANKNIFTY';
+        s = s.toUpperCase().trim();
+        if(s.includes('(')) s = s.split('(')[0].trim();
+        if(s.includes(':')) s = s.split(':')[0].trim();
+        
+        if(['NIFTY', 'NIFTY 50', 'NIFTY50'].includes(s)) return 'NIFTY';
+        if(['BANKNIFTY', 'NIFTY BANK', 'BANK NIFTY'].includes(s)) return 'BANKNIFTY';
+        if(['FINNIFTY', 'NIFTY FIN SERVICE'].includes(s)) return 'FINNIFTY';
+        if(['SENSEX', 'BSE SENSEX'].includes(s)) return 'SENSEX';
         return s;
     }
 
     $(document).ready(function() {
-        renderWatchlist(); // Render immediately with empty/default
+        renderWatchlist();
         loadSettings();
         
         let now = new Date(); const offset = now.getTimezoneOffset(); let localDate = new Date(now.getTime() - (offset*60*1000));
@@ -386,7 +391,10 @@
     function addToWatchlist(inputId) {
         let val = $(inputId).val();
         if(val && val.length > 2) {
-            if(val.includes(':')) val = val.split(':')[0].trim();
+            // Clean before saving
+            if(val.includes('(')) val = val.split('(')[0].trim();
+            else if(val.includes(':')) val = val.split(':')[0].trim();
+            
             if(!settings.watchlist) settings.watchlist = [];
             if(!settings.watchlist.includes(val)) {
                 settings.watchlist.push(val);
@@ -427,7 +435,7 @@
         lines.forEach(l => {
             let parts = l.split('|');
             if(parts.length === 2) {
-                let s = parts[0].trim().toUpperCase(); let v = parseInt(parts[1].trim());
+                let s = normalizeSymbol(parts[0]); let v = parseInt(parts[1].trim());
                 if(s && v > 0) { settings.modes[mode].symbol_sl[s] = v; count++; }
             }
         });
@@ -446,7 +454,7 @@
 
     function saveSymSL(mode) {
         let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
-        let s = $(`#${k}_set_sym`).val().toUpperCase();
+        let s = normalizeSymbol($(`#${k}_set_sym`).val());
         let p = parseInt($(`#${k}_set_sl`).val());
         if(s && p) {
             if(!settings.modes[mode].symbol_sl) settings.modes[mode].symbol_sl = {};
@@ -616,21 +624,16 @@
 
     function loadDetails(symId, expId, typeSelector, qtyId, slId) {
         let s = $(symId).val(); if(!s) return;
-        if(s.includes(':')) s = s.split(':')[0].trim();
-        s = s.toUpperCase(); 
-
+        
+        let settingsKey = normalizeSymbol(s);
         let mode = 'PAPER';
-        if (symId === '#h_sym') mode = 'SIMULATOR'; 
-        else if ($('#history').is(':visible')) mode = 'SIMULATOR';
+        if (symId === '#h_sym' || $('#history').is(':visible')) mode = 'SIMULATOR'; 
         else mode = $('#mode_input').val();
         
-        // Auto SL Logic Fix: Use Normalized Symbol Key
-        let normS = normalizeSymbol(s);
         let modeSettings = settings.modes[mode] || settings.modes.PAPER;
-        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[normS]) || 20;
+        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
         $(slId).val(savedSL);
         
-        // Explicitly trigger risk calculation for UI update
         if(mode === 'SIMULATOR') calcSimSL('pts'); 
         else calcRisk();
 
@@ -727,7 +730,6 @@
             let price = parseFloat($('#h_p_sl').val()) || 0;
             $('#h_sl_pts').val((entry - price).toFixed(2));
         }
-        // Force update of targets manually since 'input' event might not bubble perfectly from programmatic change
         $('#h_entry').trigger('input'); 
     }
 
@@ -738,7 +740,6 @@
         let p = parseFloat($('#sl_pts').val())||0; let qty = parseInt($('#qty').val())||1;
         let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
         
-        // If the active element is NOT the SL Price field, update it based on points
         if (document.activeElement.id !== 'p_sl') {
              let calculatedPrice = basePrice - p;
              if(basePrice > 0) $('#p_sl').val(calculatedPrice.toFixed(2));

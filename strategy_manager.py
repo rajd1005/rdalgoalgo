@@ -56,7 +56,7 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             t['targets'] = [float(x) for x in targets]
             t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
             
-            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Trail: {t['trailing_sl']}")
+            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {t['targets']}. Trail: {t['trailing_sl']}")
             updated = True
             break
     if updated:

@@ -21,7 +21,7 @@ def demo_ui():
 def mock_login():
     return '<script>window.location.href="/callback?request_token=mock&status=success";</script>'
 
-# --- NEW SIMULATION CONTROLS ---
+# --- CONTROLS ---
 @app.route('/demo/toggle_sim', methods=['POST'])
 def toggle_sim():
     SIM_CONFIG["active"] = not SIM_CONFIG["active"]
@@ -33,6 +33,12 @@ def set_vol():
     vol = float(request.form.get('volatility'))
     SIM_CONFIG["volatility"] = vol
     return jsonify({"status": "success", "message": f"Volatility set to {vol}%"})
+
+@app.route('/demo/set_trend', methods=['POST'])
+def set_trend():
+    trend = request.form.get('trend') # BULLISH, BEARISH, SIDEWAYS
+    SIM_CONFIG["trend"] = trend
+    return jsonify({"status": "success", "message": f"Market Trend set to {trend}"})
 
 @app.route('/demo/set_price', methods=['POST'])
 def demo_set_price():

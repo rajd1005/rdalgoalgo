@@ -73,9 +73,29 @@ function openEditTradeModal(id) {
     $('#edit_entry').val(t.entry_price);
     $('#edit_sl').val(t.sl);
     $('#edit_trail').val(t.trailing_sl || 0);
+    
+    // Default Controls if missing
+    let defaults = [
+        {enabled: true, lots: 0},
+        {enabled: true, lots: 0},
+        {enabled: true, lots: 1000} // Default T3 exits all
+    ];
+    let controls = t.target_controls || defaults;
+
+    // T1
     $('#edit_t1').val(t.targets[0] || 0);
+    $('#check_t1').prop('checked', controls[0].enabled);
+    $('#lot_t1').val(controls[0].lots > 0 ? controls[0].lots : '');
+    
+    // T2
     $('#edit_t2').val(t.targets[1] || 0);
+    $('#check_t2').prop('checked', controls[1].enabled);
+    $('#lot_t2').val(controls[1].lots > 0 ? controls[1].lots : '');
+
+    // T3
     $('#edit_t3').val(t.targets[2] || 0);
+    $('#check_t3').prop('checked', controls[2].enabled);
+    $('#lot_t3').val(controls[2].lots > 0 ? controls[2].lots : '');
     
     // Disable target inputs if they are already hit
     let hits = t.targets_hit_indices || [];
@@ -84,7 +104,6 @@ function openEditTradeModal(id) {
     $('#edit_t3').prop('disabled', hits.includes(2));
     
     // Manage Position Setup
-    // Use lot_size from trade object (provided by backend)
     let lot = t.lot_size || 1;
     $('#man_add_lots').attr('step', lot).attr('min', lot).val(lot).data('lot', lot);
     $('#man_exit_lots').attr('step', lot).attr('min', lot).val(lot).data('lot', lot);
@@ -102,6 +121,11 @@ function saveTradeUpdate() {
             parseFloat($('#edit_t1').val())||0,
             parseFloat($('#edit_t2').val())||0,
             parseFloat($('#edit_t3').val())||0
+        ],
+        target_controls: [
+            { enabled: $('#check_t1').is(':checked'), lots: parseInt($('#lot_t1').val()) || 0 },
+            { enabled: $('#check_t2').is(':checked'), lots: parseInt($('#lot_t2').val()) || 0 },
+            { enabled: $('#check_t3').is(':checked'), lots: parseInt($('#lot_t3').val()) || 0 }
         ]
     };
     $.ajax({ type: "POST", url: '/api/update_trade', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#editTradeModal').modal('hide'); updateData(); } else alert("Failed to update: " + r.message); } });

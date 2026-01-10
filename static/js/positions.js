@@ -69,12 +69,34 @@ function updateData() {
 
 function openEditTradeModal(id) {
     let t = activeTradesList.find(x => x.id == id); if(!t) return;
-    $('#edit_trade_id').val(t.id); $('#edit_sl').val(t.sl); $('#edit_trail').val(t.trailing_sl || 0);
-    $('#edit_t1').val(t.targets[0] || 0); $('#edit_t2').val(t.targets[1] || 0); $('#edit_t3').val(t.targets[2] || 0);
+    $('#edit_trade_id').val(t.id);
+    $('#edit_entry').val(t.entry_price);
+    $('#edit_sl').val(t.sl);
+    $('#edit_trail').val(t.trailing_sl || 0);
+    $('#edit_t1').val(t.targets[0] || 0);
+    $('#edit_t2').val(t.targets[1] || 0);
+    $('#edit_t3').val(t.targets[2] || 0);
+
+    // Disable target inputs if they are already hit
+    let hits = t.targets_hit_indices || [];
+    $('#edit_t1').prop('disabled', hits.includes(0));
+    $('#edit_t2').prop('disabled', hits.includes(1));
+    $('#edit_t3').prop('disabled', hits.includes(2));
+
     new bootstrap.Modal(document.getElementById('editTradeModal')).show();
 }
 
 function saveTradeUpdate() {
-    let d = { id: $('#edit_trade_id').val(), sl: parseFloat($('#edit_sl').val()), trailing_sl: parseFloat($('#edit_trail').val()), targets: [parseFloat($('#edit_t1').val())||0, parseFloat($('#edit_t2').val())||0, parseFloat($('#edit_t3').val())||0] };
+    let d = {
+        id: $('#edit_trade_id').val(),
+        entry_price: parseFloat($('#edit_entry').val()),
+        sl: parseFloat($('#edit_sl').val()),
+        trailing_sl: parseFloat($('#edit_trail').val()),
+        targets: [
+            parseFloat($('#edit_t1').val())||0,
+            parseFloat($('#edit_t2').val())||0,
+            parseFloat($('#edit_t3').val())||0
+        ]
+    };
     $.ajax({ type: "POST", url: '/api/update_trade', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#editTradeModal').modal('hide'); updateData(); } else alert("Failed to update: " + r.message); } });
 }

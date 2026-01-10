@@ -39,26 +39,11 @@ function updateData() {
                 let badge = getMarkBadge(cat);
                 let editBtn = (cat !== 'SIMULATOR') ? `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>` : '';
 
-                // --- Live Status Tag Logic ---
-                let statusTag = '';
-                if (t.status === 'PENDING') {
-                    statusTag = '<span class="badge bg-secondary" style="font-size:0.7rem;">Pending</span>';
-                } else {
-                    if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
-                        let maxHit = Math.max(...t.targets_hit_indices) + 1;
-                        statusTag = `<span class="badge bg-success" style="font-size:0.7rem;">Target ${maxHit} Hit</span>`;
-                    } else {
-                        statusTag = '<span class="badge bg-primary" style="font-size:0.7rem;">Active</span>';
-                    }
-                }
-                // -----------------------------
-
                 html += `<div class="trade-row">
                     <div class="trade-info">
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
                             ${badge}
-                            ${statusTag}
                         </div>
                         <div class="text-end">
                              <span class="fw-bold ${color}" style="font-size:1rem;">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</span>
@@ -101,17 +86,23 @@ function openEditTradeModal(id) {
     // T1
     $('#edit_t1').val(t.targets[0] || 0);
     $('#check_t1').prop('checked', controls[0].enabled);
-    $('#lot_t1').val(controls[0].lots > 0 ? controls[0].lots : '');
+    let l1 = controls[0].lots;
+    $('#full_t1').prop('checked', l1 >= 1000);
+    $('#lot_t1').val(l1 < 1000 && l1 > 0 ? l1 : '');
     
     // T2
     $('#edit_t2').val(t.targets[1] || 0);
     $('#check_t2').prop('checked', controls[1].enabled);
-    $('#lot_t2').val(controls[1].lots > 0 ? controls[1].lots : '');
+    let l2 = controls[1].lots;
+    $('#full_t2').prop('checked', l2 >= 1000);
+    $('#lot_t2').val(l2 < 1000 && l2 > 0 ? l2 : '');
 
     // T3
     $('#edit_t3').val(t.targets[2] || 0);
     $('#check_t3').prop('checked', controls[2].enabled);
-    $('#lot_t3').val(controls[2].lots > 0 ? controls[2].lots : '');
+    let l3 = controls[2].lots;
+    $('#full_t3').prop('checked', l3 >= 1000);
+    $('#lot_t3').val(l3 < 1000 && l3 > 0 ? l3 : '');
     
     // Disable target inputs if they are already hit
     let hits = t.targets_hit_indices || [];
@@ -140,9 +131,18 @@ function saveTradeUpdate() {
             parseFloat($('#edit_t3').val())||0
         ],
         target_controls: [
-            { enabled: $('#check_t1').is(':checked'), lots: parseInt($('#lot_t1').val()) || 0 },
-            { enabled: $('#check_t2').is(':checked'), lots: parseInt($('#lot_t2').val()) || 0 },
-            { enabled: $('#check_t3').is(':checked'), lots: parseInt($('#lot_t3').val()) || 1000 } // Force 1000 if empty/0
+            { 
+                enabled: $('#check_t1').is(':checked'), 
+                lots: $('#full_t1').is(':checked') ? 1000 : (parseInt($('#lot_t1').val()) || 0)
+            },
+            { 
+                enabled: $('#check_t2').is(':checked'), 
+                lots: $('#full_t2').is(':checked') ? 1000 : (parseInt($('#lot_t2').val()) || 0)
+            },
+            { 
+                enabled: $('#check_t3').is(':checked'), 
+                lots: $('#full_t3').is(':checked') ? 1000 : (parseInt($('#lot_t3').val()) || 0)
+            }
         ]
     };
     $.ajax({ type: "POST", url: '/api/update_trade', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#editTradeModal').modal('hide'); updateData(); } else alert("Failed to update: " + r.message); } });

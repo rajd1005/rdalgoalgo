@@ -169,12 +169,17 @@ def api_history():
     t2 = float(data.get('t2', 0))
     t3 = float(data.get('t3', 0))
     custom_targets = [t1, t2, t3] if t1 > 0 else []
+    
+    # New Fields
+    trailing_sl = float(data.get('trailing_sl') or 0)
+    sl_to_entry = bool(data.get('sl_to_entry', False))
+    target_controls = data.get('target_controls', None)
 
     result = smart_trader.simulate_trade(
         kite, 
         data['symbol'], data['expiry'], data['strike'], data['type'], 
         data['time'], sl_points, entry_price, custom_targets, 
-        qty 
+        qty, trailing_sl, sl_to_entry, target_controls
     )
     
     if result['status'] == 'success':

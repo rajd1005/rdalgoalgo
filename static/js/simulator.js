@@ -36,7 +36,7 @@ window.checkHistory = function() {
         target_controls: [
             { enabled: $('#h_check_t1').is(':checked'), lots: parseInt($('#h_lot_t1').val()) || 0 },
             { enabled: $('#h_check_t2').is(':checked'), lots: parseInt($('#h_lot_t2').val()) || 0 },
-            { enabled: $('#h_check_t3').is(':checked'), lots: parseInt($('#h_lot_t3').val()) || 0 }
+            { enabled: $('#h_check_t3').is(':checked'), lots: parseInt($('#h_lot_t3').val()) || 1000 } // Default T3 exits all (1000)
         ]
     };
     

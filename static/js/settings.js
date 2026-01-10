@@ -11,9 +11,37 @@ function loadSettings() {
                 let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
                 let s = settings.modes[m];
                 $(`#${k}_qty_mult`).val(s.qty_mult);
+                
+                // Ratios
                 $(`#${k}_r1`).val(s.ratios[0]);
                 $(`#${k}_r2`).val(s.ratios[1]);
                 $(`#${k}_r3`).val(s.ratios[2]);
+                
+                // New: Trailing SL
+                $(`#${k}_def_trail`).val(s.trailing_sl || 0);
+
+                // New: Targets Config (Default structure if missing)
+                let tgts = s.targets || [
+                    {active: true, lots: 0, full: false},
+                    {active: true, lots: 0, full: false},
+                    {active: true, lots: 1000, full: true}
+                ];
+                
+                // T1
+                $(`#${k}_a1`).prop('checked', tgts[0].active);
+                $(`#${k}_l1`).val(tgts[0].lots > 0 && !tgts[0].full ? tgts[0].lots : '');
+                $(`#${k}_f1`).prop('checked', tgts[0].full);
+                
+                // T2
+                $(`#${k}_a2`).prop('checked', tgts[1].active);
+                $(`#${k}_l2`).val(tgts[1].lots > 0 && !tgts[1].full ? tgts[1].lots : '');
+                $(`#${k}_f2`).prop('checked', tgts[1].full);
+
+                // T3
+                $(`#${k}_a3`).prop('checked', tgts[2].active);
+                $(`#${k}_l3`).val(tgts[2].lots > 0 && !tgts[2].full ? tgts[2].lots : '');
+                $(`#${k}_f3`).prop('checked', tgts[2].full);
+
                 renderSLTable(m);
             });
             if (typeof updateDisplayValues === "function") updateDisplayValues(); 
@@ -28,8 +56,30 @@ function saveSettings() {
 
     ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
         let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
-        settings.modes[m].qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;
-        settings.modes[m].ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
+        let s = settings.modes[m];
+        
+        s.qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;
+        s.ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
+        s.trailing_sl = parseFloat($(`#${k}_def_trail`).val()) || 0;
+        
+        // Save Target Configs
+        s.targets = [
+            {
+                active: $(`#${k}_a1`).is(':checked'),
+                full: $(`#${k}_f1`).is(':checked'),
+                lots: $(`#${k}_f1`).is(':checked') ? 1000 : (parseInt($(`#${k}_l1`).val()) || 0)
+            },
+            {
+                active: $(`#${k}_a2`).is(':checked'),
+                full: $(`#${k}_f2`).is(':checked'),
+                lots: $(`#${k}_f2`).is(':checked') ? 1000 : (parseInt($(`#${k}_l2`).val()) || 0)
+            },
+            {
+                active: $(`#${k}_a3`).is(':checked'),
+                full: $(`#${k}_f3`).is(':checked'),
+                lots: $(`#${k}_f3`).is(':checked') ? 1000 : (parseInt($(`#${k}_l3`).val()) || 0)
+            }
+        ];
     });
 
     $.ajax({ 

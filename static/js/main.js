@@ -43,12 +43,25 @@ $(document).ready(function() {
     $('#exp').change(() => fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str'));
     $('#h_exp').change(() => fillChain('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_str'));
     $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
+    
     $('#str').change(fetchLTP);
+    $('#h_str').change(fetchSimLTP);
 
     // Loops
     setInterval(updateClock, 1000); updateClock();
     setInterval(updateData, 1000); updateData();
 });
+
+function fetchSimLTP() {
+    let sVal = $('#h_sym').val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
+    let type = $('input[name="h_type"]:checked').val();
+    if(sVal && type) {
+        $.get(`/api/specific_ltp?symbol=${sVal}&expiry=${$('#h_exp').val()}&strike=${$('#h_str').val()}&type=${type}`, d => {
+            let ltp = d.ltp; 
+            $('#h_inst_ltp').text("LTP: "+ltp); 
+        });
+    }
+}
 
 function updateDisplayValues() {
     let mode = 'PAPER';

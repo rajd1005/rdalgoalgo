@@ -37,16 +37,26 @@ def delete_trade(trade_id):
         db.session.rollback()
         return False
 
-def update_trade_protection(trade_id, sl, targets, trailing_sl=0):
+def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=None):
     trades = load_trades()
     updated = False
     for t in trades:
         if str(t['id']) == str(trade_id):
             old_sl = t['sl']
+            
+            entry_msg = ""
+            if entry_price is not None:
+                new_entry = float(entry_price)
+                if new_entry != t['entry_price']:
+                    old_entry = t['entry_price']
+                    t['entry_price'] = new_entry
+                    entry_msg = f" | Entry {old_entry} -> {new_entry}"
+            
             t['sl'] = float(sl)
             t['targets'] = [float(x) for x in targets]
             t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
-            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}, Targets Updated. Trail: {t['trailing_sl']}")
+            
+            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Trail: {t['trailing_sl']}")
             updated = True
             break
     if updated:

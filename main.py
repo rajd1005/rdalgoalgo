@@ -174,6 +174,11 @@ def api_history():
     trailing_sl = float(data.get('trailing_sl') or 0)
     sl_to_entry = bool(data.get('sl_to_entry', False))
     target_controls = data.get('target_controls', None)
+    
+    # UPDATE: Enforce T3 Default = Exit All (1000) if 0 in controls
+    if target_controls and len(target_controls) >= 3:
+        if target_controls[2]['lots'] == 0:
+            target_controls[2]['lots'] = 1000
 
     result = smart_trader.simulate_trade(
         kite, 
@@ -227,6 +232,11 @@ def place_trade():
         for i in range(1, 4):
             enabled = request.form.get(f't{i}_active') == 'on'
             lots = int(request.form.get(f't{i}_lots') or 0)
+            
+            # UPDATE: Enforce T3 Default = Exit All (1000) if 0
+            if i == 3 and lots == 0:
+                lots = 1000
+                
             target_controls.append({'enabled': enabled, 'lots': lots})
         
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)

@@ -145,7 +145,6 @@ def log_event(trade, message):
 
 def move_to_history(trade, final_status, exit_price):
     real_pnl = 0
-    # Determine if trade was active (not pending) to decide on logging High stats
     was_active = trade['status'] != 'PENDING'
 
     if was_active:
@@ -159,15 +158,16 @@ def move_to_history(trade, final_status, exit_price):
     trade['status'] = final_status; trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
     
-    # 1. Log "Closed" FIRST (Updated Order)
+    # 1. Log "Closed" FIRST
     if "Closed:" not in str(trade['logs']):
          log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}")
     
-    # 2. Log "Info: Made High" LAST (Same logic as Simulator)
+    # 2. Log "Info: Made High" LAST
     if was_active:
+        # Use whatever high was recorded during the trade. 
+        # We do NOT force update to exit_price here (as per instruction).
+        # Post-close monitoring in update_risk_engine will catch higher prices.
         made_high = trade.get('made_high', trade['entry_price'])
-        # Ensure made_high captures the exit price if it spiked
-        if exit_price > made_high: made_high = exit_price
         
         trade['made_high'] = made_high
         max_pnl = (made_high - trade['entry_price']) * trade['quantity']
@@ -301,26 +301,38 @@ def update_risk_engine(kite):
             save_trades([])
         return
 
-    trades = load_trades()
-    instruments_to_fetch = set([f"{t['exchange']}:{t['symbol']}" for t in trades])
+    active_trades = load_trades()
+    
+    # --- NEW: Monitor History for Potential Profit Updates ---
+    history_trades = load_history()
+    today_str = now.strftime("%Y-%m-%d")
+    monitoring_history = [t for t in history_trades if t.get('exit_time', '').startswith(today_str)]
+    # ---------------------------------------------------------
+
+    instruments_to_fetch = set([f"{t['exchange']}:{t['symbol']}" for t in active_trades])
+    # Add today's closed trades to fetch list
+    for t in monitoring_history:
+        instruments_to_fetch.add(f"{t['exchange']}:{t['symbol']}")
+
     if not instruments_to_fetch: return
 
     try: live_prices = kite.quote(list(instruments_to_fetch))
     except: return
 
-    active_list = []; updated = False
-    for t in trades:
+    # 1. Process Active Trades
+    active_list = []; updated_active = False
+    for t in active_trades:
         if t.get('lot_size', 0) == 0:
             ls = smart_trader.get_lot_size(t['symbol'])
             if ls > 0:
                 t['lot_size'] = ls
-                updated = True
+                updated_active = True
                 
         inst_key = f"{t['exchange']}:{t['symbol']}"
         if inst_key not in live_prices:
              active_list.append(t); continue
              
-        ltp = live_prices[inst_key]['last_price']; t['current_ltp'] = ltp; updated = True
+        ltp = live_prices[inst_key]['last_price']; t['current_ltp'] = ltp; updated_active = True
         
         if t['status'] == "PENDING":
             if (t.get('trigger_dir') == 'BELOW' and ltp <= t['entry_price']) or (t.get('trigger_dir') == 'ABOVE' and ltp >= t['entry_price']):
@@ -385,4 +397,25 @@ def update_risk_engine(kite):
             else:
                 active_list.append(t)
     
-    if updated: save_trades(active_list)
+    if updated_active: save_trades(active_list)
+
+    # 2. Process Closed Trades (Post-Close Monitoring)
+    updated_hist = False
+    for t in monitoring_history:
+        inst_key = f"{t['exchange']}:{t['symbol']}"
+        if inst_key in live_prices:
+            ltp = live_prices[inst_key]['last_price']
+            
+            # Update Made High if Current LTP is higher
+            current_high = t.get('made_high', 0)
+            if ltp > current_high:
+                t['made_high'] = ltp
+                # We update DB silently so UI 'Potential Profit' increases
+                try:
+                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                    updated_hist = True
+                except: pass
+    
+    if updated_hist:
+        try: db.session.commit()
+        except: db.session.rollback()

@@ -70,19 +70,31 @@
                 </div>
                 
                 <div class="row g-2 text-center">
-                        <div class="col-4 px-1">
+                    <div class="col-4 px-1">
                         <small class="text-success fw-bold">T1 (<span id="r_t1">0.5</span>x)</small>
                         <input type="number" step="0.05" id="p_t1" name="t1_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t1')">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="t1_active" checked></div>
+                            <input type="number" name="t1_lots" class="form-control px-1 text-center" placeholder="Lots">
+                        </div>
                         <span id="pnl_t1" class="pnl-green">₹ 0</span>
                     </div>
                     <div class="col-4 px-1">
                         <small class="text-success fw-bold">T2 (<span id="r_t2">1.0</span>x)</small>
                         <input type="number" step="0.05" id="p_t2" name="t2_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t2')">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="t2_active" checked></div>
+                            <input type="number" name="t2_lots" class="form-control px-1 text-center" placeholder="Lots">
+                        </div>
                         <span id="pnl_t2" class="pnl-green">₹ 0</span>
                     </div>
                     <div class="col-4 px-1">
                         <small class="text-success fw-bold">T3 (<span id="r_t3">1.5</span>x)</small>
                         <input type="number" step="0.05" id="p_t3" name="t3_price" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcPnl('t3')">
+                        <div class="input-group input-group-sm mb-1">
+                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" name="t3_active" checked></div>
+                            <input type="number" name="t3_lots" class="form-control px-1 text-center" placeholder="Lots">
+                        </div>
                         <span id="pnl_t3" class="pnl-green">₹ 0</span>
                     </div>
                 </div>

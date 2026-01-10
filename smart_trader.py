@@ -279,7 +279,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
 
         active = (status == "OPEN")
         ltp = candles[-1]['close'] if active else exit_p
-        
+        logs.append(f"[{exit_t if exit_t else time_str}] Info: Made High: {made_high} | Max P/L ₹ {((made_high - entry) * quantity):.2f}")
         return {
             "status": "success", "is_active": active,
             "trade_data": {

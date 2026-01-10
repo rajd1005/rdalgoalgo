@@ -2,6 +2,25 @@ function calcSimSL(source) {
     let entry = parseFloat($('#h_entry').val()) || 0;
     if(entry <= 0) return;
     
+    // Apply Defaults for Simulator if this is the first load/calc
+    // Note: To prevent overwriting user edits, we could check if fields are empty.
+    // However, calcSimSL is called often. Better to rely on loadDetails or explicit init.
+    // But since simulator structure is separate, we do a lightweight check here.
+    let s = settings.modes.SIMULATOR;
+    if ($('#h_trail').val() === '' && s.trailing_sl) $('#h_trail').val(s.trailing_sl);
+    
+    // Check if targets need initialization (simple check on T3 full default)
+    if (s.targets && !$('#h_check_t3').data('init')) {
+        ['t1', 't2', 't3'].forEach((k, i) => {
+            let conf = s.targets[i];
+            $(`#h_check_${k}`).prop('checked', conf.active);
+            $(`#h_full_${k}`).prop('checked', conf.full);
+            if(conf.full) $(`#h_lot_${k}`).val(1000);
+            else $(`#h_lot_${k}`).val(conf.lots > 0 ? conf.lots : '');
+        });
+        $('#h_check_t3').data('init', true); // Flag to prevent reset
+    }
+
     if(source === 'pts') {
         let pts = parseFloat($('#h_sl_pts').val()) || 0;
         $('#h_p_sl').val((entry - pts).toFixed(2));
@@ -10,6 +29,12 @@ function calcSimSL(source) {
         $('#h_sl_pts').val((entry - price).toFixed(2));
     }
     $('#h_entry').trigger('input'); 
+    
+    // Handle Full Checkbox UI
+    ['t1', 't2', 't3'].forEach(k => {
+        if ($(`#h_full_${k}`).is(':checked')) $(`#h_lot_${k}`).val(1000).prop('readonly', true);
+        else $(`#h_lot_${k}`).prop('readonly', false);
+    });
 }
 
 function calcSimManual(id) { 
@@ -34,9 +59,18 @@ window.checkHistory = function() {
         trailing_sl: $('#h_trail').val(),
         sl_to_entry: $('#h_sl_to_entry').val() === "1",
         target_controls: [
-            { enabled: $('#h_check_t1').is(':checked'), lots: parseInt($('#h_lot_t1').val()) || 0 },
-            { enabled: $('#h_check_t2').is(':checked'), lots: parseInt($('#h_lot_t2').val()) || 0 },
-            { enabled: $('#h_check_t3').is(':checked'), lots: parseInt($('#h_lot_t3').val()) || 1000 } // Default T3 exits all (1000)
+            { 
+                enabled: $('#h_check_t1').is(':checked'), 
+                lots: $('#h_full_t1').is(':checked') ? 1000 : (parseInt($('#h_lot_t1').val()) || 0) 
+            },
+            { 
+                enabled: $('#h_check_t2').is(':checked'), 
+                lots: $('#h_full_t2').is(':checked') ? 1000 : (parseInt($('#h_lot_t2').val()) || 0) 
+            },
+            { 
+                enabled: $('#h_check_t3').is(':checked'), 
+                lots: $('#h_full_t3').is(':checked') ? 1000 : (parseInt($('#h_lot_t3').val()) || 0) 
+            }
         ]
     };
     

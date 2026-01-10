@@ -257,6 +257,9 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         exit_p = 0; exit_t = ""; logs = [f"[{time_str}] Trade Added/Setup"]
         trade_active = False; targets_hit_indices = []; made_high = entry
         
+        # Determine Trigger Direction (Critical for converting to Limit Order)
+        trigger_dir = "ABOVE" if entry >= first['open'] else "BELOW"
+        
         if not is_limit_order:
             trade_active = True
             logs.append(f"[{first['date']}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
@@ -287,15 +290,20 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                 status = "TARGET_HIT"; exit_p = t_price; exit_t = c_time
                                 logs.append(f"[{c_time}] Final Target Hit @ {t_price} | P/L ₹ {gain:.2f}")
 
-        active = (status == "OPEN")
+        # MODIFICATION: Treat PENDING as active (Limit Order Logic)
+        active = (status == "OPEN" or status == "PENDING")
         ltp = candles[-1]['close'] if active else exit_p
-        logs.append(f"[{exit_t if exit_t else time_str}] Info: Made High: {made_high} | Max P/L ₹ {((made_high - entry) * quantity):.2f}")
+        
+        if status != "PENDING":
+             logs.append(f"[{exit_t if exit_t else time_str}] Info: Made High: {made_high} | Max P/L ₹ {((made_high - entry) * quantity):.2f}")
+
         return {
             "status": "success", "is_active": active,
             "trade_data": {
                 "symbol": tradingsymbol, "entry_price": entry, "current_ltp": ltp,
                 "sl": sl, "targets": tgts, "status": status, "exit_price": exit_p,
-                "exit_time": exit_t, "logs": logs, "quantity": 0, "made_high": made_high
+                "exit_time": exit_t, "logs": logs, "quantity": 0, "made_high": made_high,
+                "trigger_dir": trigger_dir # Pass direction for live monitoring
             }
         }
     except Exception as e:

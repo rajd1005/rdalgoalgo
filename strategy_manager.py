@@ -283,6 +283,13 @@ def update_risk_engine(kite):
 
     active_list = []; updated = False
     for t in trades:
+        # Ensure Lot Size is present for accurate calculations
+        if t.get('lot_size', 0) == 0:
+            ls = smart_trader.get_lot_size(t['symbol'])
+            if ls > 0:
+                t['lot_size'] = ls
+                updated = True
+                
         inst_key = f"{t['exchange']}:{t['symbol']}"
         if inst_key not in live_prices:
              active_list.append(t); continue

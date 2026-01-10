@@ -64,6 +64,63 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
         return True
     return False
 
+def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
+    trades = load_trades()
+    updated = False
+    
+    for t in trades:
+        if str(t['id']) == str(trade_id):
+            qty_delta = lots_count * lot_size
+            ltp = t.get('current_ltp', 0)
+            
+            if ltp == 0: # Try to fetch if 0
+                try: ltp = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]['last_price']
+                except: pass
+            
+            if action == 'ADD':
+                # Average Entry Calculation
+                old_qty = t['quantity']
+                old_entry = t['entry_price']
+                
+                new_total_qty = old_qty + qty_delta
+                # Weighted Average
+                new_avg_entry = ((old_qty * old_entry) + (qty_delta * ltp)) / new_total_qty
+                
+                t['quantity'] = new_total_qty
+                t['entry_price'] = new_avg_entry
+                
+                log_event(t, f"Added {qty_delta} Qty ({lots_count} Lots) @ {ltp}. New Avg Entry: {new_avg_entry:.2f}")
+                
+                if t['mode'] == 'LIVE':
+                    try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY,
+                        quantity=qty_delta, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                    except Exception as e: log_event(t, f"Broker Fail (Add): {e}")
+
+                updated = True
+                
+            elif action == 'EXIT':
+                if t['quantity'] > qty_delta:
+                    t['quantity'] -= qty_delta
+                    
+                    # Log Profit Booking
+                    pnl_booked = (ltp - t['entry_price']) * qty_delta
+                    log_event(t, f"Partial Profit: Sold {qty_delta} Qty ({lots_count} Lots) @ {ltp}. Booked P/L: ₹ {pnl_booked:.2f}")
+                    
+                    if t['mode'] == 'LIVE':
+                        try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL,
+                            quantity=qty_delta, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                        except Exception as e: log_event(t, f"Broker Fail (Exit): {e}")
+
+                    updated = True
+                else:
+                    return False # Cannot exit more than held
+            break
+            
+    if updated:
+        save_trades(trades)
+        return True
+    return False
+
 def get_time_str():
     return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
 

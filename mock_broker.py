@@ -5,6 +5,7 @@ import threading
 import time
 
 # --- Global Data ---
+# Stores current prices for everything
 MOCK_MARKET_DATA = {
     "NSE:NIFTY 50": 22000.0,
     "NSE:NIFTY BANK": 48000.0,
@@ -15,35 +16,65 @@ MOCK_MARKET_DATA = {
 
 # Configuration for the simulation loop
 SIM_CONFIG = {
-    "active": False,       # Is the market moving?
-    "volatility": 0.05,    # % movement per tick (0.05% is realistic volatility)
-    "speed": 1.0           # Seconds between updates
+    "active": False,       # On/Off
+    "volatility": 0.05,    # % movement per tick
+    "speed": 1.0,          # Seconds between updates
+    "trend": "SIDEWAYS"    # SIDEWAYS, BULLISH, BEARISH
 }
 
 # --- Background Market Simulator ---
 def _market_heartbeat():
-    """Runs in the background and moves prices randomly"""
+    """Runs in the background and moves prices based on Trend & Volatility"""
     print("💓 [MOCK MARKET] Simulation Heartbeat Started")
     while True:
         if SIM_CONFIG["active"]:
-            for symbol in list(MOCK_MARKET_DATA.keys()):
+            trend = SIM_CONFIG["trend"]
+            vol = SIM_CONFIG["volatility"]
+            
+            # Create a snapshot of keys to avoid runtime errors if keys are added during iteration
+            symbols = list(MOCK_MARKET_DATA.keys())
+            
+            for symbol in symbols:
                 curr_price = MOCK_MARKET_DATA[symbol]
                 
-                # Calculate random move: -Volatility to +Volatility
-                change_pct = random.uniform(-SIM_CONFIG["volatility"], SIM_CONFIG["volatility"])
-                movement = curr_price * (change_pct / 100.0)
+                # 1. Determine Direction Bias based on Trend Setting
+                # Default: Random Walk (Sideways)
+                min_change = -vol
+                max_change = vol
                 
-                # Apply move and round to 2 decimals
-                new_price = round(curr_price + movement, 2)
-                MOCK_MARKET_DATA[symbol] = new_price
+                if trend == "BULLISH":
+                    min_change = -vol * 0.2  # Small downside
+                    max_change = vol * 1.5   # Big upside
+                elif trend == "BEARISH":
+                    min_change = -vol * 1.5  # Big downside
+                    max_change = vol * 0.2   # Small upside
+                
+                # 2. Smart Options Logic (Invert logic for PE)
+                is_pe = "PE" in symbol.upper()
+                
+                # Generate percentage move
+                move_pct = random.uniform(min_change, max_change)
+                
+                # If it's a PE option, INVERT the move (Index UP = PE DOWN)
+                if is_pe:
+                    move_pct = -move_pct
+                
+                # 3. Apply Price Change
+                movement = curr_price * (move_pct / 100.0)
+                new_price = curr_price + movement
+                
+                # Prevent negative prices
+                if new_price < 0.05: new_price = 0.05
+                
+                MOCK_MARKET_DATA[symbol] = round(new_price, 2)
                 
         time.sleep(SIM_CONFIG["speed"])
 
-# Start the thread immediately when imported
+# Start the thread
 t = threading.Thread(target=_market_heartbeat, daemon=True)
 t.start()
 
-# --- Mock Kite Class (Same as before, slight cleanup) ---
+# --- Mock Kite Class ---
 class MockKiteConnect:
     def __init__(self, api_key=None, **kwargs):
         print("⚠️ [MOCK BROKER] Initialized.")
@@ -56,26 +87,37 @@ class MockKiteConnect:
     def set_access_token(self, access_token): pass
 
     def instruments(self, exchange=None):
-        # minimal dummy list for search to work
+        # Minimal dummy list
         return [
             {"instrument_token": 1, "tradingsymbol": "NIFTY 50", "name": "NIFTY", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": ""},
             {"instrument_token": 2, "tradingsymbol": "RELIANCE", "name": "RELIANCE", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": ""},
         ]
 
     def quote(self, instruments):
-        # Return the CURRENT dynamic price from MOCK_MARKET_DATA
         res = {}
         for inst in instruments:
-            price = MOCK_MARKET_DATA.get(inst, 100.0)
+            # AUTO-DISCOVERY: If app asks for a symbol we don't have, add it!
+            # This ensures new Options added in UI start moving immediately.
+            if inst not in MOCK_MARKET_DATA:
+                # Give it a default price if missing
+                MOCK_MARKET_DATA[inst] = 100.0
+                
+            price = MOCK_MARKET_DATA[inst]
             res[inst] = {"last_price": price, "ohlc": {"open": price, "high": price, "low": price, "close": price}}
         return res
     
     def ltp(self, instruments):
-        return {i: {"last_price": MOCK_MARKET_DATA.get(i, 100.0)} for i in instruments}
+        # Same auto-discovery logic for LTP calls
+        res = {}
+        for inst in instruments:
+            if inst not in MOCK_MARKET_DATA:
+                MOCK_MARKET_DATA[inst] = 100.0
+            res[inst] = {"last_price": MOCK_MARKET_DATA[inst]}
+        return res
 
     def place_order(self, **kwargs):
         print(f"✅ [MOCK] Order Placed: {kwargs.get('transaction_type')} {kwargs.get('quantity')} {kwargs.get('tradingsymbol')}")
         return "112233"
 
     def historical_data(self, *args, **kwargs):
-        return [] # Empty for now
+        return []

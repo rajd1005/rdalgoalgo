@@ -83,9 +83,11 @@ function openEditTradeModal(id) {
     $('#edit_t2').prop('disabled', hits.includes(1));
     $('#edit_t3').prop('disabled', hits.includes(2));
     
-    // Reset Manage Inputs
-    $('#man_add_lots').val('');
-    $('#man_exit_lots').val('');
+    // Manage Position Setup
+    // Use lot_size from trade object (provided by backend)
+    let lot = t.lot_size || 1;
+    $('#man_add_lots').attr('step', lot).attr('min', lot).val(lot).data('lot', lot);
+    $('#man_exit_lots').attr('step', lot).attr('min', lot).val(lot).data('lot', lot);
 
     new bootstrap.Modal(document.getElementById('editTradeModal')).show();
 }
@@ -106,11 +108,19 @@ function saveTradeUpdate() {
 }
 
 function managePos(action) {
-    let lots = (action === 'ADD') ? $('#man_add_lots').val() : $('#man_exit_lots').val();
-    if(!lots || lots <= 0) { alert("Invalid Lots"); return; }
+    let inputId = (action === 'ADD') ? '#man_add_lots' : '#man_exit_lots';
+    let qty = parseInt($(inputId).val());
+    let lotSize = $(inputId).data('lot') || 1;
     
-    if(confirm(`${action === 'ADD' ? 'Add' : 'Exit'} ${lots} Lots?`)) {
-        let d = { id: $('#edit_trade_id').val(), action: action, lots: parseInt(lots) };
+    if(!qty || qty <= 0 || qty % lotSize !== 0) { 
+        alert(`Invalid Quantity. Must be multiple of ${lotSize}`); return; 
+    }
+    
+    // Convert Quantity to Lots count for the backend
+    let lots = qty / lotSize;
+    
+    if(confirm(`${action === 'ADD' ? 'Add' : 'Exit'} ${qty} Qty (${lots} Lots)?`)) {
+        let d = { id: $('#edit_trade_id').val(), action: action, lots: lots };
         $.ajax({
             type: "POST", url: '/api/manage_trade', data: JSON.stringify(d), contentType: "application/json",
             success: function(r) {

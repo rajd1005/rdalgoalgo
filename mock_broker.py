@@ -31,25 +31,16 @@ CURRENT_EXPIRY = get_next_weekly_expiry()
 
 # --- OPTION PRICING ENGINE ---
 def calculate_option_price(spot_price, strike_price, option_type):
-    """
-    Calculates a realistic Option Price = Intrinsic Value + Time Value
-    """
-    # 1. Intrinsic Value (Real Value)
+    """Calculates a realistic Option Price"""
     intrinsic = 0.0
-    if option_type == "CE":
-        intrinsic = max(0.0, spot_price - strike_price)
-    else: # PE
-        intrinsic = max(0.0, strike_price - spot_price)
+    if option_type == "CE": intrinsic = max(0.0, spot_price - strike_price)
+    else: intrinsic = max(0.0, strike_price - spot_price)
     
-    # 2. Time Value (Extrinsic Value)
     distance = abs(spot_price - strike_price)
     time_value = 150 * (0.995 ** distance) 
-    
-    # Add some randomness
     noise = random.uniform(-2, 2)
     
-    price = intrinsic + time_value + noise
-    return round(max(0.05, price), 2)
+    return round(max(0.05, intrinsic + time_value + noise), 2)
 
 # --- Background Market Simulator ---
 def _market_heartbeat():
@@ -59,38 +50,28 @@ def _market_heartbeat():
             trend = SIM_CONFIG["trend"]
             vol = SIM_CONFIG["volatility"]
             
-            # 1. Update INDICES first
+            # 1. Update INDICES
             indices = ["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX", "NSE:RELIANCE"]
             for sym in indices:
                 curr = MOCK_MARKET_DATA.get(sym, 10000)
-                
-                # Trend Logic
                 bias = 0
                 if trend == "BULLISH": bias = vol * 0.5
                 elif trend == "BEARISH": bias = -vol * 0.5
-                
                 change = random.uniform(-vol, vol) + bias
-                new_price = curr * (1 + change/100.0)
-                MOCK_MARKET_DATA[sym] = round(new_price, 2)
+                MOCK_MARKET_DATA[sym] = round(curr * (1 + change/100.0), 2)
 
-            # 2. Update OPTIONS based on new Index Price
+            # 2. Update OPTIONS
             keys = list(MOCK_MARKET_DATA.keys())
             for sym in keys:
                 if ":NIFTY" in sym and ("CE" in sym or "PE" in sym):
                     try:
-                        is_ce = "CE" in sym
-                        type_ = "CE" if is_ce else "PE"
-                        
                         match = re.search(r'(CE|PE)(\d+(\.\d+)?)', sym)
                         if match:
+                            type_ = match.group(1)
                             strike = float(match.group(2))
-                            spot = MOCK_MARKET_DATA["NSE:NIFTY 50"] # Hardcoded link to NIFTY
-                            
-                            new_opt_price = calculate_option_price(spot, strike, type_)
-                            MOCK_MARKET_DATA[sym] = new_opt_price
-                    except:
-                        pass
-
+                            spot = MOCK_MARKET_DATA["NSE:NIFTY 50"]
+                            MOCK_MARKET_DATA[sym] = calculate_option_price(spot, strike, type_)
+                    except: pass
         time.sleep(SIM_CONFIG["speed"])
 
 t = threading.Thread(target=_market_heartbeat, daemon=True)
@@ -104,47 +85,38 @@ class MockKiteConnect:
 
     def _generate_instruments(self):
         inst_list = []
-        # Indices
-        inst_list.append({"instrument_token": 256265, "tradingsymbol": "NIFTY 50", "name": "NIFTY", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": ""})
-        inst_list.append({"instrument_token": 260105, "tradingsymbol": "NIFTY BANK", "name": "BANKNIFTY", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": ""})
-        inst_list.append({"instrument_token": 738561, "tradingsymbol": "RELIANCE", "name": "RELIANCE", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": ""})
+        # FIX 1: Set expiry to None (not "") for Indices to prevent Pandas crash
+        inst_list.append({"instrument_token": 256265, "tradingsymbol": "NIFTY 50", "name": "NIFTY", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": None})
+        inst_list.append({"instrument_token": 260105, "tradingsymbol": "NIFTY BANK", "name": "BANKNIFTY", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": None})
+        inst_list.append({"instrument_token": 738561, "tradingsymbol": "RELIANCE", "name": "RELIANCE", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": None})
 
-        # Options Generation (Center around 22000 initially)
+        # Options Generation
         base = 22000
         for strike in range(base - 1000, base + 1000, 50):
             # CE
             ce_sym = f"NIFTY{CURRENT_EXPIRY.replace('-','')}CE{strike}"
             inst_list.append({"instrument_token": strike, "tradingsymbol": ce_sym, "name": "NIFTY", "exchange": "NFO", "last_price": 0, "instrument_type": "CE", "lot_size": 50, "expiry": CURRENT_EXPIRY, "strike": float(strike)})
-            
             # PE
             pe_sym = f"NIFTY{CURRENT_EXPIRY.replace('-','')}PE{strike}"
             inst_list.append({"instrument_token": strike+10000, "tradingsymbol": pe_sym, "name": "NIFTY", "exchange": "NFO", "last_price": 0, "instrument_type": "PE", "lot_size": 50, "expiry": CURRENT_EXPIRY, "strike": float(strike)})
 
-            # Init Prices
             spot = MOCK_MARKET_DATA["NSE:NIFTY 50"]
-            if f"NFO:{ce_sym}" not in MOCK_MARKET_DATA: 
-                MOCK_MARKET_DATA[f"NFO:{ce_sym}"] = calculate_option_price(spot, strike, "CE")
-            if f"NFO:{pe_sym}" not in MOCK_MARKET_DATA: 
-                MOCK_MARKET_DATA[f"NFO:{pe_sym}"] = calculate_option_price(spot, strike, "PE")
+            if f"NFO:{ce_sym}" not in MOCK_MARKET_DATA: MOCK_MARKET_DATA[f"NFO:{ce_sym}"] = calculate_option_price(spot, strike, "CE")
+            if f"NFO:{pe_sym}" not in MOCK_MARKET_DATA: MOCK_MARKET_DATA[f"NFO:{pe_sym}"] = calculate_option_price(spot, strike, "PE")
 
         return inst_list
 
-    # --- FIXED LOGIN METHODS ---
-    def login_url(self): 
-        return "/mock-login-trigger"
-
-    # This signature now matches exactly what main.py calls
-    def generate_session(self, request_token, api_secret):
-        return {"access_token": "mock_token_123", "user_id": "DEMO_USER"}
-
-    def set_access_token(self, access_token): 
-        pass
-
-    # Standard Methods
-    def instruments(self, exchange=None): 
-        return self.mock_instruments
+    # Standard Mock Methods
+    def login_url(self): return "/mock-login-trigger"
+    def generate_session(self, request_token, api_secret): return {"access_token": "mock_token_123", "user_id": "DEMO_USER"}
+    def set_access_token(self, access_token): pass
+    def instruments(self, exchange=None): return self.mock_instruments
 
     def quote(self, instruments):
+        # FIX 2: Handle single string input (smart_trader sends single string often)
+        if isinstance(instruments, str):
+            instruments = [instruments]
+            
         res = {}
         for x in instruments:
             # Auto Discovery
@@ -153,13 +125,10 @@ class MockKiteConnect:
             res[x] = {"last_price": p, "ohlc": {"open": p, "high": p, "low": p, "close": p}}
         return res
 
-    def ltp(self, instruments): 
-        return self.quote(instruments)
+    def ltp(self, instruments): return self.quote(instruments)
 
     def place_order(self, **kwargs): 
-        # Accepts **kwargs to handle any arguments sent by strategy_manager
         print(f"✅ [MOCK] Order: {kwargs.get('transaction_type')} {kwargs.get('quantity')} {kwargs.get('tradingsymbol')}")
         return f"ORD_{random.randint(10000,99999)}"
 
-    def historical_data(self, *args, **kwargs): 
-        return []
+    def historical_data(self, *args, **kwargs): return []

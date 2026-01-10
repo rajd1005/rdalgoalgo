@@ -1,12 +1,22 @@
 function loadClosedTrades() {
     let filterDate = $('#hist_date').val(); let filterType = $('#hist_filter').val();
     $.get('/api/closed_trades', trades => {
-        allClosedTrades = trades; let html = ''; let dayTotal = 0;
+        allClosedTrades = trades; let html = ''; 
+        let dayTotal = 0;
+        let totalWins = 0;
+        let totalLosses = 0;
+
         let filtered = trades.filter(t => t.exit_time && t.exit_time.startsWith(filterDate) && (filterType === 'ALL' || getTradeCategory(t) === filterType));
         if(filtered.length === 0) html = '<div class="text-center p-4 text-muted">No History for this Date/Filter</div>';
         else {
             filtered.forEach(t => {
-                dayTotal += t.pnl; let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
+                dayTotal += t.pnl; 
+                
+                // Calculate Split P/L
+                if(t.pnl > 0) totalWins += t.pnl;
+                else totalLosses += t.pnl;
+
+                let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
@@ -39,8 +49,13 @@ function loadClosedTrades() {
                 </div>`;
             });
         }
-        $('#hist-container').html(html); $('#day_pnl').text("₹ " + dayTotal.toFixed(2));
+        $('#hist-container').html(html); 
+        $('#day_pnl').text("₹ " + dayTotal.toFixed(2));
         if(dayTotal >= 0) $('#day_pnl').removeClass('bg-danger').addClass('bg-success'); else $('#day_pnl').removeClass('bg-success').addClass('bg-danger');
+
+        // Update Split P/L UI
+        $('#total_wins').text("Wins: ₹ " + totalWins.toFixed(2));
+        $('#total_losses').text("Loss: ₹ " + totalLosses.toFixed(2));
     });
 }
 

@@ -10,6 +10,24 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
     let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
     $(slId).val(savedSL);
     
+    // Apply Defaults (Targets & Trailing)
+    if(mode === 'SIMULATOR') {
+        // Handled in simulator.js or separate function if needed, but safe to apply here if IDs match
+        // Simulator uses h_ prefix, handled in calcSimSL mostly or separate logic.
+        // For now, let's keep simulator logic in simulator.js or separate block
+    } else {
+        $('#trail_sl').val(modeSettings.trailing_sl || '');
+        if(modeSettings.targets) {
+            ['t1', 't2', 't3'].forEach((k, i) => {
+                let conf = modeSettings.targets[i];
+                $(`#${k}_active`).prop('checked', conf.active);
+                $(`#${k}_full`).prop('checked', conf.full);
+                if(conf.full) $(`#${k}_lots`).val(1000);
+                else $(`#${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
+            });
+        }
+    }
+    
     if(mode === 'SIMULATOR') calcSimSL('pts'); 
     else calcRisk();
 
@@ -113,4 +131,13 @@ function calcRisk() {
             $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`); $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`); $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);
     }
     $('#pnl_sl').text(`₹ ${((sl-basePrice)*qty).toFixed(0)}`);
+
+    // Handle Full Checkbox Logic (Auto-set 1000 lots)
+    ['t1', 't2', 't3'].forEach(k => {
+        if ($(`#${k}_full`).is(':checked')) {
+            $(`#${k}_lots`).val(1000).prop('readonly', true); // Visual feedback
+        } else {
+            $(`#${k}_lots`).prop('readonly', false);
+        }
+    });
 }

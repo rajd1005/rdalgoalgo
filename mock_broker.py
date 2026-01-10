@@ -60,9 +60,20 @@ def _market_heartbeat():
                 change = random.uniform(-vol, vol) + bias
                 MOCK_MARKET_DATA[sym] = round(curr * (1 + change/100.0), 2)
 
-            # 2. Update OPTIONS
+            # 2. Update FUTURES & OPTIONS
             keys = list(MOCK_MARKET_DATA.keys())
             for sym in keys:
+                # Update FUTURES (Sync with Index)
+                if "FUT" in sym:
+                    # Find underlying index
+                    idx_key = "NSE:NIFTY 50"
+                    if "BANK" in sym: idx_key = "NSE:NIFTY BANK"
+                    
+                    if idx_key in MOCK_MARKET_DATA:
+                        # Futures usually trade at a slight premium
+                        MOCK_MARKET_DATA[sym] = round(MOCK_MARKET_DATA[idx_key] + 10, 2)
+
+                # Update OPTIONS
                 if ":NIFTY" in sym and ("CE" in sym or "PE" in sym):
                     try:
                         match = re.search(r'(CE|PE)(\d+(\.\d+)?)', sym)
@@ -85,20 +96,55 @@ class MockKiteConnect:
 
     def _generate_instruments(self):
         inst_list = []
-        # FIX 1: Set expiry to None (not "") for Indices to prevent Pandas crash
+        # 1. Indices (EQ)
         inst_list.append({"instrument_token": 256265, "tradingsymbol": "NIFTY 50", "name": "NIFTY", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": None})
         inst_list.append({"instrument_token": 260105, "tradingsymbol": "NIFTY BANK", "name": "BANKNIFTY", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": None})
         inst_list.append({"instrument_token": 738561, "tradingsymbol": "RELIANCE", "name": "RELIANCE", "exchange": "NSE", "last_price": 0, "instrument_type": "EQ", "lot_size": 1, "expiry": None})
 
-        # Options Generation
+        # 2. Futures (FUT) - REQUIRED for Lot Size Logic
+        # NIFTY FUT with Lot Size 65
+        inst_list.append({
+            "instrument_token": 888888, 
+            "tradingsymbol": f"NIFTY{CURRENT_EXPIRY.replace('-','')}FUT",
+            "name": "NIFTY", "exchange": "NFO", "last_price": 0, 
+            "instrument_type": "FUT", 
+            "lot_size": 65,  # <--- HERE IS THE FIX
+            "expiry": CURRENT_EXPIRY, "strike": 0
+        })
+        MOCK_MARKET_DATA[f"NFO:NIFTY{CURRENT_EXPIRY.replace('-','')}FUT"] = 22010.0
+
+        # BANKNIFTY FUT
+        inst_list.append({
+            "instrument_token": 999999, 
+            "tradingsymbol": f"BANKNIFTY{CURRENT_EXPIRY.replace('-','')}FUT",
+            "name": "BANKNIFTY", "exchange": "NFO", "last_price": 0, 
+            "instrument_type": "FUT", 
+            "lot_size": 15, 
+            "expiry": CURRENT_EXPIRY, "strike": 0
+        })
+        MOCK_MARKET_DATA[f"NFO:BANKNIFTY{CURRENT_EXPIRY.replace('-','')}FUT"] = 48010.0
+
+        # 3. Options (CE/PE)
         base = 22000
         for strike in range(base - 1000, base + 1000, 50):
             # CE
             ce_sym = f"NIFTY{CURRENT_EXPIRY.replace('-','')}CE{strike}"
-            inst_list.append({"instrument_token": strike, "tradingsymbol": ce_sym, "name": "NIFTY", "exchange": "NFO", "last_price": 0, "instrument_type": "CE", "lot_size": 50, "expiry": CURRENT_EXPIRY, "strike": float(strike)})
+            inst_list.append({
+                "instrument_token": strike, 
+                "tradingsymbol": ce_sym, "name": "NIFTY", "exchange": "NFO", "last_price": 0, 
+                "instrument_type": "CE", 
+                "lot_size": 65,  # <--- HERE IS THE FIX
+                "expiry": CURRENT_EXPIRY, "strike": float(strike)
+            })
             # PE
             pe_sym = f"NIFTY{CURRENT_EXPIRY.replace('-','')}PE{strike}"
-            inst_list.append({"instrument_token": strike+10000, "tradingsymbol": pe_sym, "name": "NIFTY", "exchange": "NFO", "last_price": 0, "instrument_type": "PE", "lot_size": 50, "expiry": CURRENT_EXPIRY, "strike": float(strike)})
+            inst_list.append({
+                "instrument_token": strike+10000, 
+                "tradingsymbol": pe_sym, "name": "NIFTY", "exchange": "NFO", "last_price": 0, 
+                "instrument_type": "PE", 
+                "lot_size": 65,  # <--- HERE IS THE FIX
+                "expiry": CURRENT_EXPIRY, "strike": float(strike)
+            })
 
             spot = MOCK_MARKET_DATA["NSE:NIFTY 50"]
             if f"NFO:{ce_sym}" not in MOCK_MARKET_DATA: MOCK_MARKET_DATA[f"NFO:{ce_sym}"] = calculate_option_price(spot, strike, "CE")
@@ -113,13 +159,9 @@ class MockKiteConnect:
     def instruments(self, exchange=None): return self.mock_instruments
 
     def quote(self, instruments):
-        # FIX 2: Handle single string input (smart_trader sends single string often)
-        if isinstance(instruments, str):
-            instruments = [instruments]
-            
+        if isinstance(instruments, str): instruments = [instruments]
         res = {}
         for x in instruments:
-            # Auto Discovery
             if x not in MOCK_MARKET_DATA: MOCK_MARKET_DATA[x] = 100.0
             p = MOCK_MARKET_DATA[x]
             res[x] = {"last_price": p, "ohlc": {"open": p, "high": p, "low": p, "close": p}}

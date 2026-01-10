@@ -39,11 +39,26 @@ function updateData() {
                 let badge = getMarkBadge(cat);
                 let editBtn = (cat !== 'SIMULATOR') ? `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>` : '';
 
+                // --- NEW: Live Status Tag Logic ---
+                let statusTag = '';
+                if (t.status === 'PENDING') {
+                    statusTag = '<span class="badge bg-secondary" style="font-size:0.7rem;">Pending</span>';
+                } else {
+                    if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
+                        let maxHit = Math.max(...t.targets_hit_indices) + 1; // Convert 0-index to 1, 2, 3...
+                        statusTag = `<span class="badge bg-success" style="font-size:0.7rem;">Target ${maxHit} Hit</span>`;
+                    } else {
+                        statusTag = '<span class="badge bg-primary" style="font-size:0.7rem;">Active</span>';
+                    }
+                }
+                // ----------------------------------
+
                 html += `<div class="trade-row">
                     <div class="trade-info">
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
                             ${badge}
+                            ${statusTag}
                         </div>
                         <div class="text-end">
                              <span class="fw-bold ${color}" style="font-size:1rem;">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</span>

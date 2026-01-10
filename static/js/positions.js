@@ -76,12 +76,16 @@ function openEditTradeModal(id) {
     $('#edit_t1').val(t.targets[0] || 0);
     $('#edit_t2').val(t.targets[1] || 0);
     $('#edit_t3').val(t.targets[2] || 0);
-
+    
     // Disable target inputs if they are already hit
     let hits = t.targets_hit_indices || [];
     $('#edit_t1').prop('disabled', hits.includes(0));
     $('#edit_t2').prop('disabled', hits.includes(1));
     $('#edit_t3').prop('disabled', hits.includes(2));
+    
+    // Reset Manage Inputs
+    $('#man_add_lots').val('');
+    $('#man_exit_lots').val('');
 
     new bootstrap.Modal(document.getElementById('editTradeModal')).show();
 }
@@ -99,4 +103,20 @@ function saveTradeUpdate() {
         ]
     };
     $.ajax({ type: "POST", url: '/api/update_trade', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#editTradeModal').modal('hide'); updateData(); } else alert("Failed to update: " + r.message); } });
+}
+
+function managePos(action) {
+    let lots = (action === 'ADD') ? $('#man_add_lots').val() : $('#man_exit_lots').val();
+    if(!lots || lots <= 0) { alert("Invalid Lots"); return; }
+    
+    if(confirm(`${action === 'ADD' ? 'Add' : 'Exit'} ${lots} Lots?`)) {
+        let d = { id: $('#edit_trade_id').val(), action: action, lots: parseInt(lots) };
+        $.ajax({
+            type: "POST", url: '/api/manage_trade', data: JSON.stringify(d), contentType: "application/json",
+            success: function(r) {
+                if(r.status === 'success') { $('#editTradeModal').modal('hide'); updateData(); }
+                else alert("Error: " + r.message);
+            }
+        });
+    }
 }

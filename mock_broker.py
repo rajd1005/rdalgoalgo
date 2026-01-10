@@ -42,14 +42,10 @@ def calculate_option_price(spot_price, strike_price, option_type):
         intrinsic = max(0.0, strike_price - spot_price)
     
     # 2. Time Value (Extrinsic Value)
-    # Highest at ATM, decreases as we go further ITM/OTM
     distance = abs(spot_price - strike_price)
-    
-    # Simple curve: Max Time Value ~150, decays with distance
-    # Width of decay ~400 points
     time_value = 150 * (0.995 ** distance) 
     
-    # Add some randomness (IV Fluctuation)
+    # Add some randomness
     noise = random.uniform(-2, 2)
     
     price = intrinsic + time_value + noise
@@ -63,7 +59,7 @@ def _market_heartbeat():
             trend = SIM_CONFIG["trend"]
             vol = SIM_CONFIG["volatility"]
             
-            # 1. Update INDICES first (The Drivers)
+            # 1. Update INDICES first
             indices = ["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX", "NSE:RELIANCE"]
             for sym in indices:
                 curr = MOCK_MARKET_DATA.get(sym, 10000)
@@ -81,13 +77,10 @@ def _market_heartbeat():
             keys = list(MOCK_MARKET_DATA.keys())
             for sym in keys:
                 if ":NIFTY" in sym and ("CE" in sym or "PE" in sym):
-                    # Extract Strike and Type
-                    # Format approximation: NIFTY...CE22000
                     try:
                         is_ce = "CE" in sym
                         type_ = "CE" if is_ce else "PE"
                         
-                        # Parse strike from end of string
                         match = re.search(r'(CE|PE)(\d+(\.\d+)?)', sym)
                         if match:
                             strike = float(match.group(2))
@@ -96,7 +89,7 @@ def _market_heartbeat():
                             new_opt_price = calculate_option_price(spot, strike, type_)
                             MOCK_MARKET_DATA[sym] = new_opt_price
                     except:
-                        pass # specific parsing error
+                        pass
 
         time.sleep(SIM_CONFIG["speed"])
 
@@ -136,21 +129,37 @@ class MockKiteConnect:
 
         return inst_list
 
-    # Standard Mock Methods
-    def login_url(self): return "/mock-login-trigger"
-    def generate_session(self, r, s): return {"access_token": "mock", "user_id": "DEMO"}
-    def set_access_token(self, a): pass
-    def instruments(self, exchange=None): return self.mock_instruments
-    def quote(self, i):
+    # --- FIXED LOGIN METHODS ---
+    def login_url(self): 
+        return "/mock-login-trigger"
+
+    # This signature now matches exactly what main.py calls
+    def generate_session(self, request_token, api_secret):
+        return {"access_token": "mock_token_123", "user_id": "DEMO_USER"}
+
+    def set_access_token(self, access_token): 
+        pass
+
+    # Standard Methods
+    def instruments(self, exchange=None): 
+        return self.mock_instruments
+
+    def quote(self, instruments):
         res = {}
-        for x in i:
+        for x in instruments:
             # Auto Discovery
             if x not in MOCK_MARKET_DATA: MOCK_MARKET_DATA[x] = 100.0
             p = MOCK_MARKET_DATA[x]
             res[x] = {"last_price": p, "ohlc": {"open": p, "high": p, "low": p, "close": p}}
         return res
-    def ltp(self, i): return self.quote(i)
-    def place_order(self, **k): 
-        print(f"✅ [MOCK] Order: {k.get('transaction_type')} {k.get('quantity')} {k.get('tradingsymbol')}")
+
+    def ltp(self, instruments): 
+        return self.quote(instruments)
+
+    def place_order(self, **kwargs): 
+        # Accepts **kwargs to handle any arguments sent by strategy_manager
+        print(f"✅ [MOCK] Order: {kwargs.get('transaction_type')} {kwargs.get('quantity')} {kwargs.get('tradingsymbol')}")
         return f"ORD_{random.randint(10000,99999)}"
-    def historical_data(self, *a, **k): return []
+
+    def historical_data(self, *args, **kwargs): 
+        return []

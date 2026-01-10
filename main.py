@@ -212,11 +212,18 @@ def place_trade():
         t3 = float(request.form.get('t3_price', 0))
         custom_targets = [t1, t2, t3] if t1 > 0 else []
         
+        # New Target Controls from Form
+        target_controls = []
+        for i in range(1, 4):
+            enabled = request.form.get(f't{i}_active') == 'on'
+            lots = int(request.form.get(f't{i}_lots') or 0)
+            target_controls.append({'enabled': enabled, 'lots': lots})
+        
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         if not final_sym:
             return redirect('/')
 
-        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price)
+        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls)
         if res['status'] == 'success':
             flash(f"✅ Order Placed: {final_sym}")
         else:

@@ -60,7 +60,15 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             if target_controls:
                 t['target_controls'] = target_controls
             
-            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {t['targets']}. Trail: {t['trailing_sl']}")
+            # Detailed Logging for Targets
+            tgt_log = []
+            controls = t.get('target_controls', [{'enabled':True, 'lots':0}]*3)
+            for i, p in enumerate(t['targets']):
+                c = controls[i] if i < len(controls) else {'enabled':True, 'lots':0}
+                status = "ON" if c['enabled'] else "OFF"
+                tgt_log.append(f"{p}({status}, {c['lots']}L)")
+            
+            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {', '.join(tgt_log)}. Trail: {t['trailing_sl']}")
             updated = True
             break
     if updated:
@@ -161,7 +169,7 @@ def get_exchange(symbol):
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
     return "NSE"
 
-def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0):
+def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None):
     trades = load_trades()
     exchange = get_exchange(specific_symbol)
     
@@ -184,12 +192,13 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
 
     targets = custom_targets if len(custom_targets) == 3 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
     
-    # Default Target Controls: T1/T2 enabled but 0 exit (notify). T3 enabled and exits all.
-    target_controls = [
-        {'enabled': True, 'lots': 0}, 
-        {'enabled': True, 'lots': 0}, 
-        {'enabled': True, 'lots': 1000}
-    ]
+    # Use provided controls or Default: T1/T2 notify, T3 all
+    if not target_controls:
+        target_controls = [
+            {'enabled': True, 'lots': 0}, 
+            {'enabled': True, 'lots': 0}, 
+            {'enabled': True, 'lots': 1000}
+        ]
     
     lot_size = smart_trader.get_lot_size(specific_symbol)
     logs = [f"[{get_time_str()}] Trade Added. Status: {status}"]

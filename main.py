@@ -72,6 +72,7 @@ def api_positions():
     trades = strategy_manager.load_trades()
     # Format symbol for display
     for t in trades:
+        t['lot_size'] = smart_trader.get_lot_size(t['symbol']) # Add Lot Size info
         t['symbol'] = smart_trader.get_display_name(t['symbol'])
         
     return jsonify(trades)
@@ -119,13 +120,7 @@ def api_manage_trade():
     t = next((x for x in trades if str(x['id']) == str(trade_id)), None)
     
     if t and lots > 0:
-        # Determine Lot Size
-        # smart_trader.get_symbol_details logic usually expects base symbol for generic lookup,
-        # but for specific options we need the instrument dump.
-        # We try to get details for the underlying to find the lot size.
-        base_sym = t['symbol'].split()[0] # e.g. "NIFTY" from "NIFTY 23000 CE"
-        det = smart_trader.get_symbol_details(kite, base_sym)
-        lot_size = det.get('lot_size', 1)
+        lot_size = smart_trader.get_lot_size(t['symbol'])
         
         if strategy_manager.manage_trade_position(kite, trade_id, action, lot_size, lots):
              return jsonify({"status": "success"})

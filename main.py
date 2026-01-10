@@ -147,27 +147,8 @@ def api_details():
     return jsonify(smart_trader.get_symbol_details(kite, request.args.get('symbol', '')))
 
 @app.route('/api/chain')
-def api_chain():
-    symbol = request.args.get('symbol')
-    expiry = request.args.get('expiry')
-    op_type = request.args.get('type')
-    
-    # FIX: Ignore the client-provided LTP and fetch the LIVE price
-    # This ensures the ATM label (Red Dot) is always accurate to the simulation
-    current_ltp = 0
-    try:
-        # Construct key (e.g., NSE:NIFTY 50)
-        exch_key = f"NSE:{symbol}"
-        if symbol == "NIFTY": exch_key = "NSE:NIFTY 50"
-        if symbol == "BANKNIFTY": exch_key = "NSE:NIFTY BANK"
-        
-        quote = kite.quote([exch_key])
-        if exch_key in quote:
-            current_ltp = quote[exch_key]['last_price']
-    except:
-        current_ltp = float(request.args.get('ltp', 0))
-
-    return jsonify(smart_trader.get_chain_data(symbol, expiry, op_type, current_ltp))
+def api_chain(): 
+    return jsonify(smart_trader.get_chain_data(request.args.get('symbol'), request.args.get('expiry'), request.args.get('type'), float(request.args.get('ltp', 0))))
 
 @app.route('/api/specific_ltp')
 def api_s_ltp(): 

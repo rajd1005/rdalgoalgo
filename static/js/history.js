@@ -31,6 +31,26 @@ function loadClosedTrades() {
                     potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
                 }
 
+                // --- Live Status Tag Logic for Closed Trades ---
+                let statusTag = '';
+                if (t.status === 'SL_HIT') {
+                     statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
+                } else if (t.status === 'TARGET_HIT') {
+                     let maxHit = 1;
+                     if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
+                         maxHit = Math.max(...t.targets_hit_indices) + 1;
+                     } else if (t.targets) {
+                         // Fallback logic if indices missing
+                         t.targets.forEach((tgt, i) => { if(t.exit_price >= tgt) maxHit = i+1; });
+                     }
+                     statusTag = `<span class="badge bg-success" style="font-size:0.7rem;">Target ${maxHit} Hit</span>`;
+                } else if (t.status === 'COST_EXIT') {
+                     statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Cost Exit</span>';
+                } else {
+                     statusTag = `<span class="badge bg-secondary" style="font-size:0.7rem;">${t.status}</span>`;
+                }
+                // -----------------------------------------------
+
                 // Action Buttons
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-xs btn-outline-primary" onclick="editSim('${t.id}')">✏️ Edit</button>` : '';
                 let delBtn = `<button class="btn btn-xs btn-outline-danger" onclick="deleteTrade('${t.id}')">🗑️</button>`;
@@ -40,6 +60,7 @@ function loadClosedTrades() {
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
                             ${badge}
+                            ${statusTag}
                         </div>
                         <div class="text-end">
                              <span class="fw-bold ${color}" style="font-size:1rem;">${t.pnl.toFixed(2)}</span>

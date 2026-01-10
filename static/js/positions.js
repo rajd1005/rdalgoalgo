@@ -73,6 +73,7 @@ function openEditTradeModal(id) {
     $('#edit_entry').val(t.entry_price);
     $('#edit_sl').val(t.sl);
     $('#edit_trail').val(t.trailing_sl || 0);
+    $('#edit_trail_mode').val(t.sl_to_entry ? "1" : "0");
     
     // Default Controls if missing
     let defaults = [
@@ -117,6 +118,7 @@ function saveTradeUpdate() {
         entry_price: parseFloat($('#edit_entry').val()),
         sl: parseFloat($('#edit_sl').val()),
         trailing_sl: parseFloat($('#edit_trail').val()),
+        sl_to_entry: $('#edit_trail_mode').val() === "1",
         targets: [
             parseFloat($('#edit_t1').val())||0,
             parseFloat($('#edit_t2').val())||0,

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytz
 from database import db, ActiveTrade, TradeHistory
+import smart_trader 
 
 IST = pytz.timezone('Asia/Kolkata')
 
@@ -37,7 +38,7 @@ def delete_trade(trade_id):
         db.session.rollback()
         return False
 
-def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=None):
+def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=None, target_controls=None):
     trades = load_trades()
     updated = False
     for t in trades:
@@ -55,6 +56,9 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             t['sl'] = float(sl)
             t['targets'] = [float(x) for x in targets]
             t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
+            
+            if target_controls:
+                t['target_controls'] = target_controls
             
             log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {t['targets']}. Trail: {t['trailing_sl']}")
             updated = True
@@ -179,12 +183,22 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         except Exception as e: return {"status": "error", "message": str(e)}
 
     targets = custom_targets if len(custom_targets) == 3 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
+    
+    # Default Target Controls: T1/T2 enabled but 0 exit (notify). T3 enabled and exits all.
+    target_controls = [
+        {'enabled': True, 'lots': 0}, 
+        {'enabled': True, 'lots': 0}, 
+        {'enabled': True, 'lots': 1000}
+    ]
+    
+    lot_size = smart_trader.get_lot_size(specific_symbol)
     logs = [f"[{get_time_str()}] Trade Added. Status: {status}"]
 
     record = {
         "id": int(time.time()), "entry_time": get_time_str(), "symbol": specific_symbol, "exchange": exchange,
         "mode": mode, "order_type": order_type, "status": status, "entry_price": entry_price, "quantity": quantity,
-        "sl": entry_price - sl_points, "targets": targets, "trailing_sl": 0, "targets_hit_indices": [],
+        "sl": entry_price - sl_points, "targets": targets, "target_controls": target_controls,
+        "lot_size": lot_size, "trailing_sl": 0, "targets_hit_indices": [],
         "highest_ltp": entry_price, "made_high": entry_price, "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs
     }
     trades.append(record)
@@ -298,15 +312,47 @@ def update_risk_engine(kite):
 
             # Exit Conditions
             exit_triggered = False; exit_reason = ""
+            
+            # Stop Loss
             if ltp <= t['sl']:
                 exit_triggered = True; exit_reason = "COST_EXIT" if t['sl'] >= t['entry_price'] else "SL_HIT"
+            
+            # Targets Logic
             elif not exit_triggered:
+                # Load Controls or Default
+                controls = t.get('target_controls', [{'enabled':True, 'lots':0}, {'enabled':True, 'lots':0}, {'enabled':True, 'lots':1000}])
+                
                 for i, tgt in enumerate(t['targets']):
                     if i not in t.get('targets_hit_indices', []) and ltp >= tgt:
                         t.setdefault('targets_hit_indices', []).append(i)
-                        log_event(t, f"Target {i+1} Hit @ {tgt}")
-                        if i == len(t['targets']) - 1:
-                            exit_triggered = True; exit_reason = "TARGET_HIT"
+                        
+                        conf = controls[i]
+                        if not conf['enabled']:
+                             log_event(t, f"Crossed T{i+1} @ {tgt} (Target Disabled - No Action)")
+                             continue # Skip exit logic
+                        
+                        # Calculate Exit Qty
+                        lot_size = t.get('lot_size', 1)
+                        exit_lots = conf.get('lots', 0)
+                        qty_to_exit = exit_lots * lot_size
+                        
+                        # Full Exit if lots >= current or if it implies "All" (e.g., legacy T3 logic)
+                        if qty_to_exit >= t['quantity']:
+                             exit_triggered = True; exit_reason = "TARGET_HIT"
+                             break # Stop checking other targets
+                             
+                        # Partial Exit
+                        elif qty_to_exit > 0:
+                             t['quantity'] -= qty_to_exit
+                             pnl_booked = (tgt - t['entry_price']) * qty_to_exit
+                             log_event(t, f"Target {i+1} Hit @ {tgt}. Auto-Exited {qty_to_exit} Qty. P/L Booked: {pnl_booked:.2f}")
+                             
+                             if t['mode'] == 'LIVE':
+                                try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                                except: pass
+                                
+                        else:
+                             log_event(t, f"Target {i+1} Hit @ {tgt} (No Auto-Exit Configured)")
 
             if exit_triggered:
                 if t['mode'] == "LIVE":

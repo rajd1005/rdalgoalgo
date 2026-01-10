@@ -108,6 +108,30 @@ def api_update_trade():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+@app.route('/api/manage_trade', methods=['POST'])
+def api_manage_trade():
+    data = request.json
+    trade_id = data.get('id')
+    action = data.get('action') # ADD or EXIT
+    lots = int(data.get('lots', 0))
+    
+    trades = strategy_manager.load_trades()
+    t = next((x for x in trades if str(x['id']) == str(trade_id)), None)
+    
+    if t and lots > 0:
+        # Determine Lot Size
+        # smart_trader.get_symbol_details logic usually expects base symbol for generic lookup,
+        # but for specific options we need the instrument dump.
+        # We try to get details for the underlying to find the lot size.
+        base_sym = t['symbol'].split()[0] # e.g. "NIFTY" from "NIFTY 23000 CE"
+        det = smart_trader.get_symbol_details(kite, base_sym)
+        lot_size = det.get('lot_size', 1)
+        
+        if strategy_manager.manage_trade_position(kite, trade_id, action, lot_size, lots):
+             return jsonify({"status": "success"})
+    
+    return jsonify({"status": "error", "message": "Action Failed"})
+
 # --- MARKET DATA API ---
 @app.route('/api/indices')
 def api_indices():

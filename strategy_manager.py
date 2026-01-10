@@ -145,16 +145,26 @@ def log_event(trade, message):
 
 def move_to_history(trade, final_status, exit_price):
     real_pnl = 0
-    if trade['status'] != 'PENDING':
+    # Determine if trade was active (not pending) to decide on logging High stats
+    was_active = trade['status'] != 'PENDING'
+
+    if was_active:
         real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
 
-    if trade['status'] == 'PENDING' or (trade.get('order_type') == 'SIMULATION' and "SL" in final_status):
+    if not was_active or (trade.get('order_type') == 'SIMULATION' and "SL" in final_status):
         trade['pnl'] = 0
     else:
         trade['pnl'] = real_pnl
     
-    # --- UPDATED: High Made Logic & Logging (Same as Simulator) ---
-    if trade['status'] != 'PENDING':
+    trade['status'] = final_status; trade['exit_price'] = exit_price
+    trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
+    
+    # 1. Log "Closed" FIRST (Updated Order)
+    if "Closed:" not in str(trade['logs']):
+         log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}")
+    
+    # 2. Log "Info: Made High" LAST (Same logic as Simulator)
+    if was_active:
         made_high = trade.get('made_high', trade['entry_price'])
         # Ensure made_high captures the exit price if it spiked
         if exit_price > made_high: made_high = exit_price
@@ -162,18 +172,7 @@ def move_to_history(trade, final_status, exit_price):
         trade['made_high'] = made_high
         max_pnl = (made_high - trade['entry_price']) * trade['quantity']
         
-        # Only log High Stats if SL was NOT hit (as per request "if Sl done Don't need")
-        # Or generally log it for info, but hide in UI. 
-        # Simulator logs it always, so to "use same logic and Log", we log it.
-        # We will filter visibility in JS.
         log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {max_pnl:.2f}")
-    # -------------------------------------------------------------
-
-    trade['status'] = final_status; trade['exit_price'] = exit_price
-    trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
-    
-    if "Closed:" not in str(trade['logs']):
-         log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}")
     
     try:
         db.session.merge(TradeHistory(id=trade['id'], data=json.dumps(trade)))

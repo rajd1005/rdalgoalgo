@@ -95,7 +95,13 @@ def api_delete_trade(trade_id):
 def api_update_trade():
     data = request.json
     try:
-        if strategy_manager.update_trade_protection(data['id'], data['sl'], data['targets'], data.get('trailing_sl', 0)):
+        if strategy_manager.update_trade_protection(
+            data['id'], 
+            data['sl'], 
+            data['targets'], 
+            data.get('trailing_sl', 0),
+            data.get('entry_price')
+        ):
             return jsonify({"status": "success"})
         else:
             return jsonify({"status": "error", "message": "Trade not found"})

@@ -42,6 +42,16 @@ def get_zerodha_symbol(common_name):
     if u == "FINNIFTY": return "FINNIFTY"
     return u
 
+def get_lot_size(tradingsymbol):
+    global instrument_dump
+    if instrument_dump is None: return 1
+    try:
+        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
+        if not row.empty:
+            return int(row.iloc[0]['lot_size'])
+    except: pass
+    return 1
+
 def get_display_name(tradingsymbol):
     """
     Formats the trading symbol to: SymbolName Strike CE/PE ExpDate

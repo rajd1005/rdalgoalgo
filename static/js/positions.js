@@ -127,7 +127,7 @@ function saveTradeUpdate() {
         target_controls: [
             { enabled: $('#check_t1').is(':checked'), lots: parseInt($('#lot_t1').val()) || 0 },
             { enabled: $('#check_t2').is(':checked'), lots: parseInt($('#lot_t2').val()) || 0 },
-            { enabled: $('#check_t3').is(':checked'), lots: parseInt($('#lot_t3').val()) || 0 }
+            { enabled: $('#check_t3').is(':checked'), lots: parseInt($('#lot_t3').val()) || 1000 } // Force 1000 if empty/0
         ]
     };
     $.ajax({ type: "POST", url: '/api/update_trade', data: JSON.stringify(d), contentType: "application/json", success: function(r) { if(r.status==='success') { $('#editTradeModal').modal('hide'); updateData(); } else alert("Failed to update: " + r.message); } });

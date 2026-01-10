@@ -102,7 +102,8 @@ def api_update_trade():
             data['targets'], 
             data.get('trailing_sl', 0),
             data.get('entry_price'),
-            data.get('target_controls')
+            data.get('target_controls'),
+            data.get('sl_to_entry', False)
         ):
             return jsonify({"status": "success"})
         else:
@@ -207,6 +208,10 @@ def place_trade():
         limit_price = float(request.form.get('limit_price') or 0)
         sl_points = float(request.form.get('sl_points', 0))
         
+        # New Trailing SL Inputs
+        trailing_sl = float(request.form.get('trailing_sl') or 0)
+        sl_to_entry = request.form.get('sl_to_entry') == '1' # 1 for Up-to Entry, 0 for Unlimited
+        
         t1 = float(request.form.get('t1_price', 0))
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
@@ -223,7 +228,7 @@ def place_trade():
         if not final_sym:
             return redirect('/')
 
-        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls)
+        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry)
         if res['status'] == 'success':
             flash(f"✅ Order Placed: {final_sym}")
         else:

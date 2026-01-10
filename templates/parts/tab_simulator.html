@@ -16,7 +16,7 @@
                 </div>
                 <datalist id="h_sym_list"></datalist>
             </div>
-            
+
             <div class="mb-3">
                 <div class="btn-group w-100 btn-group-check" role="group">
                     <input type="radio" class="btn-check" name="h_type" id="ht_ce" value="CE" autocomplete="off">
@@ -29,85 +29,97 @@
             </div>
 
             <div class="row g-2 mb-3">
-                    <div class="col-12"><select id="h_exp" class="form-select"></select></div>
-            </div>
-            <select id="h_str" class="form-select mb-3"><option>Select Expiry First</option></select>
-            <div class="row g-2 mb-3">
-                <div class="col-6"><label class="pos-grid-label">ENTRY PRICE <span class="text-danger">*</span></label><input type="number" step="0.05" id="h_entry" class="form-control fw-bold border-primary" placeholder="Required"></div>
-                <div class="col-6"><label class="pos-grid-label">ENTRY TIME</label><input type="datetime-local" id="h_time" class="form-control"></div>
+                <div class="col-6"><select id="h_exp" class="form-select"></select></div>
+                <div class="col-6"><select id="h_str" class="form-select"></select></div>
             </div>
             
-            <div class="p-2 bg-light rounded border mb-3">
-                <div class="row g-2 align-items-center mb-2">
-                    <div class="col-6">
-                        <label class="pos-grid-label">Qty (Mult: <span id="h_qty_mult">1</span>)</label>
-                        <div class="input-group input-group-sm">
-                            <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#h_qty', -1)">-</button>
-                            <input type="number" id="h_qty" class="form-control fw-bold text-center" value="50">
-                            <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#h_qty', 1)">+</button>
-                        </div>
+            <div class="row g-2 mb-3">
+                <div class="col-6">
+                    <label class="pos-grid-label">QTY (Mult: <span id="h_qty_mult">1</span>)</label>
+                    <div class="input-group">
+                        <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#h_qty', -1)">-</button>
+                        <input type="number" id="h_qty" class="form-control fw-bold text-center" value="50">
+                        <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#h_qty', 1)">+</button>
                     </div>
                 </div>
-                
-                <div class="row g-2 align-items-center mb-2">
-                        <div class="col-6">
-                            <label class="pos-grid-label">SL Points</label>
-                            <input type="number" id="h_sl_pts" class="form-control fw-bold text-center" value="20" oninput="calcSimSL('pts')">
-                        </div>
-                        <div class="col-6">
-                            <label class="pos-grid-label">SL Price</label>
-                            <input type="number" step="0.05" id="h_p_sl" class="form-control text-center text-danger fw-bold border-danger" oninput="calcSimSL('price')">
-                        </div>
+                <div class="col-6">
+                    <label class="pos-grid-label">ENTRY PRICE <span class="text-danger">*</span></label>
+                    <input type="number" step="0.05" id="h_entry" class="form-control fw-bold border-primary" placeholder="Required">
                 </div>
-
-                <div class="row g-2 align-items-center mb-2">
-                    <div class="col-6">
-                        <label class="pos-grid-label">Trailing SL (Points)</label>
-                        <input type="number" step="0.05" id="h_trail" class="form-control fw-bold text-center text-info" placeholder="0">
-                    </div>
-                    <div class="col-6">
-                        <label class="pos-grid-label">Trail Limit</label>
-                        <select id="h_sl_to_entry" class="form-select fw-bold text-center">
-                             <option value="0">Unlimited</option>
-                             <option value="1">Up-to Entry</option>
-                        </select>
-                    </div>
-                </div>
-
-                <hr class="my-2">
-                <div class="row g-2 text-center">
-                    <div class="col-4 px-1">
-                        <small class="text-success fw-bold">T1 (<span id="hr_t1">0.5</span>x)</small>
-                        <input type="number" step="0.05" id="h_t1" class="form-control form-control-sm mb-1" oninput="calcSimManual('t1')">
-                        <div class="input-group input-group-sm mb-1">
-                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="h_check_t1" checked></div>
-                            <input type="number" id="h_lot_t1" class="form-control px-1 text-center" placeholder="Lots">
-                        </div>
-                        <span id="h_pnl_t1" class="pnl-green">₹ 0</span>
-                    </div>
-                    <div class="col-4 px-1">
-                        <small class="text-success fw-bold">T2 (<span id="hr_t2">1.0</span>x)</small>
-                        <input type="number" step="0.05" id="h_t2" class="form-control form-control-sm mb-1" oninput="calcSimManual('t2')">
-                        <div class="input-group input-group-sm mb-1">
-                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="h_check_t2" checked></div>
-                            <input type="number" id="h_lot_t2" class="form-control px-1 text-center" placeholder="Lots">
-                        </div>
-                        <span id="h_pnl_t2" class="pnl-green">₹ 0</span>
-                    </div>
-                    <div class="col-4 px-1">
-                        <small class="text-success fw-bold">T3 (<span id="hr_t3">1.5</span>x)</small>
-                        <input type="number" step="0.05" id="h_t3" class="form-control form-control-sm mb-1" oninput="calcSimManual('t3')">
-                        <div class="input-group input-group-sm mb-1">
-                            <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="h_check_t3" checked></div>
-                            <input type="number" id="h_lot_t3" class="form-control px-1 text-center" placeholder="Lots">
-                        </div>
-                        <span id="h_pnl_t3" class="pnl-green">₹ 0</span>
-                    </div>
-                </div>
-                <div class="mt-2 text-center"><small class="text-danger fw-bold">Potential Loss: </small><span id="h_pnl_sl" class="pnl-red" style="display:inline;">₹ 0</span></div>
             </div>
-            <button onclick="checkHistory()" class="btn btn-info w-100 fw-bold text-white">🔄 Run Simulation</button>
-            <div id="h_res" class="mt-3 p-3 bg-light border rounded" style="display:none;"></div>
+
+            <div class="mb-3">
+                <label class="pos-grid-label">ENTRY TIME</label>
+                <input type="datetime-local" id="h_time" class="form-control fw-bold">
+            </div>
         </div>
     </div>
+
+    <div class="custom-card">
+        <div class="card-head">🛡️ Projected P&L</div>
+        <div class="card-body">
+            <div class="row g-2 align-items-center mb-3">
+                <div class="col-6">
+                    <label class="pos-grid-label">SL Points (Auto)</label>
+                    <input type="number" id="h_sl_pts" class="form-control fw-bold text-center" value="20" oninput="calcSimSL('pts')">
+                </div>
+                <div class="col-6">
+                    <label class="pos-grid-label">SL Price (Edit)</label>
+                    <input type="number" step="0.05" id="h_p_sl" class="form-control text-center text-danger fw-bold border-danger" oninput="calcSimSL('price')">
+                </div>
+            </div>
+
+            <div class="row g-2 align-items-center mb-3">
+                <div class="col-6">
+                    <label class="pos-grid-label">Trailing SL (Points)</label>
+                    <input type="number" step="0.05" id="h_trail" class="form-control fw-bold text-center text-info" placeholder="0">
+                </div>
+                <div class="col-6">
+                    <label class="pos-grid-label">Trail Limit</label>
+                    <select id="h_sl_to_entry" class="form-select fw-bold text-center">
+                            <option value="0">Unlimited</option>
+                            <option value="1">Up-to Entry</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="row g-2 text-center">
+                <div class="col-4 px-1">
+                    <small class="text-success fw-bold">T1 (<span id="hr_t1">0.5</span>x)</small>
+                    <input type="number" step="0.05" id="h_t1" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcSimManual('t1')">
+                    <div class="input-group input-group-sm mb-1">
+                        <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="h_check_t1" checked></div>
+                        <input type="number" id="h_lot_t1" class="form-control px-1 text-center" placeholder="Lots">
+                    </div>
+                    <span id="h_pnl_t1" class="pnl-green">₹ 0</span>
+                </div>
+                <div class="col-4 px-1">
+                    <small class="text-success fw-bold">T2 (<span id="hr_t2">1.0</span>x)</small>
+                    <input type="number" step="0.05" id="h_t2" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcSimManual('t2')">
+                    <div class="input-group input-group-sm mb-1">
+                        <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="h_check_t2" checked></div>
+                        <input type="number" id="h_lot_t2" class="form-control px-1 text-center" placeholder="Lots">
+                    </div>
+                    <span id="h_pnl_t2" class="pnl-green">₹ 0</span>
+                </div>
+                <div class="col-4 px-1">
+                    <small class="text-success fw-bold">T3 (<span id="hr_t3">1.5</span>x)</small>
+                    <input type="number" step="0.05" id="h_t3" class="form-control form-control-sm text-center text-success fw-bold mb-1" oninput="calcSimManual('t3')">
+                    <div class="input-group input-group-sm mb-1">
+                        <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="h_check_t3" checked></div>
+                        <input type="number" id="h_lot_t3" class="form-control px-1 text-center" placeholder="Lots">
+                    </div>
+                    <span id="h_pnl_t3" class="pnl-green">₹ 0</span>
+                </div>
+            </div>
+            <div class="text-center mt-2">
+                <small class="text-danger fw-bold">Potential Loss: </small><span id="h_pnl_sl" class="pnl-red" style="display:inline;">₹ 0</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <button onclick="checkHistory()" class="btn btn-info w-100 py-2 fw-bold rounded-pill shadow-lg text-white">🔄 Run Simulation</button>
+    </div>
+    <div id="h_res" class="mt-3 p-3 bg-light border rounded" style="display:none;"></div>
 </div>

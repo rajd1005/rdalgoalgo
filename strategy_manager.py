@@ -1,3 +1,4 @@
+# strategy_manager.py
 import json
 import time
 from datetime import datetime, timedelta
@@ -152,6 +153,22 @@ def move_to_history(trade, final_status, exit_price):
     else:
         trade['pnl'] = real_pnl
     
+    # --- UPDATED: High Made Logic & Logging (Same as Simulator) ---
+    if trade['status'] != 'PENDING':
+        made_high = trade.get('made_high', trade['entry_price'])
+        # Ensure made_high captures the exit price if it spiked
+        if exit_price > made_high: made_high = exit_price
+        
+        trade['made_high'] = made_high
+        max_pnl = (made_high - trade['entry_price']) * trade['quantity']
+        
+        # Only log High Stats if SL was NOT hit (as per request "if Sl done Don't need")
+        # Or generally log it for info, but hide in UI. 
+        # Simulator logs it always, so to "use same logic and Log", we log it.
+        # We will filter visibility in JS.
+        log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {max_pnl:.2f}")
+    # -------------------------------------------------------------
+
     trade['status'] = final_status; trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
     
@@ -194,7 +211,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
 
     targets = custom_targets if len(custom_targets) == 3 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
     
-    # Use provided controls or Default: T1/T2 notify, T3 all
     if not target_controls:
         target_controls = [
             {'enabled': True, 'lots': 0}, 
@@ -295,7 +311,6 @@ def update_risk_engine(kite):
 
     active_list = []; updated = False
     for t in trades:
-        # Ensure Lot Size is present for accurate calculations
         if t.get('lot_size', 0) == 0:
             ls = smart_trader.get_lot_size(t['symbol'])
             if ls > 0:
@@ -325,11 +340,8 @@ def update_risk_engine(kite):
             # Trailing SL
             if t.get('trailing_sl', 0) > 0:
                 new_sl = ltp - t['trailing_sl']
-                
-                # If Trail to Entry is active, cap SL at Entry Price
                 if t.get('sl_to_entry', False):
                     new_sl = min(new_sl, t['entry_price'])
-                
                 if new_sl > t['sl']:
                     t['sl'] = new_sl
                     log_event(t, f"Trailing SL Moved to {t['sl']:.2f}")
@@ -337,44 +349,32 @@ def update_risk_engine(kite):
             # Exit Conditions
             exit_triggered = False; exit_reason = ""
             
-            # Stop Loss
             if ltp <= t['sl']:
                 exit_triggered = True; exit_reason = "COST_EXIT" if t['sl'] >= t['entry_price'] else "SL_HIT"
-            
-            # Targets Logic
             elif not exit_triggered:
-                # Load Controls or Default
                 controls = t.get('target_controls', [{'enabled':True, 'lots':0}, {'enabled':True, 'lots':0}, {'enabled':True, 'lots':1000}])
-                
                 for i, tgt in enumerate(t['targets']):
                     if i not in t.get('targets_hit_indices', []) and ltp >= tgt:
                         t.setdefault('targets_hit_indices', []).append(i)
-                        
                         conf = controls[i]
                         if not conf['enabled']:
                              log_event(t, f"Crossed T{i+1} @ {tgt} (Target Disabled - No Action)")
-                             continue # Skip exit logic
+                             continue
                         
-                        # Calculate Exit Qty
                         lot_size = t.get('lot_size', 1)
                         exit_lots = conf.get('lots', 0)
                         qty_to_exit = exit_lots * lot_size
                         
-                        # Full Exit if lots >= current or if it implies "All" (e.g., legacy T3 logic)
                         if qty_to_exit >= t['quantity']:
                              exit_triggered = True; exit_reason = "TARGET_HIT"
-                             break # Stop checking other targets
-                             
-                        # Partial Exit
+                             break
                         elif qty_to_exit > 0:
                              t['quantity'] -= qty_to_exit
                              pnl_booked = (tgt - t['entry_price']) * qty_to_exit
                              log_event(t, f"Target {i+1} Hit @ {tgt}. Auto-Exited {qty_to_exit} Qty. P/L Booked: {pnl_booked:.2f}")
-                             
                              if t['mode'] == 'LIVE':
                                 try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                                 except: pass
-                                
                         else:
                              log_event(t, f"Target {i+1} Hit @ {tgt} (No Auto-Exit Configured)")
 

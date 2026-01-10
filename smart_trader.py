@@ -232,7 +232,7 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
 
-def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, custom_entry, custom_targets, quantity=1):
+def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, custom_entry, custom_targets, quantity=1, trailing_sl=0, sl_to_entry=False, target_controls=None):
     symbol_common = get_zerodha_symbol(symbol)
     tradingsymbol = get_exact_symbol(symbol_common, expiry, strike, type_)
     if not tradingsymbol: return {"status": "error", "message": "Symbol Not Found"}
@@ -257,7 +257,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         exit_p = 0; exit_t = ""; logs = [f"[{time_str}] Trade Added/Setup"]
         trade_active = False; targets_hit_indices = []; made_high = entry
         
-        # Determine Trigger Direction (Critical for converting to Limit Order)
+        # Determine Trigger Direction
         trigger_dir = "ABOVE" if entry >= first['open'] else "BELOW"
         
         if not is_limit_order:
@@ -290,20 +290,21 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                                 status = "TARGET_HIT"; exit_p = t_price; exit_t = c_time
                                 logs.append(f"[{c_time}] Final Target Hit @ {t_price} | P/L ₹ {gain:.2f}")
 
-        # MODIFICATION: Treat PENDING as active (Limit Order Logic)
+        # Keep active if OPEN *OR* PENDING (Limit Order Logic)
         active = (status == "OPEN" or status == "PENDING")
         ltp = candles[-1]['close'] if active else exit_p
         
         if status != "PENDING":
              logs.append(f"[{exit_t if exit_t else time_str}] Info: Made High: {made_high} | Max P/L ₹ {((made_high - entry) * quantity):.2f}")
-
+        
         return {
             "status": "success", "is_active": active,
             "trade_data": {
                 "symbol": tradingsymbol, "entry_price": entry, "current_ltp": ltp,
                 "sl": sl, "targets": tgts, "status": status, "exit_price": exit_p,
                 "exit_time": exit_t, "logs": logs, "quantity": 0, "made_high": made_high,
-                "trigger_dir": trigger_dir # Pass direction for live monitoring
+                "trigger_dir": trigger_dir,
+                "trailing_sl": trailing_sl, "sl_to_entry": sl_to_entry, "target_controls": target_controls
             }
         }
     except Exception as e:

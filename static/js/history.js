@@ -5,14 +5,13 @@ function loadClosedTrades() {
         let dayTotal = 0;
         let totalWins = 0;
         let totalLosses = 0;
+        let totalPotential = 0;
 
         let filtered = trades.filter(t => t.exit_time && t.exit_time.startsWith(filterDate) && (filterType === 'ALL' || getTradeCategory(t) === filterType));
         if(filtered.length === 0) html = '<div class="text-center p-4 text-muted">No History for this Date/Filter</div>';
         else {
             filtered.forEach(t => {
                 dayTotal += t.pnl; 
-                
-                // Calculate Split P/L
                 if(t.pnl > 0) totalWins += t.pnl;
                 else totalLosses += t.pnl;
 
@@ -20,6 +19,18 @@ function loadClosedTrades() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
+                // Logic for Potential Profit Display
+                // Condition: Show ONLY if PNL > 0 (Profitable)
+                let potHtml = '';
+                if(t.pnl > 0) {
+                    let mh = t.made_high || t.entry_price;
+                    if(mh < t.exit_price) mh = t.exit_price; // Safety fix
+                    let pot = (mh - t.entry_price) * t.quantity;
+                    totalPotential += pot; // Add to global sum
+                    
+                    potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
+                }
+
                 // Action Buttons
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-xs btn-outline-primary" onclick="editSim('${t.id}')">✏️ Edit</button>` : '';
                 let delBtn = `<button class="btn btn-xs btn-outline-danger" onclick="deleteTrade('${t.id}')">🗑️</button>`;
@@ -39,6 +50,7 @@ function loadClosedTrades() {
                         <span>Q: <b>${t.quantity}</b></span>
                         <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
                         <span>Ext: <b>${t.exit_price.toFixed(2)}</b></span>
+                        ${potHtml}
                     </div>
                     <div class="trade-actions">
                         <span class="text-muted me-auto" style="font-size:0.75rem;">${t.exit_time.slice(11,16)}</span>
@@ -50,12 +62,15 @@ function loadClosedTrades() {
             });
         }
         $('#hist-container').html(html); 
+        
         $('#day_pnl').text("₹ " + dayTotal.toFixed(2));
         if(dayTotal >= 0) $('#day_pnl').removeClass('bg-danger').addClass('bg-success'); else $('#day_pnl').removeClass('bg-success').addClass('bg-danger');
 
-        // Update Split P/L UI
         $('#total_wins').text("Wins: ₹ " + totalWins.toFixed(2));
         $('#total_losses').text("Loss: ₹ " + totalLosses.toFixed(2));
+        
+        // Update New Potential Badge
+        $('#total_potential').text("Total Potential Profit: ₹ " + totalPotential.toFixed(2));
     });
 }
 

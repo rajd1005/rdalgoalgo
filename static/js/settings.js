@@ -7,42 +7,47 @@ function loadSettings() {
                 settings.exchanges.forEach(e => $(`#exch_${e}`).prop('checked', true));
             }
             renderWatchlist();
+            
+            // --- Telegram Config Load ---
+            let tg = settings.telegram || {};
+            $('#tg_enabled').prop('checked', tg.enabled || false);
+            $('#tg_token').val(tg.bot_token || '');
+            $('#tg_chat').val(tg.chat_id || '');
+            
+            let events = tg.events || {};
+            let tmpl = tg.templates || {};
+            
+            ['TRADE_ADDED', 'TRADE_UPDATE', 'TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].forEach(evt => {
+                $(`#tg_evt_${evt}`).prop('checked', events[evt] !== false); // Default True
+                $(`#tg_tmpl_${evt}`).val(tmpl[evt] || '');
+            });
+            // ----------------------------
+
             ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
                 let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
                 let s = settings.modes[m];
                 $(`#${k}_qty_mult`).val(s.qty_mult);
-                
-                // Ratios
                 $(`#${k}_r1`).val(s.ratios[0]);
                 $(`#${k}_r2`).val(s.ratios[1]);
                 $(`#${k}_r3`).val(s.ratios[2]);
-                
-                // Trailing SL & Defaults
                 $(`#${k}_def_trail`).val(s.trailing_sl || 0);
                 $(`#${k}_order_type`).val(s.order_type || 'MARKET');
                 $(`#${k}_trail_limit`).val(s.sl_to_entry || 0);
-                
-                // Exit Multiplier
                 $(`#${k}_exit_mult`).val(s.exit_multiplier || 1);
 
-                // Target Config
                 let tgts = s.targets || [
                     {active: true, lots: 0, full: false},
                     {active: true, lots: 0, full: false},
                     {active: true, lots: 1000, full: true}
                 ];
-                
-                // T1
                 $(`#${k}_a1`).prop('checked', tgts[0].active);
                 $(`#${k}_l1`).val(tgts[0].lots > 0 && !tgts[0].full ? tgts[0].lots : '');
                 $(`#${k}_f1`).prop('checked', tgts[0].full);
                 
-                // T2
                 $(`#${k}_a2`).prop('checked', tgts[1].active);
                 $(`#${k}_l2`).val(tgts[1].lots > 0 && !tgts[1].full ? tgts[1].lots : '');
                 $(`#${k}_f2`).prop('checked', tgts[1].full);
 
-                // T3
                 $(`#${k}_a3`).prop('checked', tgts[2].active);
                 $(`#${k}_l3`).val(tgts[2].lots > 0 && !tgts[2].full ? tgts[2].lots : '');
                 $(`#${k}_f3`).prop('checked', tgts[2].full);
@@ -59,6 +64,21 @@ function saveSettings() {
     $('input[name="exch_select"]:checked').each(function() { selectedExchanges.push($(this).val()); });
     settings.exchanges = selectedExchanges;
 
+    // --- Telegram Config Save ---
+    settings.telegram = {
+        enabled: $('#tg_enabled').is(':checked'),
+        bot_token: $('#tg_token').val().trim(),
+        chat_id: $('#tg_chat').val().trim(),
+        events: {},
+        templates: {}
+    };
+    
+    ['TRADE_ADDED', 'TRADE_UPDATE', 'TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].forEach(evt => {
+        settings.telegram.events[evt] = $(`#tg_evt_${evt}`).is(':checked');
+        settings.telegram.templates[evt] = $(`#tg_tmpl_${evt}`).val();
+    });
+    // ----------------------------
+
     ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
         let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
         let s = settings.modes[m];
@@ -66,13 +86,9 @@ function saveSettings() {
         s.qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;
         s.ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
         s.trailing_sl = parseFloat($(`#${k}_def_trail`).val()) || 0;
-        
-        // Save Defaults
         s.order_type = $(`#${k}_order_type`).val();
         s.sl_to_entry = parseInt($(`#${k}_trail_limit`).val()) || 0;
         s.exit_multiplier = parseInt($(`#${k}_exit_mult`).val()) || 1;
-        
-        // Save Target Configs
         s.targets = [
             {
                 active: $(`#${k}_a1`).is(':checked'),

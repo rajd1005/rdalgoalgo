@@ -8,7 +8,7 @@ def get_defaults():
         "ratios": [0.5, 1.0, 1.5], 
         "symbol_sl": {}, 
         "trailing_sl": 0,
-        "sl_to_entry": False, # False = Unlimited, True = Up-to Entry
+        "sl_to_entry": 0, # 0=Unlimited, 1=Entry, 2=T1, 3=T2, 4=T3
         "order_type": "MARKET"
     }
     return {
@@ -48,7 +48,7 @@ def load_settings():
                     
                     # Ensure new keys exist (Migration for new features)
                     if "sl_to_entry" not in saved["modes"][m]:
-                        saved["modes"][m]["sl_to_entry"] = False
+                        saved["modes"][m]["sl_to_entry"] = 0
                     if "order_type" not in saved["modes"][m]:
                         saved["modes"][m]["order_type"] = "MARKET"
                     if "trailing_sl" not in saved["modes"][m]:

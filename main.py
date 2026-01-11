@@ -174,12 +174,59 @@ def api_history():
     # New Fields
     trailing_sl = float(data.get('trailing_sl') or 0)
     sl_to_entry = int(data.get('sl_to_entry', 0))
+    exit_multiplier = int(data.get('exit_multiplier', 1))
     target_controls = data.get('target_controls', None)
     
     # UPDATE: Enforce T3 Default = Exit All (1000) if 0 in controls
     if target_controls and len(target_controls) >= 3:
         if target_controls[2]['lots'] == 0:
             target_controls[2]['lots'] = 1000
+
+    # --- SIMULATOR EXIT MULTIPLIER LOGIC ---
+    if exit_multiplier > 1:
+        # 1. Determine Final Goal Price
+        final_goal = 0
+        valid_custom = [x for x in custom_targets if x > 0]
+        if valid_custom:
+             final_goal = max(valid_custom)
+        else:
+             final_goal = entry_price + (sl_points * 2) # Default Fallback
+
+        # 2. Calculate Steps
+        dist = final_goal - entry_price
+        
+        new_targets = []
+        new_controls = []
+        
+        # We need the lot size to calculate split lots
+        # Since exact symbol might need resolving, we do a quick check
+        tradingsymbol = smart_trader.get_exact_symbol(smart_trader.get_zerodha_symbol(data['symbol']), data['expiry'], data['strike'], data['type'])
+        lot_size = smart_trader.get_lot_size(tradingsymbol) if tradingsymbol else 1
+        
+        total_lots = qty // lot_size
+        base_lots = total_lots // exit_multiplier
+        remainder = total_lots % exit_multiplier
+        
+        for i in range(1, exit_multiplier + 1):
+            fraction = i / exit_multiplier
+            t_price = entry_price + (dist * fraction)
+            new_targets.append(round(t_price, 2))
+            
+            # Distribute lots
+            lots_here = base_lots
+            if i == exit_multiplier:
+                lots_here += remainder
+            
+            new_controls.append({'enabled': True, 'lots': int(lots_here)})
+        
+        # Pad with dummies if needed
+        while len(new_targets) < 3:
+            new_targets.append(0)
+            new_controls.append({'enabled': False, 'lots': 0})
+            
+        custom_targets = new_targets
+        target_controls = new_controls
+    # ---------------------------------------
 
     result = smart_trader.simulate_trade(
         kite, 

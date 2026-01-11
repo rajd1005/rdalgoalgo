@@ -35,7 +35,7 @@ def get_defaults():
             "enabled": False,
             "bot_token": "",
             "channels": [], # List of {name, chat_id, limit}
-            "forwarding_rules": [], # List of {source_id, dest_id, trigger_event, delay}
+            "forwarding_rules": [], # List of {source_id, dest_id, trigger_event, trigger_value, template, delay}
             "events": {
                 "TRADE_ADDED": True,
                 "TRADE_UPDATE": True,
@@ -92,6 +92,7 @@ def load_settings():
                 for k, v in defaults["telegram"]["templates"].items():
                     if k not in saved["telegram"]["templates"]: saved["telegram"]["templates"][k] = v
                 
+                # Channels Migration
                 if "channels" not in saved["telegram"]:
                     saved["telegram"]["channels"] = []
                     if saved["telegram"].get("chat_id"):
@@ -101,7 +102,7 @@ def load_settings():
                             "limit": 100
                         })
                 
-                # Forwarding Migration
+                # Forwarding Rules Migration
                 if "forwarding_rules" not in saved["telegram"]:
                     saved["telegram"]["forwarding_rules"] = []
 

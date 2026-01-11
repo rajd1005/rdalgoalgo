@@ -38,12 +38,28 @@ function updateData() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 let editBtn = (cat !== 'SIMULATOR') ? `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>` : '';
+                
+                // --- Active Trade Status Tags ---
+                let statusTag = '';
+                if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Pending</span>';
+                else {
+                    let hits = t.targets_hit_indices || [];
+                    let maxHit = -1;
+                    if(hits.length > 0) maxHit = Math.max(...hits);
+                    
+                    if(maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target Hit</span>';
+                    else if(maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
+                    else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Targets Hit</span>';
+                    else statusTag = '<span class="badge bg-primary" style="font-size:0.7rem;">Active</span>';
+                }
+                // --------------------------------
 
                 html += `<div class="trade-row">
                     <div class="trade-info">
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
                             ${badge}
+                            ${statusTag}
                         </div>
                         <div class="text-end">
                              <span class="fw-bold ${color}" style="font-size:1rem;">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</span>
@@ -73,7 +89,7 @@ function openEditTradeModal(id) {
     $('#edit_entry').val(t.entry_price);
     $('#edit_sl').val(t.sl);
     $('#edit_trail').val(t.trailing_sl || 0);
-    $('#edit_trail_mode').val(t.sl_to_entry ? "1" : "0");
+    $('#edit_trail_mode').val(t.sl_to_entry || 0);
     
     // Default Controls if missing
     let defaults = [
@@ -124,7 +140,7 @@ function saveTradeUpdate() {
         entry_price: parseFloat($('#edit_entry').val()),
         sl: parseFloat($('#edit_sl').val()),
         trailing_sl: parseFloat($('#edit_trail').val()),
-        sl_to_entry: $('#edit_trail_mode').val() === "1",
+        sl_to_entry: parseInt($('#edit_trail_mode').val()) || 0,
         targets: [
             parseFloat($('#edit_t1').val())||0,
             parseFloat($('#edit_t2').val())||0,

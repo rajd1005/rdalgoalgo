@@ -39,7 +39,7 @@ def delete_trade(trade_id):
         db.session.rollback()
         return False
 
-def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=None, target_controls=None, sl_to_entry=False):
+def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=None, target_controls=None, sl_to_entry=0):
     trades = load_trades()
     updated = False
     for t in trades:
@@ -57,7 +57,7 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             t['sl'] = float(sl)
             t['targets'] = [float(x) for x in targets]
             t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
-            t['sl_to_entry'] = sl_to_entry
+            t['sl_to_entry'] = int(sl_to_entry)
             
             if target_controls:
                 t['target_controls'] = target_controls
@@ -70,7 +70,10 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
                 status = "ON" if c['enabled'] else "OFF"
                 tgt_log.append(f"{p}({status}, {c['lots']}L)")
             
-            trail_mode = "To Entry" if sl_to_entry else "Unlimited"
+            # Label trail mode for logs
+            trail_map = {0:"Unlimited", 1:"To Entry", 2:"To T1", 3:"To T2", 4:"To T3"}
+            trail_mode = trail_map.get(t['sl_to_entry'], "Unlimited")
+            
             log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {', '.join(tgt_log)}. Trail: {t['trailing_sl']} ({trail_mode})")
             updated = True
             break
@@ -187,7 +190,7 @@ def get_exchange(symbol):
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
     return "NSE"
 
-def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=False):
+def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0):
     trades = load_trades()
     exchange = get_exchange(specific_symbol)
     
@@ -224,7 +227,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "id": int(time.time()), "entry_time": get_time_str(), "symbol": specific_symbol, "exchange": exchange,
         "mode": mode, "order_type": order_type, "status": status, "entry_price": entry_price, "quantity": quantity,
         "sl": entry_price - sl_points, "targets": targets, "target_controls": target_controls,
-        "lot_size": lot_size, "trailing_sl": float(trailing_sl), "sl_to_entry": sl_to_entry,
+        "lot_size": lot_size, "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry),
         "targets_hit_indices": [],
         "highest_ltp": entry_price, "made_high": entry_price, "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs
     }
@@ -351,8 +354,19 @@ def update_risk_engine(kite):
             # Trailing SL
             if t.get('trailing_sl', 0) > 0:
                 new_sl = ltp - t['trailing_sl']
-                if t.get('sl_to_entry', False):
-                    new_sl = min(new_sl, t['entry_price'])
+                
+                # Logic Update: Integer Trail Modes
+                limit_mode = int(t.get('sl_to_entry', 0))
+                limit_price = float('inf')
+                
+                if limit_mode == 1: limit_price = t['entry_price']
+                elif limit_mode == 2 and len(t['targets']) > 0: limit_price = t['targets'][0]
+                elif limit_mode == 3 and len(t['targets']) > 1: limit_price = t['targets'][1]
+                elif limit_mode == 4 and len(t['targets']) > 2: limit_price = t['targets'][2]
+                
+                if limit_mode > 0:
+                    new_sl = min(new_sl, limit_price)
+                
                 if new_sl > t['sl']:
                     t['sl'] = new_sl
                     log_event(t, f"Trailing SL Moved to {t['sl']:.2f}")

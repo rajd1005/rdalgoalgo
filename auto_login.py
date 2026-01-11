@@ -34,8 +34,11 @@ def perform_auto_login(kite_instance):
 
         # 2. Enter User ID
         print("➡️ Entering User ID...")
-        user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
-        user_id_field.send_keys(config.ZERODHA_USER_ID)
+        try:
+            user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
+            user_id_field.send_keys(config.ZERODHA_USER_ID)
+        except:
+            return None, "Error: Could not find User ID field."
         
         try:
              driver.find_element(By.ID, "password")
@@ -44,29 +47,40 @@ def perform_auto_login(kite_instance):
 
         # 3. Enter Password
         print("➡️ Entering Password...")
-        password_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
-        password_field.send_keys(config.ZERODHA_PASSWORD)
-        password_field.submit()
+        try:
+            password_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
+            password_field.send_keys(config.ZERODHA_PASSWORD)
+            password_field.submit()
+        except:
+            return None, "Error: Could not find Password field."
 
         # 4. Enter TOTP (2FA)
         print("➡️ Entering TOTP...")
         if not config.TOTP_SECRET:
-            raise Exception("TOTP_SECRET is missing in environment variables")
+            return None, "Error: TOTP_SECRET is missing in Config."
             
         totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
         
-        # Wait for the numeric input field
-        totp_field = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='text'][maxlength='6']")))
-        totp_field.send_keys(totp_now)
-        
         try:
-            totp_field.submit()
+            # Wait for the numeric input field
+            totp_field = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='text'][maxlength='6']")))
+            totp_field.send_keys(totp_now)
+            
+            # Submit if needed
+            try:
+                totp_field.submit()
+            except:
+                pass
         except:
-            pass
+             # Snapshot the page source for debugging if needed
+             return None, "Error: Could not find TOTP field (2FA)."
 
         # 5. Wait for Redirect and Capture Token
         print("⏳ Waiting for Redirect...")
-        wait.until(EC.url_contains("request_token="))
+        try:
+            wait.until(EC.url_contains("request_token="))
+        except:
+            return None, "Error: Login timed out. Incorrect Password or TOTP?"
         
         current_url = driver.current_url
         parsed = urlparse(current_url)
@@ -74,13 +88,13 @@ def perform_auto_login(kite_instance):
         
         if request_token:
             print(f"✅ Auto-Login Success! Token: {request_token[:6]}...")
-            return request_token
+            return request_token, None
         else:
-            raise Exception("Request Token not found in redirect URL")
+            return None, "Error: Request Token not found in URL."
 
     except Exception as e:
         print(f"❌ Auto-Login Failed: {e}")
-        return None
+        return None, str(e)
         
     finally:
         if driver:

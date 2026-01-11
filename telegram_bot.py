@@ -66,18 +66,18 @@ def _process_alert(app, event_type, trade_data, extra):
         token = conf.get('bot_token')
         if not token: return
 
-        # Standard Template for this event (used for regular updates)
+        # Standard Template for this event
         std_tmpl = conf.get('templates', {}).get(event_type, "")
         
         # 1. Get Existing Recipients
         sent_map = trade_data.get('telegram_msg_ids', {})
         
         # 2. Process Forwarding Rules
+        # Check rules to see if this event triggers a NEW destination
         forwarding_rules = conf.get('forwarding_rules', [])
         new_recipients = {}
         
-        # Check if trade exists in map (source check) OR if we allow forwarding unmapped trades (logic below assumes mapped)
-        if sent_map:
+        if sent_map: # Only forward if originally sent (Source Check)
             for rule in forwarding_rules:
                 src = str(rule.get('source_id'))
                 dest = str(rule.get('dest_id'))
@@ -85,13 +85,10 @@ def _process_alert(app, event_type, trade_data, extra):
                 delay = int(rule.get('delay', 0))
                 trigger_val = str(rule.get('trigger_value', 'ANY')) 
                 
-                # Rule Matches if: 
-                # 1. Source Channel has this trade
-                # 2. Event Type matches Trigger
-                # 3. Destination Channel does NOT have this trade yet
+                # Rule Matches if: Source has trade, Event matches Trigger, Dest NOT yet active
                 if src in sent_map and event_type == trigger and dest not in sent_map:
                     
-                    # Specific Trigger Value Check (e.g., Target 1 vs 2)
+                    # Specific Trigger Value Check (e.g. Only Target 1)
                     if event_type == 'TARGET_HIT' and trigger_val != 'ANY':
                         hit_idx = str(extra.get('index', 0))
                         if hit_idx != trigger_val:
@@ -105,30 +102,28 @@ def _process_alert(app, event_type, trade_data, extra):
                     
                     fwd_text = format_message(fwd_tmpl, trade_data, extra)
                     
-                    # Send as NEW Root Message
+                    # Send as NEW Root Message to Destination
                     new_id = send_request(token, dest, fwd_text, reply_to=None)
                     if new_id:
                         new_recipients[dest] = new_id
                         print(f"➡️ Forwarded {event_type} to {dest} (Source: {src})")
 
-        # 3. Send to Existing Recipients (and newly forwarded ones? No, new ones got custom msg)
+        # 3. Send to Existing Recipients (Reply Mode) using Standard Template
         std_text = format_message(std_tmpl, trade_data, extra)
         
         for chat_id, root_msg_id in sent_map.items():
-            # If we just forwarded to this channel, we sent the Custom Template.
-            # Do NOT send the Standard Template immediately for the same event.
+            # If we just forwarded to this channel using Custom Template, 
+            # do not send the Standard Template immediately for the same event.
             if chat_id in new_recipients:
                 continue 
             
-            # Send standard update as reply
             send_request(token, chat_id, std_text, reply_to=root_msg_id)
 
         # 4. Update Database with New Recipients (for future threading)
         if new_recipients:
             try:
                 sent_map.update(new_recipients)
-                # Important: Update the trade object in memory AND db
-                trade_data['telegram_msg_ids'] = sent_map 
+                trade_data['telegram_msg_ids'] = sent_map
                 
                 t_record = ActiveTrade.query.filter_by(id=trade_data['id']).first()
                 if t_record:

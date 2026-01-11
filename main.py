@@ -9,7 +9,7 @@ import strategy_manager
 import smart_trader
 import settings
 from database import db
-import auto_login  # Import the auto login module
+import auto_login 
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -22,37 +22,46 @@ with app.app_context():
 
 kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
-login_in_progress = False  # Track login status
+login_in_progress = False 
+login_error_msg = None  # NEW: Stores the error message
 
 def run_auto_login_process():
-    global bot_active, login_in_progress
+    global bot_active, login_in_progress, login_error_msg
     
     if bot_active: 
         return
         
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
-        print("⚠️ Missing Auto-Login Credentials")
+        login_error_msg = "Missing Credentials in Settings (Env Vars)"
         return
 
     login_in_progress = True
+    login_error_msg = None # Clear previous errors
+    
     try:
-        token = auto_login.perform_auto_login(kite)
+        # Now expects a tuple (token, error)
+        token, error = auto_login.perform_auto_login(kite)
+        
         if token:
             data = kite.generate_session(token, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
             bot_active = True
             smart_trader.fetch_instruments(kite)
             print("✅ System Auto-Logged In Successfully")
+            login_error_msg = None
         else:
-            print("❌ Auto-Login returned no token")
+            print(f"❌ Auto-Login Failed: {error}")
+            login_error_msg = error # Store error for UI
+            
     except Exception as e:
-        print(f"❌ Auto-Login Session Generation Error: {e}")
+        print(f"❌ Session Error: {e}")
+        login_error_msg = str(e)
     finally:
         login_in_progress = False
 
 @app.route('/')
 def home():
-    global bot_active, login_in_progress
+    global bot_active, login_in_progress, login_error_msg
     
     trades = strategy_manager.load_trades()
     for t in trades:
@@ -60,10 +69,10 @@ def home():
         
     active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
     
-    # Pass login_in_progress to template to show spinner
     return render_template('dashboard.html', 
                            is_active=bot_active, 
                            login_in_progress=login_in_progress,
+                           login_error=login_error_msg,  # Pass error to UI
                            login_url=kite.login_url(), 
                            trades=active)
 
@@ -116,7 +125,6 @@ def api_positions():
     for t in trades:
         t['lot_size'] = smart_trader.get_lot_size(t['symbol'])
         t['symbol'] = smart_trader.get_display_name(t['symbol'])
-        
     return jsonify(trades)
 
 @app.route('/api/closed_trades')
@@ -305,6 +313,6 @@ def close_trade(trade_id):
     return redirect('/')
 
 if __name__ == "__main__":
-    # START AUTO LOGIN THREAD ON BOOT
+    # Start Auto Login Thread on Boot
     threading.Thread(target=run_auto_login_process).start()
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

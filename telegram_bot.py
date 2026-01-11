@@ -69,12 +69,9 @@ def _process_alert(event_type, trade_data, extra):
     # Structure: { "chat_id_1": msg_id, "chat_id_2": msg_id }
     sent_map = trade_data.get('telegram_msg_ids', {})
     
-    # If it's a legacy trade without map, or specific logic needed, handle here.
     # We only update channels where the initial trade was sent.
     if sent_map:
         for chat_id, root_msg_id in sent_map.items():
-            # For TRADE_ADDED, we usually don't use send_alert (we use send_trade_added_sync)
-            # For others, we reply to root
             send_request(token, chat_id, text, reply_to=root_msg_id)
 
 def send_trade_added_sync(trade_data, target_channels):

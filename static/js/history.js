@@ -31,20 +31,20 @@ function loadClosedTrades() {
                     potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
                 }
 
-                // --- Live Status Tag Logic for Closed Trades ---
+                // --- Live Status Tag Logic for Closed Trades (Updated) ---
                 let statusTag = '';
                 if (t.status === 'SL_HIT') {
-                     statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-loss</span>';
+                     statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
                 } else if (t.status === 'TARGET_HIT') {
                      // Try to determine which target was hit from indices
-                     let maxHit = 2; // Default to all
+                     let maxHit = 2; // Default to all (Target 3)
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          maxHit = Math.max(...t.targets_hit_indices);
                      }
                      
-                     if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target Hit</span>';
+                     if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 1 Hit</span>';
                      else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
-                     else statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Targets Hit</span>';
+                     else statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 3 Hit</span>';
 
                 } else if (t.status === 'COST_EXIT') {
                      statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Cost Exit</span>';

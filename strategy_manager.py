@@ -213,7 +213,7 @@ def get_daily_trade_count():
     active_count = len([t for t in load_trades() if t['entry_time'].startswith(today_str)])
     return hist_count + active_count + 1 # +1 for the current new trade
 
-def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1):
+def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1, telegram_mode="AUTO"):
     trades = load_trades()
     exchange = get_exchange(specific_symbol)
     
@@ -275,18 +275,24 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "telegram_msg_ids": {}
     }
 
-    # TELEGRAM LOGIC: Channel Selection & Sending
-    daily_count = get_daily_trade_count()
+    # TELEGRAM LOGIC: Channel Selection with Override Support
     conf = settings.load_settings().get('telegram', {})
     channels = conf.get('channels', [])
     eligible_channels = []
     
-    for ch in channels:
-        limit = int(ch.get('limit', 0))
-        # If Limit is 0, we assume unlimited, or check limit > 0.
-        # Here we use limit > 0 check to strictly enforce limit setting.
-        if limit > 0 and daily_count <= limit:
-            eligible_channels.append(ch)
+    if telegram_mode == "FORCE_ALL":
+        # Send to ALL channels (Bypass limits)
+        eligible_channels = channels
+    elif telegram_mode and telegram_mode != "AUTO":
+        # Send to SPECIFIC channel (Bypass limits)
+        eligible_channels = [c for c in channels if str(c.get('chat_id')) == str(telegram_mode)]
+    else:
+        # AUTO (Default Daily Limit Logic)
+        daily_count = get_daily_trade_count()
+        for ch in channels:
+            limit = int(ch.get('limit', 0))
+            if limit > 0 and daily_count <= limit:
+                eligible_channels.append(ch)
             
     if eligible_channels:
         msg_ids = telegram_bot.send_trade_added_sync(record, eligible_channels)
@@ -339,7 +345,6 @@ def inject_simulated_trade(trade_data, is_active):
     trade_data['telegram_msg_ids'] = {}
 
     if is_active:
-        # Check limits for Simulator
         daily_count = get_daily_trade_count()
         conf = settings.load_settings().get('telegram', {})
         channels = conf.get('channels', [])

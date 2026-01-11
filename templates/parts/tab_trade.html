@@ -37,7 +37,7 @@
                 </div>
                 
                 <div class="row g-2 mb-3">
-                    <div class="col-4">
+                    <div class="col-6">
                         <label class="pos-grid-label">QTY (<span id="lot">1</span> x <span id="qty_mult_disp">1</span>)</label>
                         <div class="input-group">
                             <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#qty', -1)">-</button>
@@ -45,19 +45,21 @@
                             <button class="btn btn-outline-secondary" type="button" onclick="adjQty('#qty', 1)">+</button>
                         </div>
                     </div>
-                    <div class="col-4">
+                    <div class="col-6">
                         <label class="pos-grid-label">EXIT MULTIPLIER</label>
                         <input type="number" name="exit_multiplayer" id="exit_mult" class="form-control fw-bold text-center border-info" value="1" min="1" max="10">
                     </div>
-                    <div class="col-4">
-                        <label class="pos-grid-label">ORDER</label>
-                        <select name="order_type" id="ord" class="form-select fw-bold"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select>
-                    </div>
                 </div>
                 
-                <div id="lim_box" class="mb-3">
-                    <label class="pos-grid-label">LIMIT PRICE</label>
-                    <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control mb-3 text-primary fw-bold" placeholder="Limit Price">
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="pos-grid-label">ORDER TYPE</label>
+                        <select name="order_type" id="ord" class="form-select fw-bold"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select>
+                    </div>
+                    <div class="col-6" id="lim_box">
+                         <label class="pos-grid-label">LIMIT PRICE</label>
+                         <input type="number" step="0.05" name="limit_price" id="lim_pr" class="form-control text-primary fw-bold" placeholder="Limit Price">
+                    </div>
                 </div>
             </div>
         </div>

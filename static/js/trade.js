@@ -10,10 +10,11 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
     let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
     $(slId).val(savedSL);
     
+    // Apply Defaults from Global Settings
     if(mode === 'SIMULATOR') {
-         // Logic handled in simulator.js
+         // Handled in simulator.js
     } else {
-        // Apply Global Defaults to Trade Form
+        // Trade Form Specifics
         if(modeSettings.order_type) $('#ord').val(modeSettings.order_type);
         if(modeSettings.trail_limit !== undefined) $('#trail_mode').val(modeSettings.trail_limit);
         $('#trail_sl').val(modeSettings.trailing_sl || '');
@@ -138,40 +139,27 @@ function calcRisk() {
 
     // --- EXIT MULTIPLIER LOGIC ---
     let exitMult = parseInt($('#exit_mult').val()) || 1;
-    
-    // We treat T3 ratio from global settings as the "Final Target Ratio" (100% distance)
-    // If Exit Mult > 1, we divide this path into 'exitMult' steps.
     let finalRatio = baseRatios[2]; 
     
     if (exitMult > 1) {
-        // Limit max steps to 3 (since we only have 3 target slots)
         let steps = Math.min(exitMult, 3); 
         let ratioStep = finalRatio / steps;
         let lotsPerStep = Math.floor(qty / steps); 
-        let extraLots = qty % steps; // Add remainder to last target
+        let extraLots = qty % steps;
 
-        // Update UI Fields programmatically
         for(let i=1; i<=3; i++) {
              if (i <= steps) {
-                 // Calculate Target Price based on split ratio
                  let targetPrice = basePrice + (p * (ratioStep * i));
                  $(`#p_t${i}`).val(targetPrice.toFixed(2));
                  
                  let thisLots = lotsPerStep;
-                 if (i === steps) thisLots += extraLots; // Add remainder to final
+                 if (i === steps) thisLots += extraLots; 
                  
-                 // Update Lots & Active
                  $(`#t${i}_active`).prop('checked', true);
                  $(`#t${i}_lots`).val(thisLots);
-                 $(`#t${i}_full`).prop('checked', false); // Disable full override
-                 
-                 // Recalculate PnL display for this row
-                 $(`#pnl_t${i}`).text(`₹ ${((targetPrice-basePrice)*qty).toFixed(0)}`); // Approximate total potential
-                 // Actually PnL per target row logic in calcPnl uses just qty input * price diff
-                 // But visual update of PnL text:
+                 $(`#t${i}_full`).prop('checked', false); 
                  $(`#pnl_t${i}`).text(`₹ ${((targetPrice - basePrice) * thisLots).toFixed(0)}`);
              } else {
-                 // Disable unused targets
                  $(`#t${i}_active`).prop('checked', false);
                  $(`#t${i}_lots`).val('');
                  $(`#p_t${i}`).val('');
@@ -179,18 +167,13 @@ function calcRisk() {
              }
         }
     } else {
-        // Standard Behavior (Use default ratios from settings)
+        // Standard Behavior
         let t1 = basePrice + p * baseRatios[0]; 
         let t2 = basePrice + p * baseRatios[1]; 
         let t3 = basePrice + p * baseRatios[2];
     
         if (!document.activeElement || !['p_t1', 'p_t2', 'p_t3'].includes(document.activeElement.id)) {
                 $('#p_t1').val(t1.toFixed(2)); $('#p_t2').val(t2.toFixed(2)); $('#p_t3').val(t3.toFixed(2));
-                // Update PnL text based on currently entered lots (or defaults)
-                // Note: calcPnl reads from #qty input (total), which might be misleading for partials, 
-                // but we stick to standard behavior here unless user manually changes lots.
-                // Standard behavior: PnL shows total potential if whole qty exited? 
-                // Existing code: ((val - basePrice) * qty) -> Uses TOTAL qty.
                 $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`); 
                 $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`); 
                 $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);

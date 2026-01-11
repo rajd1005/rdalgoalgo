@@ -21,25 +21,28 @@ with app.app_context():
     db.create_all()
 
 kite = KiteConnect(api_key=config.API_KEY)
+
+# --- GLOBAL STATE MANAGEMENT ---
 bot_active = False
-login_in_progress = False 
-login_error_msg = None  # NEW: Stores the error message
+# States: "IDLE", "WORKING", "FAILED", "STOPPED"
+login_state = "IDLE" 
+login_error_msg = None 
 
 def run_auto_login_process():
-    global bot_active, login_in_progress, login_error_msg
+    global bot_active, login_state, login_error_msg
     
-    if bot_active: 
-        return
-        
+    # Validation
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
-        login_error_msg = "Missing Credentials in Settings (Env Vars)"
+        login_state = "FAILED"
+        login_error_msg = "Missing Credentials in Config"
         return
 
-    login_in_progress = True
-    login_error_msg = None # Clear previous errors
+    # Set State
+    login_state = "WORKING"
+    login_error_msg = None
     
     try:
-        # Now expects a tuple (token, error)
+        # Call the auto_login module
         token, error = auto_login.perform_auto_login(kite)
         
         if token:
@@ -48,45 +51,64 @@ def run_auto_login_process():
             bot_active = True
             smart_trader.fetch_instruments(kite)
             print("✅ System Auto-Logged In Successfully")
-            login_error_msg = None
+            # Reset state for future
+            login_state = "IDLE" 
         else:
             print(f"❌ Auto-Login Failed: {error}")
-            login_error_msg = error # Store error for UI
+            login_state = "FAILED"
+            login_error_msg = error
             
     except Exception as e:
         print(f"❌ Session Error: {e}")
+        login_state = "FAILED"
         login_error_msg = str(e)
-    finally:
-        login_in_progress = False
 
 @app.route('/')
 def home():
-    global bot_active, login_in_progress, login_error_msg
+    global bot_active, login_state
     
-    trades = strategy_manager.load_trades()
-    for t in trades:
-        t['symbol'] = smart_trader.get_display_name(t['symbol'])
+    # 1. IF LOGGED IN: SHOW DASHBOARD
+    if bot_active:
+        trades = strategy_manager.load_trades()
+        for t in trades:
+            t['symbol'] = smart_trader.get_display_name(t['symbol'])
+        active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
+        return render_template('dashboard.html', is_active=True, trades=active)
+
+    # 2. IF NOT LOGGED IN: HANDLE AUTO-LOGIN FLOW
+    
+    # A. First Visit (IDLE) -> Start Auto-Login immediately
+    if login_state == "IDLE":
+        threading.Thread(target=run_auto_login_process).start()
+        # Render loading immediately so user sees "Connecting..."
+        return render_template('dashboard.html', is_active=False, state="WORKING")
         
-    active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
-    
-    return render_template('dashboard.html', 
-                           is_active=bot_active, 
-                           login_in_progress=login_in_progress,
-                           login_error=login_error_msg,  # Pass error to UI
-                           login_url=kite.login_url(), 
-                           trades=active)
+    # B. Already Running (WORKING) -> Show Loader
+    elif login_state == "WORKING":
+        return render_template('dashboard.html', is_active=False, state="WORKING")
+
+    # C. Failed or Logout (FAILED/STOPPED) -> Show Manual Button
+    else:
+        return render_template('dashboard.html', 
+                               is_active=False, 
+                               state=login_state, 
+                               error=login_error_msg,
+                               login_url=kite.login_url())
 
 @app.route('/logout')
 def logout():
-    global bot_active
+    global bot_active, login_state
     bot_active = False
+    # Set to STOPPED so it doesn't auto-login again immediately
+    login_state = "STOPPED" 
     flash("🔌 Disconnected")
     return redirect('/')
 
 @app.route('/trigger_autologin')
 def trigger_autologin_route():
-    threading.Thread(target=run_auto_login_process).start()
-    flash("🔄 Auto-Login Process Started...")
+    global login_state
+    # Force reset to IDLE so the '/' route picks it up and starts fresh
+    login_state = "IDLE"
     return redirect('/')
 
 @app.route('/callback')
@@ -313,6 +335,4 @@ def close_trade(trade_id):
     return redirect('/')
 
 if __name__ == "__main__":
-    # Start Auto Login Thread on Boot
-    threading.Thread(target=run_auto_login_process).start()
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

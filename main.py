@@ -103,7 +103,7 @@ def api_update_trade():
             data.get('trailing_sl', 0),
             data.get('entry_price'),
             data.get('target_controls'),
-            data.get('sl_to_entry', False)
+            data.get('sl_to_entry', 0)
         ):
             return jsonify({"status": "success"})
         else:
@@ -172,7 +172,7 @@ def api_history():
     
     # New Fields
     trailing_sl = float(data.get('trailing_sl') or 0)
-    sl_to_entry = bool(data.get('sl_to_entry', False))
+    sl_to_entry = int(data.get('sl_to_entry', 0))
     target_controls = data.get('target_controls', None)
     
     # UPDATE: Enforce T3 Default = Exit All (1000) if 0 in controls
@@ -220,7 +220,7 @@ def place_trade():
         
         # New Trailing SL Inputs
         trailing_sl = float(request.form.get('trailing_sl') or 0)
-        sl_to_entry = request.form.get('sl_to_entry') == '1' # 1 for Up-to Entry, 0 for Unlimited
+        sl_to_entry = int(request.form.get('sl_to_entry', 0))
         
         t1 = float(request.form.get('t1_price', 0))
         t2 = float(request.form.get('t2_price', 0))

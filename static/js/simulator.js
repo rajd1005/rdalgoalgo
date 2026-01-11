@@ -38,6 +38,43 @@ function calcSimSL(source) {
     }
     $('#h_entry').trigger('input'); 
     
+    // --- EXIT MULTIPLIER LOGIC FOR SIMULATOR ---
+    let qty = parseInt($('#h_qty').val()) || 1;
+    let pts = parseFloat($('#h_sl_pts').val()) || 0;
+    let exitMult = parseInt($('#h_exit_mult').val()) || 1;
+    let baseRatios = s.ratios || [0.5, 1.0, 1.5];
+    let finalRatio = baseRatios[2];
+
+    if(exitMult > 1) {
+        let steps = Math.min(exitMult, 3);
+        let ratioStep = finalRatio / steps;
+        let lotsPerStep = Math.floor(qty / steps);
+        let extraLots = qty % steps;
+
+        for(let i=1; i<=3; i++) {
+            if(i <= steps) {
+                let targetPrice = entry + (pts * (ratioStep * i));
+                $(`#h_t${i}`).val(targetPrice.toFixed(2));
+                
+                let thisLots = lotsPerStep;
+                if(i === steps) thisLots += extraLots;
+                
+                $(`#h_check_t${i}`).prop('checked', true);
+                $(`#h_lot_t${i}`).val(thisLots);
+                $(`#h_full_t${i}`).prop('checked', false);
+                
+                // Update PnL display
+                $(`#h_pnl_t${i}`).text(`₹ ${((targetPrice - entry) * thisLots).toFixed(0)}`);
+            } else {
+                $(`#h_check_t${i}`).prop('checked', false);
+                $(`#h_lot_t${i}`).val('');
+                $(`#h_t${i}`).val('');
+                $(`#h_pnl_t${i}`).text('₹ 0');
+            }
+        }
+    }
+    // -------------------------------------------
+
     // Handle Full Checkbox UI
     ['t1', 't2', 't3'].forEach(k => {
         if ($(`#h_full_${k}`).is(':checked')) $(`#h_lot_${k}`).val(1000).prop('readonly', true);

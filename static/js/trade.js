@@ -10,13 +10,24 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
     let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
     $(slId).val(savedSL);
     
-    // Apply Defaults (Targets & Trailing)
+    // Apply Defaults from Global Settings
     if(mode === 'SIMULATOR') {
-        // Handled in simulator.js or separate function if needed, but safe to apply here if IDs match
-        // Simulator uses h_ prefix, handled in calcSimSL mostly or separate logic.
-        // For now, let's keep simulator logic in simulator.js or separate block
+        // Handled in simulator.js usually, but we can trigger it or let calcSimSL pick it up
     } else {
+        // Trade Form Specifics
+        if(modeSettings.order_type) $('#ord').val(modeSettings.order_type);
+        if(modeSettings.trail_limit !== undefined) $('#trail_mode').val(modeSettings.trail_limit);
         $('#trail_sl').val(modeSettings.trailing_sl || '');
+        $('#exit_mult').val(modeSettings.exit_mult || 1);
+        
+        // Sync Ratios Display
+        if(modeSettings.ratios) {
+            $('#r_t1').text(modeSettings.ratios[0]);
+            $('#r_t2').text(modeSettings.ratios[1]);
+            $('#r_t3').text(modeSettings.ratios[2]);
+        }
+
+        // Sync Target Config (Active, Lots, Full)
         if(modeSettings.targets) {
             ['t1', 't2', 't3'].forEach((k, i) => {
                 let conf = modeSettings.targets[i];
@@ -132,10 +143,10 @@ function calcRisk() {
     }
     $('#pnl_sl').text(`₹ ${((sl-basePrice)*qty).toFixed(0)}`);
 
-    // Handle Full Checkbox Logic (Auto-set 1000 lots)
+    // Handle Full Checkbox Logic
     ['t1', 't2', 't3'].forEach(k => {
         if ($(`#${k}_full`).is(':checked')) {
-            $(`#${k}_lots`).val(1000).prop('readonly', true); // Visual feedback
+            $(`#${k}_lots`).val(1000).prop('readonly', true);
         } else {
             $(`#${k}_lots`).prop('readonly', false);
         }

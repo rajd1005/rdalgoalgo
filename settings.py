@@ -2,7 +2,15 @@ import json
 from database import db, AppSetting
 
 def get_defaults():
-    default_mode_settings = {"qty_mult": 1, "ratios": [0.5, 1.0, 1.5], "symbol_sl": {}}
+    # Added "sl_to_entry": 0 (Unlimited) and "order_type": "MARKET"
+    default_mode_settings = {
+        "qty_mult": 1, 
+        "ratios": [0.5, 1.0, 1.5], 
+        "symbol_sl": {}, 
+        "trailing_sl": 0,
+        "sl_to_entry": False, # False = Unlimited, True = Up-to Entry
+        "order_type": "MARKET"
+    }
     return {
         "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
         "watchlist": [],
@@ -31,11 +39,20 @@ def load_settings():
                     "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
                 }
 
-            # Integrity Check: Ensure all modes exist
+            # Integrity Check: Ensure all modes and new keys exist
             for m in ["LIVE", "PAPER", "SIMULATOR"]:
                 if m in saved["modes"]:
+                    # Preserve existing sub-keys
                     if "symbol_sl" not in saved["modes"][m]:
                         saved["modes"][m]["symbol_sl"] = saved.get("symbol_sl", {}).copy()
+                    
+                    # Ensure new keys exist (Migration for new features)
+                    if "sl_to_entry" not in saved["modes"][m]:
+                        saved["modes"][m]["sl_to_entry"] = False
+                    if "order_type" not in saved["modes"][m]:
+                        saved["modes"][m]["order_type"] = "MARKET"
+                    if "trailing_sl" not in saved["modes"][m]:
+                        saved["modes"][m]["trailing_sl"] = 0
                 else:
                     saved["modes"][m] = defaults["modes"][m]
 

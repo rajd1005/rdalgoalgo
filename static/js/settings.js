@@ -13,12 +13,12 @@ function loadSettings() {
             $('#tg_enabled').prop('checked', tg.enabled || false);
             $('#tg_token').val(tg.bot_token || '');
             
-            // Load Channels
+            // 1. Load Channels First (so DOM is ready for Forwarding Rules)
             $('#tg_channels_body').empty();
             let channels = tg.channels || [];
             channels.forEach(c => addChannelRow(c.name, c.chat_id, c.limit));
             
-            // Load Forwarding Rules
+            // 2. Load Forwarding Rules
             $('#tg_forward_body').empty();
             let fwdRules = tg.forwarding_rules || [];
             fwdRules.forEach(r => addForwardRow(r.source_id, r.dest_id, r.trigger_event, r.delay, r.trigger_value, r.template));
@@ -68,13 +68,16 @@ function loadSettings() {
     });
 }
 
+// FIX: Read from DOM to ensure dropdowns see newly added (unsaved) channels
 function getChannelOptions(selectedId) {
     let opts = '';
-    let tg = settings.telegram || {};
-    let channels = tg.channels || [];
-    channels.forEach(c => {
-        let sel = (c.chat_id == selectedId) ? 'selected' : '';
-        opts += `<option value="${c.chat_id}" ${sel}>${c.name}</option>`;
+    $('#tg_channels_body tr').each(function() {
+        let name = $(this).find('.tg-name').val();
+        let id = $(this).find('.tg-cid').val();
+        if(name && id) {
+            let sel = (id == selectedId) ? 'selected' : '';
+            opts += `<option value="${id}" ${sel}>${name}</option>`;
+        }
     });
     return opts;
 }
@@ -90,8 +93,7 @@ function addChannelRow(name='', cid='', limit=100) {
 }
 
 function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0, trigVal='ANY', tmpl='') {
-    // Note: getChannelOptions relies on loaded settings. If you just added a channel, SAVE first.
-    let chOpts = getChannelOptions(); 
+    let chOpts = getChannelOptions(null); // Get fresh options from DOM
     let evtOpts = ['TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].map(e => `<option value="${e}" ${e===trig?'selected':''}>${e}</option>`).join('');
     
     let valOpts = `
@@ -101,7 +103,7 @@ function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0, trigVal
         <option value="3" ${trigVal==='3'?'selected':''}>Target 3</option>
     `;
 
-    // Inject selected source/dest manually if they match
+    // Inject selection manually if IDs match
     let srcOpts = chOpts.replace(`value="${src}"`, `value="${src}" selected`);
     let destOpts = chOpts.replace(`value="${dest}"`, `value="${dest}" selected`);
 
@@ -124,7 +126,7 @@ function saveSettings() {
 
     // --- Telegram Config Save ---
     
-    // 1. Build Channels Array
+    // 1. Capture Channels
     let channels = [];
     $('#tg_channels_body tr').each(function() {
         let name = $(this).find('.tg-name').val();
@@ -133,7 +135,7 @@ function saveSettings() {
         if(cid) channels.push({name: name, chat_id: cid, limit: limit});
     });
 
-    // 2. Build Rules Array
+    // 2. Capture Forwarding Rules
     let rules = [];
     $('#tg_forward_body tr').each(function() {
         let src = $(this).find('.tg-fwd-src').val();
@@ -155,13 +157,11 @@ function saveSettings() {
         }
     });
 
-    // 3. Reconstruct Telegram Object properly
     if (!settings.telegram) settings.telegram = {};
-    
     settings.telegram.enabled = $('#tg_enabled').is(':checked');
     settings.telegram.bot_token = $('#tg_token').val().trim();
     settings.telegram.channels = channels;
-    settings.telegram.forwarding_rules = rules; // Ensure this is assigned
+    settings.telegram.forwarding_rules = rules;
     
     if(!settings.telegram.events) settings.telegram.events = {};
     if(!settings.telegram.templates) settings.telegram.templates = {};

@@ -91,8 +91,8 @@ function openEditTradeModal(id) {
     $('#edit_trail').val(t.trailing_sl || 0);
     $('#edit_trail_mode').val(t.sl_to_entry || 0);
     
-    // Reset Exit Multiplier
-    $('#edit_exit_mult').val(1);
+    // Load Exit Multiplier (or default to 1)
+    $('#edit_exit_mult').val(t.exit_multiplier || 1);
     
     // Default Controls if missing
     let defaults = [

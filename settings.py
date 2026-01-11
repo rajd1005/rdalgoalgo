@@ -3,13 +3,15 @@ from database import db, AppSetting
 
 def get_defaults():
     # Added "sl_to_entry": 0 (Unlimited) and "order_type": "MARKET"
+    # Added "exit_multiplier": 1
     default_mode_settings = {
         "qty_mult": 1, 
         "ratios": [0.5, 1.0, 1.5], 
         "symbol_sl": {}, 
         "trailing_sl": 0,
         "sl_to_entry": 0, # 0=Unlimited, 1=Entry, 2=T1, 3=T2, 4=T3
-        "order_type": "MARKET"
+        "order_type": "MARKET",
+        "exit_multiplier": 1
     }
     return {
         "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
@@ -53,6 +55,8 @@ def load_settings():
                         saved["modes"][m]["order_type"] = "MARKET"
                     if "trailing_sl" not in saved["modes"][m]:
                         saved["modes"][m]["trailing_sl"] = 0
+                    if "exit_multiplier" not in saved["modes"][m]:
+                        saved["modes"][m]["exit_multiplier"] = 1
                 else:
                     saved["modes"][m] = defaults["modes"][m]
 

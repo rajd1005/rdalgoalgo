@@ -13,9 +13,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 import config
 
 def perform_auto_login(kite_instance):
-    print("🔄 Starting Auto-Login Sequence...")
+    print("🔄 Starting Auto-Login Sequence (Debug Mode)...")
     
-    # 1. Setup Headless Chrome
+    # 1. Setup Headless Chrome with Anti-Detection flags
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
@@ -39,76 +39,97 @@ def perform_auto_login(kite_instance):
             user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
             user_id_field.clear()
             user_id_field.send_keys(config.ZERODHA_USER_ID)
-            user_id_field.send_keys(Keys.ENTER) # Hit Enter to move to password
+            time.sleep(1) # Brief pause for UI reaction
         except Exception as e:
-            return None, f"Error at User ID step: {str(e)}"
+            return None, f"Error finding User ID field: {str(e)}"
 
         # --- STEP 2: PASSWORD ---
         print("➡️ Entering Password...")
         try:
-            password_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
+            # Check if we are already on password field or need to hit enter
+            try:
+                password_field = driver.find_element(By.ID, "password")
+            except:
+                user_id_field.send_keys(Keys.ENTER)
+                password_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
+            
             password_field.clear()
             password_field.send_keys(config.ZERODHA_PASSWORD)
+            time.sleep(1) 
             
-            # FIX: Explicitly find and click the Login button
-            try:
-                login_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-                driver.execute_script("arguments[0].click();", login_btn)
-            except:
-                password_field.send_keys(Keys.ENTER)
-                
+            # FORCE CLICK SUBMIT
+            print("➡️ Clicking Login Button...")
+            submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            driver.execute_script("arguments[0].click();", submit_btn)
+            
         except Exception as e:
             return None, f"Error at Password step: {str(e)}"
 
-        # --- STEP 3: CHECK FOR LOGIN ERRORS ---
-        # Short sleep to let error messages appear
-        time.sleep(2)
-        try:
-            error_msg = driver.find_element(By.CSS_SELECTOR, ".su-alert-error, .error-message, .su-message.error")
-            if error_msg.is_displayed():
-                print(f"❌ Zerodha Error: {error_msg.text}")
-                return None, f"Login Failed: {error_msg.text}"
-        except:
-            pass # No error found, proceed
-
-        # --- STEP 4: TOTP (2FA) ---
-        print("➡️ Entering TOTP...")
-        if not config.TOTP_SECRET:
-            return None, "Error: TOTP_SECRET is missing in Config."
-            
-        totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
+        # --- STEP 3: ANALYZE RESULT (The Fix) ---
+        print("⏳ Analyzing next screen...")
+        time.sleep(3) # Wait for page transition
         
+        # A. Check for Explicit Error (Red Text)
         try:
-            # FIX: Broader selector strategy. Zerodha 2FA input is usually type='text' with maxlength='6'
-            # We wait for it to be clickable to ensure the transition is done
-            totp_selector = (By.CSS_SELECTOR, "input[type='text'][maxlength='6'], input[placeholder*='App Code'], input[label*='App Code']")
-            totp_field = wait.until(EC.element_to_be_clickable(totp_selector))
-            
-            totp_field.send_keys(totp_now)
-            totp_field.send_keys(Keys.ENTER)
-        except Exception as e:
-            # If we timed out here, it means we are still stuck on Password screen
-            return None, "Error: Could not find TOTP field. (Possible Incorrect Password?)"
+            error_el = driver.find_element(By.CSS_SELECTOR, ".su-message.error, .error-message")
+            if error_el.is_displayed():
+                err_text = error_el.text
+                print(f"❌ Zerodha Reported Error: {err_text}")
+                return None, f"Login Failed: {err_text}"
+        except:
+            pass
 
-        # --- STEP 5: CAPTURE TOKEN ---
+        # B. Check for Security Question (New Device Issue)
+        try:
+            # Look for text input that is NOT the password field or TOTP field
+            sec_q = driver.find_elements(By.XPATH, "//input[@type='password' and contains(@placeholder, 'Answer')]")
+            if sec_q:
+                print("❌ Stopped at Security Question.")
+                return None, "Zerodha is asking a Security Question (New Device). Cannot Auto-Login."
+        except:
+            pass
+
+        # --- STEP 4: TOTP ---
+        print("➡️ Attempting TOTP Entry...")
+        try:
+            if not config.TOTP_SECRET:
+                return None, "Error: TOTP_SECRET missing."
+            
+            totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
+            
+            # Look for the 6-digit App Code field
+            totp_field = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='text'][maxlength='6']")))
+            totp_field.clear()
+            totp_field.send_keys(totp_now)
+            
+            # Submit TOTP (Wait 1s before submitting)
+            time.sleep(1)
+            totp_field.send_keys(Keys.ENTER)
+            
+        except Exception as e:
+            # DEBUG: Print what page we are actually on
+            current_url = driver.current_url
+            page_text = driver.find_element(By.TAG_NAME, "body").text[:300].replace('\n', ' ')
+            print(f"❌ Failed to find TOTP. Current Page: {current_url}")
+            print(f"📄 Page Content Dump: {page_text}")
+            return None, "Could not find TOTP field. Check Logs for Page Dump."
+
+        # --- STEP 5: TOKEN ---
         print("⏳ Waiting for Redirect...")
         try:
             wait.until(EC.url_contains("request_token="))
+            current_url = driver.current_url
+            parsed = urlparse(current_url)
+            request_token = parse_qs(parsed.query).get('request_token', [None])[0]
+            
+            if request_token:
+                print(f"✅ Auto-Login Success! Token: {request_token[:6]}...")
+                return request_token, None
         except:
-            return None, "Error: Redirect timed out. Login may have failed."
-        
-        current_url = driver.current_url
-        parsed = urlparse(current_url)
-        request_token = parse_qs(parsed.query).get('request_token', [None])[0]
-        
-        if request_token:
-            print(f"✅ Auto-Login Success! Token: {request_token[:6]}...")
-            return request_token, None
-        else:
-            return None, "Error: Request Token not found in final URL."
+            return None, "Login timed out after entering TOTP."
 
     except Exception as e:
-        print(f"❌ Script Crash: {e}")
+        print(f"❌ System Error: {e}")
         return None, str(e)
         
     finally:

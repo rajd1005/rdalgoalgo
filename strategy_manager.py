@@ -6,6 +6,7 @@ import pytz
 from database import db, ActiveTrade, TradeHistory
 import smart_trader
 import telegram_bot
+import settings
 
 IST = pytz.timezone('Asia/Kolkata')
 
@@ -59,7 +60,6 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             t['sl_to_entry'] = int(sl_to_entry)
             t['exit_multiplier'] = int(exit_multiplier)
             
-            # Handle Exit Multiplier Logic (Recalculate Targets & Controls)
             if exit_multiplier > 1:
                 eff_entry = t['entry_price']
                 eff_sl_points = eff_entry - float(sl)
@@ -70,10 +70,8 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
                 dist = final_goal - eff_entry
                 new_targets = []
                 new_controls = []
-                
                 lot_size = t.get('lot_size')
                 if not lot_size: lot_size = smart_trader.get_lot_size(t['symbol'])
-                    
                 total_lots = t['quantity'] // lot_size
                 base_lots = total_lots // exit_multiplier
                 remainder = total_lots % exit_multiplier
@@ -94,10 +92,8 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
                 t['target_controls'] = new_controls
             else:
                 t['targets'] = [float(x) for x in targets]
-                if target_controls:
-                    t['target_controls'] = target_controls
+                if target_controls: t['target_controls'] = target_controls
             
-            # Log
             tgt_log = []
             controls = t.get('target_controls', [{'enabled':True, 'lots':0}]*3)
             for i, p in enumerate(t['targets']):
@@ -110,9 +106,7 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             mult_msg = f" | Multiplier: {exit_multiplier}x" if exit_multiplier > 1 else ""
             log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {', '.join(tgt_log)}. Trail: {t['trailing_sl']} ({trail_mode}){mult_msg}")
             
-            # TELEGRAM: UPDATE
             telegram_bot.send_alert("TRADE_UPDATE", t)
-            
             updated = True
             break
     if updated:
@@ -147,7 +141,7 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                         quantity=qty_delta, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                     except Exception as e: log_event(t, f"Broker Fail (Add): {e}")
                 
-                telegram_bot.send_alert("TRADE_UPDATE", t) # Reuse Update template for add
+                telegram_bot.send_alert("TRADE_UPDATE", t)
                 updated = True
                 
             elif action == 'EXIT':
@@ -161,10 +155,9 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                             quantity=qty_delta, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except Exception as e: log_event(t, f"Broker Fail (Exit): {e}")
 
-                    telegram_bot.send_alert("TRADE_UPDATE", t) # Reuse Update template
+                    telegram_bot.send_alert("TRADE_UPDATE", t)
                     updated = True
-                else:
-                    return False 
+                else: return False 
             break
             
     if updated:
@@ -182,14 +175,11 @@ def log_event(trade, message):
 def move_to_history(trade, final_status, exit_price):
     real_pnl = 0
     was_active = trade['status'] != 'PENDING'
-
-    if was_active:
-        real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
+    if was_active: real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
 
     if not was_active or (trade.get('order_type') == 'SIMULATION' and "SL" in final_status):
         trade['pnl'] = 0
-    else:
-        trade['pnl'] = real_pnl
+    else: trade['pnl'] = real_pnl
     
     trade['status'] = final_status; trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
@@ -202,8 +192,6 @@ def move_to_history(trade, final_status, exit_price):
         trade['made_high'] = made_high
         max_pnl = (made_high - trade['entry_price']) * trade['quantity']
         log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {max_pnl:.2f}")
-        
-        # TELEGRAM: CLOSE SUMMARY
         telegram_bot.send_alert("CLOSE_SUMMARY", trade, extra={'high': made_high})
     
     try:
@@ -218,6 +206,12 @@ def get_exchange(symbol):
     if "SENSEX" in s or "BANKEX" in s: return "BFO" if any(char.isdigit() for char in s) else "BSE"
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
     return "NSE"
+
+def get_daily_trade_count():
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    hist_count = len([t for t in load_history() if t['entry_time'].startswith(today_str)])
+    active_count = len([t for t in load_trades() if t['entry_time'].startswith(today_str)])
+    return hist_count + active_count + 1 # +1 for the current new trade
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1):
     trades = load_trades()
@@ -277,13 +271,24 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "exit_multiplier": int(exit_multiplayer), 
         "targets_hit_indices": [], "highest_ltp": entry_price, "made_high": entry_price, 
         "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs,
-        "last_notified_high": entry_price  # For Telegram spam control
+        "last_notified_high": entry_price,
+        "telegram_msg_ids": {}
     }
 
-    # TELEGRAM: TRADE ADDED (Sync to get Root ID)
-    tg_id = telegram_bot.send_trade_added_sync(record)
-    if tg_id:
-        record['telegram_root_id'] = tg_id
+    # TELEGRAM LOGIC: Channel Selection & Sending
+    daily_count = get_daily_trade_count()
+    conf = settings.load_settings().get('telegram', {})
+    channels = conf.get('channels', [])
+    eligible_channels = []
+    
+    for ch in channels:
+        limit = int(ch.get('limit', 0))
+        if limit > 0 and daily_count <= limit:
+            eligible_channels.append(ch)
+            
+    if eligible_channels:
+        msg_ids = telegram_bot.send_trade_added_sync(record, eligible_channels)
+        record['telegram_msg_ids'] = msg_ids
 
     trades.append(record)
     save_trades(trades)
@@ -298,10 +303,7 @@ def promote_to_live(kite, trade_id):
                     quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                 t['mode'] = "LIVE"; t['status'] = "PROMOTED_LIVE"
                 log_event(t, "Promoted to LIVE")
-                
-                # Update Telegram Root if possible, or just send update
                 telegram_bot.send_alert("TRADE_UPDATE", t)
-                
                 save_trades(trades)
                 return True
             except: return False
@@ -331,20 +333,26 @@ def close_trade_manual(kite, trade_id):
 def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"; trade_data['order_type'] = "SIMULATION"
     if 'exchange' not in trade_data: trade_data['exchange'] = get_exchange(trade_data['symbol'])
-    
-    # Initialize notification fields
     trade_data['last_notified_high'] = trade_data.get('entry_price', 0)
-    
+    trade_data['telegram_msg_ids'] = {}
+
     if is_active:
-        # TELEGRAM: TRADE ADDED
-        tg_id = telegram_bot.send_trade_added_sync(trade_data)
-        if tg_id: trade_data['telegram_root_id'] = tg_id
+        # Check limits for Simulator too? Assuming yes.
+        daily_count = get_daily_trade_count()
+        conf = settings.load_settings().get('telegram', {})
+        channels = conf.get('channels', [])
+        eligible_channels = []
+        for ch in channels:
+            if daily_count <= int(ch.get('limit', 0)): eligible_channels.append(ch)
+            
+        if eligible_channels:
+            msg_ids = telegram_bot.send_trade_added_sync(trade_data, eligible_channels)
+            trade_data['telegram_msg_ids'] = msg_ids
 
         trades = load_trades()
         trades.append(trade_data)
         save_trades(trades)
     else:
-        # Just history, maybe minimal notification? Skipping for history check sims
         trade_data['pnl'] = 0 if "SL" in trade_data.get('status', '') else round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         try:
@@ -392,10 +400,7 @@ def update_risk_engine(kite):
                 t['status'] = "OPEN"; t['highest_ltp'] = t['entry_price']; t['made_high'] = t['entry_price']
                 t['last_notified_high'] = t['entry_price']
                 log_event(t, f"Order ACTIVATED @ {ltp}")
-                
-                # TELEGRAM: ACTIVATED
                 telegram_bot.send_alert("TRADE_ACTIVATED", t)
-                
                 if t['mode'] == 'LIVE':
                     try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                     except Exception as e: log_event(t, f"Broker Fail: {e}")
@@ -406,12 +411,8 @@ def update_risk_engine(kite):
         if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
             t['highest_ltp'] = max(t.get('highest_ltp', 0), ltp); t['made_high'] = t['highest_ltp']
             
-            # TELEGRAM: MADE HIGH LIVE
-            # Logic: Notify if High moved by > 0.1% approx or specific points to avoid spam?
-            # User wants "Made High Live". We will throttle slightly to avoid 10 msgs/sec
             last_high = t.get('last_notified_high', t['entry_price'])
             if ltp > last_high:
-                 # Check if significant? Let's assume > 1 point difference for Nifty/Banknifty is decent enough to notify
                  if (ltp - last_high) >= 0.5: 
                      telegram_bot.send_alert("MADE_HIGH", t, extra={'high': ltp})
                      t['last_notified_high'] = ltp
@@ -438,10 +439,7 @@ def update_risk_engine(kite):
                     if i not in t.get('targets_hit_indices', []) and ltp >= tgt:
                         t.setdefault('targets_hit_indices', []).append(i)
                         conf = controls[i]
-                        
-                        # TELEGRAM: TARGET HIT (Always notify even if no exit)
                         telegram_bot.send_alert("TARGET_HIT", t, extra={'index': i+1, 'ltp': ltp})
-                        
                         if not conf['enabled']:
                              log_event(t, f"Crossed T{i+1} @ {tgt} (Target Disabled - No Action)")
                              continue
@@ -473,8 +471,6 @@ def update_risk_engine(kite):
             current_high = t.get('made_high', 0)
             if ltp > current_high:
                 t['made_high'] = ltp
-                # Optional: Send "Made High" notification for closed trades too if desired, 
-                # but usually "3:30" summary covers it. Keeping it minimal here to avoid zombie spam.
                 try:
                     db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
                     updated_hist = True

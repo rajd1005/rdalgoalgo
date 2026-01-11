@@ -45,7 +45,7 @@ def run_auto_login_process():
         if token == "SKIP_SESSION":
             print("✅ Auto-Login Verified: Session Active.")
             bot_active = True
-            login_state = "IDLE" # Reset state to success
+            login_state = "IDLE" 
             return
 
         # CASE 2: Token Captured (Need to generate session manually)
@@ -99,8 +99,11 @@ def home():
                                error=login_error_msg,
                                login_url=kite.login_url())
 
-# Removed Logout Route to prevent accidental stops, 
-# but keeping a manual reset if needed via API or hidden URL
+# --- NEW STATUS ENDPOINT FOR FRONTEND POLLING ---
+@app.route('/api/status')
+def api_status():
+    return jsonify({"active": bot_active, "state": login_state})
+
 @app.route('/reset_connection')
 def reset_connection():
     global bot_active, login_state

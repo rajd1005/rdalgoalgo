@@ -13,7 +13,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import config
 
 def perform_auto_login(kite_instance):
-    print("🔄 Starting Auto-Login Sequence (Robust Mode)...")
+    print("🔄 Starting Auto-Login Sequence (Deep Debug)...")
     
     # 1. Setup Headless Chrome
     chrome_options = Options()
@@ -31,7 +31,8 @@ def perform_auto_login(kite_instance):
         
         login_url = kite_instance.login_url()
         driver.get(login_url)
-        wait = WebDriverWait(driver, 15)
+        # Increased timeout to 25s for slow redirects
+        wait = WebDriverWait(driver, 25)
 
         # --- STEP 1: USER ID ---
         print("➡️ Entering User ID...")
@@ -67,61 +68,70 @@ def perform_auto_login(kite_instance):
         print("⏳ Waiting for TOTP Page...")
         time.sleep(3) 
 
-        # Check for errors first
+        # Check for errors first (Incorrect Password?)
         try:
             err = driver.find_element(By.CSS_SELECTOR, ".su-message.error, .error-message")
             if err.is_displayed():
-                return None, f"Login Failed: {err.text}"
+                return None, f"Login Failed (Password Step): {err.text}"
         except: pass
 
-        # --- STEP 4: TOTP (UPDATED STRATEGY) ---
-        print("➡️ Finding TOTP Input...")
+        # --- STEP 4: TOTP ---
+        print("➡️ Generating TOTP...")
         if not config.TOTP_SECRET:
             return None, "Error: TOTP_SECRET missing."
             
+        # SHOW TOTP IN LOGS
         totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
+        print(f"   🔑 Generated TOTP Code: {totp_now}") 
         
         try:
-            # STRATEGY: Find ANY visible text/number input on this page
-            # The TOTP page typically only has ONE input field.
+            # Find ANY visible input field
             totp_input = None
             inputs = driver.find_elements(By.TAG_NAME, "input")
             
             for inp in inputs:
-                # Skip hidden inputs
                 if not inp.is_displayed(): continue
-                
-                # Check types
                 t = inp.get_attribute("type")
+                # Zerodha uses 'number' or 'text' for TOTP
                 if t in ["text", "number", "tel", "password"]:
                     totp_input = inp
                     print(f"   ✅ Found input field (Type: {t})")
                     break
             
             if not totp_input:
-                # Fallback: specific wait
-                totp_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='number'], input[type='text']")))
+                return None, "Error: Could not find TOTP input box."
 
             totp_input.clear()
             totp_input.send_keys(totp_now)
             time.sleep(1)
             
-            # Press Continue/Submit
+            # Submit Strategy: Click Button OR Hit Enter
             try:
-                # Try finding a button with type="submit"
+                # Try explicit button click first
                 continue_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-                continue_btn.click()
-                print("   Clicked Continue.")
+                driver.execute_script("arguments[0].click();", continue_btn)
+                print("   Clicked Continue Button.")
             except:
+                # Fallback to Enter key
                 totp_input.send_keys(Keys.ENTER)
-                print("   Hit Enter.")
+                print("   Hit Enter Key.")
 
         except Exception as e:
-            # Only dump if strictly necessary
-            return None, "Error: Could not find visible input field for TOTP."
+            return None, f"Error Entering TOTP: {str(e)}"
 
-        # --- STEP 5: TOKEN ---
-        print("⏳ Waiting for Redirect...")
+        # --- STEP 5: VERIFY SUCCESS ---
+        print("⏳ Waiting for Redirect (Checking for errors)...")
+        time.sleep(3) # Wait for server response
+        
+        # 1. Check for Invalid TOTP Error
+        try:
+            err = driver.find_element(By.CSS_SELECTOR, ".su-message.error, .error-message, .su-alert-error")
+            if err.is_displayed():
+                print(f"❌ TOTP Rejected: {err.text}")
+                return None, f"TOTP Rejected: {err.text} (Check your Secret Key)"
+        except: pass
+
+        # 2. Wait for Token
         try:
             wait.until(EC.url_contains("request_token="))
             current_url = driver.current_url
@@ -132,7 +142,12 @@ def perform_auto_login(kite_instance):
                 print(f"✅ Auto-Login Success! Token: {request_token[:6]}...")
                 return request_token, None
         except:
-            return None, "Login timed out after entering TOTP."
+            # DEBUG: Print where we are stuck
+            curr_url = driver.current_url
+            body_text = driver.find_element(By.TAG_NAME, "body").text[:200].replace('\n', ' ')
+            print(f"❌ TIMEOUT at: {curr_url}")
+            print(f"📄 Page Text: {body_text}")
+            return None, "Login timed out. See logs for details."
 
     except Exception as e:
         print(f"❌ System Error: {e}")

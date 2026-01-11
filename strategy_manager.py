@@ -190,7 +190,7 @@ def get_exchange(symbol):
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
     return "NSE"
 
-def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0):
+def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1):
     trades = load_trades()
     exchange = get_exchange(specific_symbol)
     
@@ -211,7 +211,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
                 quantity=quantity, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
         except Exception as e: return {"status": "error", "message": str(e)}
 
-    targets = custom_targets if len(custom_targets) == 3 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
+    targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
     
     if not target_controls:
         target_controls = [
@@ -221,6 +221,48 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         ]
     
     lot_size = smart_trader.get_lot_size(specific_symbol)
+    
+    # --- EXIT MULTIPLAYER LOGIC ---
+    if exit_multiplayer > 1:
+        # 1. Determine Final Goal Price (Max of set targets or default to T3 default)
+        final_goal = 0
+        valid_custom = [x for x in custom_targets if x > 0]
+        if valid_custom:
+             final_goal = max(valid_custom)
+        else:
+             final_goal = entry_price + (sl_points * 2) # Default Fallback
+
+        # 2. Calculate Steps
+        dist = final_goal - entry_price
+        
+        new_targets = []
+        new_controls = []
+        
+        total_lots = quantity // lot_size
+        base_lots = total_lots // exit_multiplayer
+        remainder = total_lots % exit_multiplayer
+        
+        for i in range(1, exit_multiplayer + 1):
+            fraction = i / exit_multiplayer
+            t_price = entry_price + (dist * fraction)
+            new_targets.append(round(t_price, 2))
+            
+            # Distribute lots
+            lots_here = base_lots
+            if i == exit_multiplayer:
+                lots_here += remainder
+            
+            new_controls.append({'enabled': True, 'lots': int(lots_here)})
+        
+        # Pad with dummies if needed
+        while len(new_targets) < 3:
+            new_targets.append(0)
+            new_controls.append({'enabled': False, 'lots': 0})
+            
+        targets = new_targets
+        target_controls = new_controls
+    # ------------------------------
+
     logs = [f"[{get_time_str()}] Trade Added. Status: {status}"]
 
     record = {

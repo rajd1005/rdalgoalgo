@@ -6,6 +6,11 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 
+# Auto Login Credentials
+TOTP_SECRET = os.getenv("TOTP_SECRET")
+ZERODHA_USER_ID = os.getenv("ZERODHA_USER_ID")
+ZERODHA_PASSWORD = os.getenv("ZERODHA_PASSWORD")
+
 # Flask Settings
 SECRET_KEY = "super_secret_algo_key_v3"
 PORT = int(os.environ.get("PORT", 5000))

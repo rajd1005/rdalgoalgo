@@ -21,7 +21,7 @@ function loadSettings() {
             // Load Forwarding Rules
             $('#tg_forward_body').empty();
             let fwdRules = tg.forwarding_rules || [];
-            fwdRules.forEach(r => addForwardRow(r.source_id, r.dest_id, r.trigger_event, r.delay));
+            fwdRules.forEach(r => addForwardRow(r.source_id, r.dest_id, r.trigger_event, r.delay, r.trigger_value, r.template));
             
             let events = tg.events || {};
             let tmpl = tg.templates || {};
@@ -72,8 +72,6 @@ function getChannelOptions(selectedId) {
     let opts = '';
     let tg = settings.telegram || {};
     let channels = tg.channels || [];
-    // If we haven't saved channels yet but they are in DOM, try to use them (complex). 
-    // Simpler: Just rely on loaded settings. User must save channels first before making rules.
     channels.forEach(c => {
         let sel = (c.chat_id == selectedId) ? 'selected' : '';
         opts += `<option value="${c.chat_id}" ${sel}>${c.name}</option>`;
@@ -91,19 +89,28 @@ function addChannelRow(name='', cid='', limit=100) {
     $('#tg_channels_body').append(row);
 }
 
-function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0) {
-    let chOpts = getChannelOptions(); // Generate options from settings
+function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0, trigVal='ANY', tmpl='') {
+    let chOpts = getChannelOptions(); 
     let evtOpts = ['TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].map(e => `<option value="${e}" ${e===trig?'selected':''}>${e}</option>`).join('');
     
-    // We need to inject selected values for Src/Dest specifically
+    // Trigger Detail Options
+    let valOpts = `
+        <option value="ANY" ${trigVal==='ANY'?'selected':''}>Any</option>
+        <option value="1" ${trigVal==='1'?'selected':''}>Target 1</option>
+        <option value="2" ${trigVal==='2'?'selected':''}>Target 2</option>
+        <option value="3" ${trigVal==='3'?'selected':''}>Target 3</option>
+    `;
+
     let srcOpts = chOpts.replace(`value="${src}"`, `value="${src}" selected`);
     let destOpts = chOpts.replace(`value="${dest}"`, `value="${dest}" selected`);
 
     let row = `<tr>
         <td><select class="form-select form-select-sm tg-fwd-src">${srcOpts}</select></td>
         <td><select class="form-select form-select-sm tg-fwd-trig">${evtOpts}</select></td>
+        <td><select class="form-select form-select-sm tg-fwd-val">${valOpts}</select></td>
         <td><select class="form-select form-select-sm tg-fwd-dest">${destOpts}</select></td>
-        <td><input type="number" class="form-control form-control-sm tg-fwd-delay" value="${delay}" min="0"></td>
+        <td><textarea class="form-control form-control-sm tg-fwd-tmpl" rows="1" placeholder="VIP Progress...">${tmpl}</textarea></td>
+        <td><input type="number" class="form-control form-control-sm tg-fwd-delay" value="${delay}" min="0" style="width:60px;"></td>
         <td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" onclick="$(this).closest('tr').remove()">×</button></td>
     </tr>`;
     $('#tg_forward_body').append(row);
@@ -123,7 +130,6 @@ function saveSettings() {
         if(cid) channels.push({name: name, chat_id: cid, limit: limit});
     });
     
-    // Temporarily update settings.telegram.channels so getChannelOptions works if called immediately
     if(!settings.telegram) settings.telegram = {};
     settings.telegram.channels = channels;
 
@@ -131,9 +137,21 @@ function saveSettings() {
     $('#tg_forward_body tr').each(function() {
         let src = $(this).find('.tg-fwd-src').val();
         let trig = $(this).find('.tg-fwd-trig').val();
+        let trigVal = $(this).find('.tg-fwd-val').val();
         let dest = $(this).find('.tg-fwd-dest').val();
+        let tmpl = $(this).find('.tg-fwd-tmpl').val();
         let delay = parseInt($(this).find('.tg-fwd-delay').val()) || 0;
-        if(src && dest && src !== dest) rules.push({source_id: src, dest_id: dest, trigger_event: trig, delay: delay});
+        
+        if(src && dest && src !== dest) {
+            rules.push({
+                source_id: src, 
+                dest_id: dest, 
+                trigger_event: trig, 
+                trigger_value: trigVal,
+                template: tmpl,
+                delay: delay
+            });
+        }
     });
 
     settings.telegram.enabled = $('#tg_enabled').is(':checked');

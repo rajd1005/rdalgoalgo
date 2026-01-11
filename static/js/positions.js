@@ -39,7 +39,7 @@ function updateData() {
                 let badge = getMarkBadge(cat);
                 let editBtn = (cat !== 'SIMULATOR') ? `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>` : '';
                 
-                // --- Active Trade Status Tags ---
+                // --- Active Trade Status Tags (Updated) ---
                 let statusTag = '';
                 if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Pending</span>';
                 else {
@@ -47,9 +47,9 @@ function updateData() {
                     let maxHit = -1;
                     if(hits.length > 0) maxHit = Math.max(...hits);
                     
-                    if(maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target Hit</span>';
+                    if(maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 1 Hit</span>';
                     else if(maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
-                    else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Targets Hit</span>';
+                    else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 3 Hit</span>';
                     else statusTag = '<span class="badge bg-primary" style="font-size:0.7rem;">Active</span>';
                 }
                 // --------------------------------

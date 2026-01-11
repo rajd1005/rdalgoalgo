@@ -14,50 +14,58 @@ import config
 def perform_auto_login(kite_instance):
     print("🔄 Starting Auto-Login Sequence...")
     
-    # Chrome Options for Headless Environment
+    # 1. Setup Headless Chrome
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    
-    # Use webdriver_manager to get the driver matching the installed Chrome
-    service = Service(ChromeDriverManager().install())
+    chrome_options.add_argument("--window-size=1920,1080")
     
     driver = None
     try:
+        # Install and setup Chrome Driver
+        service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
         login_url = kite_instance.login_url()
         driver.get(login_url)
         wait = WebDriverWait(driver, 15)
 
-        # 1. Enter User ID
+        # 2. Enter User ID
         print("➡️ Entering User ID...")
         user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
         user_id_field.send_keys(config.ZERODHA_USER_ID)
         
+        # Check if password field is visible immediately or need to submit user_id
         try:
              driver.find_element(By.ID, "password")
         except:
              user_id_field.submit()
 
-        # 2. Enter Password
+        # 3. Enter Password
         print("➡️ Entering Password...")
         password_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
         password_field.send_keys(config.ZERODHA_PASSWORD)
         password_field.submit()
 
-        # 3. Enter TOTP
+        # 4. Enter TOTP (2FA)
         print("➡️ Entering TOTP...")
-        # Generates TOTP using the secret from config
+        # Generate current TOTP using the Secret Key from Config
         totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
         
-        # Wait for TOTP field (usually type="text" with maxlength="6")
+        # Wait for the numeric input field (App Code)
+        # Zerodha usually presents a text input with max length 6 for TOTP
         totp_field = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='text'][maxlength='6']")))
         totp_field.send_keys(totp_now)
         
-        # 4. Wait for Redirect and Capture Token
+        # Sometimes it auto-submits, sometimes needs enter. We try submitting.
+        try:
+            totp_field.submit()
+        except:
+            pass
+
+        # 5. Wait for Redirect and Capture Token
         print("⏳ Waiting for Redirect...")
         wait.until(EC.url_contains("request_token="))
         

@@ -18,6 +18,11 @@ function loadSettings() {
             let channels = tg.channels || [];
             channels.forEach(c => addChannelRow(c.name, c.chat_id, c.limit));
             
+            // Load Forwarding Rules
+            $('#tg_forward_body').empty();
+            let fwdRules = tg.forwarding_rules || [];
+            fwdRules.forEach(r => addForwardRow(r.source_id, r.dest_id, r.trigger_event, r.delay));
+            
             let events = tg.events || {};
             let tmpl = tg.templates || {};
             
@@ -63,6 +68,19 @@ function loadSettings() {
     });
 }
 
+function getChannelOptions(selectedId) {
+    let opts = '';
+    let tg = settings.telegram || {};
+    let channels = tg.channels || [];
+    // If we haven't saved channels yet but they are in DOM, try to use them (complex). 
+    // Simpler: Just rely on loaded settings. User must save channels first before making rules.
+    channels.forEach(c => {
+        let sel = (c.chat_id == selectedId) ? 'selected' : '';
+        opts += `<option value="${c.chat_id}" ${sel}>${c.name}</option>`;
+    });
+    return opts;
+}
+
 function addChannelRow(name='', cid='', limit=100) {
     let row = `<tr>
         <td><input type="text" class="form-control form-control-sm tg-name" placeholder="e.g. Free" value="${name}"></td>
@@ -71,6 +89,24 @@ function addChannelRow(name='', cid='', limit=100) {
         <td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" onclick="$(this).closest('tr').remove()">×</button></td>
     </tr>`;
     $('#tg_channels_body').append(row);
+}
+
+function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0) {
+    let chOpts = getChannelOptions(); // Generate options from settings
+    let evtOpts = ['TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].map(e => `<option value="${e}" ${e===trig?'selected':''}>${e}</option>`).join('');
+    
+    // We need to inject selected values for Src/Dest specifically
+    let srcOpts = chOpts.replace(`value="${src}"`, `value="${src}" selected`);
+    let destOpts = chOpts.replace(`value="${dest}"`, `value="${dest}" selected`);
+
+    let row = `<tr>
+        <td><select class="form-select form-select-sm tg-fwd-src">${srcOpts}</select></td>
+        <td><select class="form-select form-select-sm tg-fwd-trig">${evtOpts}</select></td>
+        <td><select class="form-select form-select-sm tg-fwd-dest">${destOpts}</select></td>
+        <td><input type="number" class="form-control form-control-sm tg-fwd-delay" value="${delay}" min="0"></td>
+        <td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" onclick="$(this).closest('tr').remove()">×</button></td>
+    </tr>`;
+    $('#tg_forward_body').append(row);
 }
 
 function saveSettings() {
@@ -86,15 +122,27 @@ function saveSettings() {
         let limit = parseInt($(this).find('.tg-limit').val()) || 100;
         if(cid) channels.push({name: name, chat_id: cid, limit: limit});
     });
-
-    settings.telegram = {
-        enabled: $('#tg_enabled').is(':checked'),
-        bot_token: $('#tg_token').val().trim(),
-        channels: channels,
-        events: {},
-        templates: {}
-    };
     
+    // Temporarily update settings.telegram.channels so getChannelOptions works if called immediately
+    if(!settings.telegram) settings.telegram = {};
+    settings.telegram.channels = channels;
+
+    let rules = [];
+    $('#tg_forward_body tr').each(function() {
+        let src = $(this).find('.tg-fwd-src').val();
+        let trig = $(this).find('.tg-fwd-trig').val();
+        let dest = $(this).find('.tg-fwd-dest').val();
+        let delay = parseInt($(this).find('.tg-fwd-delay').val()) || 0;
+        if(src && dest && src !== dest) rules.push({source_id: src, dest_id: dest, trigger_event: trig, delay: delay});
+    });
+
+    settings.telegram.enabled = $('#tg_enabled').is(':checked');
+    settings.telegram.bot_token = $('#tg_token').val().trim();
+    settings.telegram.forwarding_rules = rules;
+    
+    if(!settings.telegram.events) settings.telegram.events = {};
+    if(!settings.telegram.templates) settings.telegram.templates = {};
+
     ['TRADE_ADDED', 'TRADE_UPDATE', 'TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].forEach(evt => {
         settings.telegram.events[evt] = $(`#tg_evt_${evt}`).is(':checked');
         settings.telegram.templates[evt] = $(`#tg_tmpl_${evt}`).val();

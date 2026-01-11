@@ -17,7 +17,7 @@ function loadSettings() {
                 $(`#${k}_r2`).val(s.ratios[1]);
                 $(`#${k}_r3`).val(s.ratios[2]);
                 
-                // New Defaults: Order, Trail Limit, Exit Mult
+                // New Defaults: Order, Trail Limit, Trail, Exit Mult
                 $(`#${k}_def_ord`).val(s.order_type || 'MARKET');
                 $(`#${k}_def_tlimit`).val(s.trail_limit || 0);
                 $(`#${k}_def_trail`).val(s.trailing_sl || 0);

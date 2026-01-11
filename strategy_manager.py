@@ -283,6 +283,8 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     
     for ch in channels:
         limit = int(ch.get('limit', 0))
+        # If Limit is 0, we assume unlimited, or check limit > 0.
+        # Here we use limit > 0 check to strictly enforce limit setting.
         if limit > 0 and daily_count <= limit:
             eligible_channels.append(ch)
             
@@ -337,13 +339,14 @@ def inject_simulated_trade(trade_data, is_active):
     trade_data['telegram_msg_ids'] = {}
 
     if is_active:
-        # Check limits for Simulator too? Assuming yes.
+        # Check limits for Simulator
         daily_count = get_daily_trade_count()
         conf = settings.load_settings().get('telegram', {})
         channels = conf.get('channels', [])
         eligible_channels = []
         for ch in channels:
-            if daily_count <= int(ch.get('limit', 0)): eligible_channels.append(ch)
+            if int(ch.get('limit', 0)) > 0 and daily_count <= int(ch.get('limit', 0)): 
+                eligible_channels.append(ch)
             
         if eligible_channels:
             msg_ids = telegram_bot.send_trade_added_sync(trade_data, eligible_channels)

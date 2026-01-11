@@ -37,7 +37,6 @@ def perform_auto_login(kite_instance):
         user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
         user_id_field.send_keys(config.ZERODHA_USER_ID)
         
-        # Check if password field is visible immediately or need to submit user_id
         try:
              driver.find_element(By.ID, "password")
         except:
@@ -51,15 +50,15 @@ def perform_auto_login(kite_instance):
 
         # 4. Enter TOTP (2FA)
         print("➡️ Entering TOTP...")
-        # Generate current TOTP using the Secret Key from Config
+        if not config.TOTP_SECRET:
+            raise Exception("TOTP_SECRET is missing in environment variables")
+            
         totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
         
-        # Wait for the numeric input field (App Code)
-        # Zerodha usually presents a text input with max length 6 for TOTP
+        # Wait for the numeric input field
         totp_field = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='text'][maxlength='6']")))
         totp_field.send_keys(totp_now)
         
-        # Sometimes it auto-submits, sometimes needs enter. We try submitting.
         try:
             totp_field.submit()
         except:

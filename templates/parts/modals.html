@@ -67,14 +67,28 @@
                             <th>Action</th>
                         </tr>
                     </thead>
-                    <tbody id="tg_channels_body">
-                        </tbody>
+                    <tbody id="tg_channels_body"></tbody>
                     <tfoot>
+                        <tr><td colspan="4"><button class="btn btn-sm btn-outline-primary w-100" onclick="addChannelRow()">+ Add Channel</button></td></tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <h6 class="mt-4 mb-2">🔀 Forwarding Rules (VIP -> Free)</h6>
+            <div class="table-responsive mb-3">
+                <table class="table table-bordered table-sm">
+                    <thead class="table-light">
                         <tr>
-                            <td colspan="4">
-                                <button class="btn btn-sm btn-outline-primary w-100" onclick="addChannelRow()">+ Add Channel</button>
-                            </td>
+                            <th>Source</th>
+                            <th>Trigger Event</th>
+                            <th>Destination</th>
+                            <th>Delay (s)</th>
+                            <th>Action</th>
                         </tr>
+                    </thead>
+                    <tbody id="tg_forward_body"></tbody>
+                    <tfoot>
+                        <tr><td colspan="5"><button class="btn btn-sm btn-outline-warning w-100" onclick="addForwardRow()">+ Add Rule</button></td></tr>
                     </tfoot>
                 </table>
             </div>

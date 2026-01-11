@@ -34,16 +34,18 @@ function loadClosedTrades() {
                 // --- Live Status Tag Logic for Closed Trades ---
                 let statusTag = '';
                 if (t.status === 'SL_HIT') {
-                     statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
+                     statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-loss</span>';
                 } else if (t.status === 'TARGET_HIT') {
-                     let maxHit = 1;
+                     // Try to determine which target was hit from indices
+                     let maxHit = 2; // Default to all
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
-                         maxHit = Math.max(...t.targets_hit_indices) + 1;
-                     } else if (t.targets) {
-                         // Fallback logic if indices missing
-                         t.targets.forEach((tgt, i) => { if(t.exit_price >= tgt) maxHit = i+1; });
+                         maxHit = Math.max(...t.targets_hit_indices);
                      }
-                     statusTag = `<span class="badge bg-success" style="font-size:0.7rem;">Target ${maxHit} Hit</span>`;
+                     
+                     if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target Hit</span>';
+                     else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
+                     else statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Targets Hit</span>';
+
                 } else if (t.status === 'COST_EXIT') {
                      statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Cost Exit</span>';
                 } else {

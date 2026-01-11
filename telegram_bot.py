@@ -1,6 +1,11 @@
 import requests
 import settings
 import threading
+import time
+import json
+# Import DB to persist new message IDs from forwarding
+from database import db, ActiveTrade 
+from flask import current_app
 
 def get_config():
     s = settings.load_settings()
@@ -50,29 +55,70 @@ def send_request(token, chat_id, text, reply_to=None):
     return None
 
 def send_alert(event_type, trade_data, extra=None):
-    threading.Thread(target=_process_alert, args=(event_type, trade_data, extra)).start()
+    # Need app context for DB operations in thread
+    app = current_app._get_current_object()
+    threading.Thread(target=_process_alert, args=(app, event_type, trade_data, extra)).start()
 
-def _process_alert(event_type, trade_data, extra):
-    conf = get_config()
-    if not conf.get('enabled', False): return
-    if not conf.get('events', {}).get(event_type, True): return
+def _process_alert(app, event_type, trade_data, extra):
+    with app.app_context():
+        conf = get_config()
+        if not conf.get('enabled', False): return
+        if not conf.get('events', {}).get(event_type, True): return
 
-    token = conf.get('bot_token')
-    if not token: return
+        token = conf.get('bot_token')
+        if not token: return
 
-    tmpl = conf.get('templates', {}).get(event_type, "")
-    if not tmpl: return
+        tmpl = conf.get('templates', {}).get(event_type, "")
+        if not tmpl: return
 
-    text = format_message(tmpl, trade_data, extra)
-    
-    # Retrieve stored message IDs for channels this trade was sent to
-    # Structure: { "chat_id_1": msg_id, "chat_id_2": msg_id }
-    sent_map = trade_data.get('telegram_msg_ids', {})
-    
-    # We only update channels where the initial trade was sent.
-    if sent_map:
+        text = format_message(tmpl, trade_data, extra)
+        
+        # 1. Get Existing Recipients
+        sent_map = trade_data.get('telegram_msg_ids', {})
+        if not sent_map: return # Only process if it was originally sent somewhere
+        
+        # 2. Process Forwarding Rules
+        forwarding_rules = conf.get('forwarding_rules', [])
+        new_recipients = {}
+        
+        for rule in forwarding_rules:
+            src = str(rule.get('source_id'))
+            dest = str(rule.get('dest_id'))
+            trigger = rule.get('trigger_event')
+            delay = int(rule.get('delay', 0))
+            
+            # Condition: Trade is in Source, Trigger Matches, NOT yet in Dest
+            if src in sent_map and event_type == trigger and dest not in sent_map:
+                if delay > 0: time.sleep(delay)
+                
+                # Send as NEW Root Message to Destination
+                new_id = send_request(token, dest, text, reply_to=None)
+                if new_id:
+                    new_recipients[dest] = new_id
+                    print(f"➡️ Forwarded {event_type} to {dest} (Source: {src})")
+
+        # 3. Send to Existing Recipients (Reply Mode)
+        # Note: Do this AFTER forwarding so we don't double send if delay is 0
         for chat_id, root_msg_id in sent_map.items():
             send_request(token, chat_id, text, reply_to=root_msg_id)
+
+        # 4. Update Database if new recipients added
+        if new_recipients:
+            try:
+                # Merge new recipients into map
+                sent_map.update(new_recipients)
+                trade_data['telegram_msg_ids'] = sent_map
+                
+                # Fetch fresh from DB to avoid overwrites
+                t_record = ActiveTrade.query.filter_by(id=trade_data['id']).first()
+                if t_record:
+                    # Update just the msg_ids in the JSON
+                    curr_data = json.loads(t_record.data)
+                    curr_data['telegram_msg_ids'] = sent_map
+                    t_record.data = json.dumps(curr_data)
+                    db.session.commit()
+            except Exception as e:
+                print(f"DB Update Error (Forwarding): {e}")
 
 def send_trade_added_sync(trade_data, target_channels):
     """

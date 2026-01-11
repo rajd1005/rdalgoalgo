@@ -13,6 +13,16 @@ def get_defaults():
         "exit_multiplier": 1
     }
     
+    # Default Telegram Templates
+    tg_templates = {
+        "TRADE_ADDED": "🆕 <b>NEW TRADE: {symbol}</b> ({mode})\n🔹 Entry: {entry}\n🔻 SL: {sl}\n🎯 Targets: {targets}\n📦 Qty: {qty}",
+        "TRADE_UPDATE": "📝 <b>UPDATE: {symbol}</b>\nNew SL: {sl}\nNew Targets: {targets}",
+        "TRADE_ACTIVATED": "⚡ <b>ACTIVATED: {symbol}</b>\nPrice: {ltp}",
+        "TARGET_HIT": "🎯 <b>TARGET {index} HIT: {symbol}</b>\nPrice: {ltp}\n💰 P&L: ₹ {pnl}",
+        "MADE_HIGH": "📈 <b>NEW HIGH: {symbol}</b>\nHigh: {high}",
+        "CLOSE_SUMMARY": "🏁 <b>CLOSED: {symbol}</b>\nExit Price: {ltp}\n🏆 High: {high}\n💵 Final P&L: ₹ {pnl}"
+    }
+
     return {
         "exchanges": ["NSE", "NFO", "MCX", "CDS", "BSE", "BFO"],
         "watchlist": [],
@@ -20,6 +30,20 @@ def get_defaults():
             "LIVE": default_mode_settings.copy(),
             "PAPER": default_mode_settings.copy(),
             "SIMULATOR": default_mode_settings.copy()
+        },
+        "telegram": {
+            "enabled": False,
+            "bot_token": "",
+            "chat_id": "",
+            "events": {
+                "TRADE_ADDED": True,
+                "TRADE_UPDATE": True,
+                "TRADE_ACTIVATED": True,
+                "TARGET_HIT": True,
+                "MADE_HIGH": True,
+                "CLOSE_SUMMARY": True
+            },
+            "templates": tg_templates
         }
     }
 
@@ -32,7 +56,6 @@ def load_settings():
             
             # Integrity Check & Migration
             if "modes" not in saved:
-                # Migrate old format
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
                 old_sl = saved.get("symbol_sl", {})
@@ -45,12 +68,9 @@ def load_settings():
             # Ensure all keys exist
             for m in ["LIVE", "PAPER", "SIMULATOR"]:
                 if m in saved["modes"]:
-                    # Default missing keys
                     for key, val in defaults["modes"][m].items():
                         if key not in saved["modes"][m]:
                             saved["modes"][m][key] = val
-                            
-                    # Preserve sub-dictionaries if they exist
                     if "symbol_sl" not in saved["modes"][m]:
                          saved["modes"][m]["symbol_sl"] = {}
                 else:
@@ -58,6 +78,18 @@ def load_settings():
 
             if "exchanges" not in saved: saved["exchanges"] = defaults["exchanges"]
             if "watchlist" not in saved: saved["watchlist"] = []
+            
+            # Telegram Migration
+            if "telegram" not in saved:
+                saved["telegram"] = defaults["telegram"]
+            else:
+                # Merge deep keys for telegram
+                for k, v in defaults["telegram"].items():
+                    if k not in saved["telegram"]: saved["telegram"][k] = v
+                for k, v in defaults["telegram"]["events"].items():
+                    if k not in saved["telegram"]["events"]: saved["telegram"]["events"][k] = v
+                for k, v in defaults["telegram"]["templates"].items():
+                    if k not in saved["telegram"]["templates"]: saved["telegram"]["templates"][k] = v
 
             return saved
     except Exception as e:

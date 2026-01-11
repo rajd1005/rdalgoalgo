@@ -2,13 +2,16 @@ function calcSimSL(source) {
     let entry = parseFloat($('#h_entry').val()) || 0;
     if(entry <= 0) return;
     
-    // Apply Defaults for Simulator if this is the first load/calc
-    // Note: To prevent overwriting user edits, we could check if fields are empty.
-    // However, calcSimSL is called often. Better to rely on loadDetails or explicit init.
-    // But since simulator structure is separate, we do a lightweight check here.
+    // Apply Defaults for Simulator
     let s = settings.modes.SIMULATOR;
     if ($('#h_trail').val() === '' && s.trailing_sl) $('#h_trail').val(s.trailing_sl);
     
+    // Apply Trail Limit Default (Only if not already initialized to avoid overwriting user edits)
+    if (s.sl_to_entry !== undefined && !$('#h_sl_to_entry').data('init')) {
+        $('#h_sl_to_entry').val(s.sl_to_entry ? "1" : "0");
+        $('#h_sl_to_entry').data('init', true);
+    }
+
     // Check if targets need initialization (simple check on T3 full default)
     if (s.targets && !$('#h_check_t3').data('init')) {
         ['t1', 't2', 't3'].forEach((k, i) => {

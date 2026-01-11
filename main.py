@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 from flask import Flask, render_template, request, redirect, flash, jsonify
 from kiteconnect import KiteConnect
 import config
@@ -7,6 +8,9 @@ import strategy_manager
 import smart_trader
 import settings
 from database import db
+
+# Import Auto Login Module
+import auto_login
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -19,6 +23,23 @@ with app.app_context():
 
 kite = KiteConnect(api_key=config.API_KEY)
 bot_active = False
+
+def run_auto_login_process():
+    global bot_active
+    try:
+        if not config.ZERODHA_USER_ID or not config.ZERODHA_PASSWORD or not config.TOTP_SECRET:
+            print("⚠️ Auto-Login credentials missing in config/env.")
+            return
+
+        token = auto_login.perform_auto_login(kite)
+        if token:
+            data = kite.generate_session(token, api_secret=config.API_SECRET)
+            kite.set_access_token(data["access_token"])
+            bot_active = True
+            smart_trader.fetch_instruments(kite)
+            print("✅ System Auto-Logged In Successfully")
+    except Exception as e:
+        print(f"❌ Auto-Login Session Generation Error: {e}")
 
 @app.route('/')
 def home():
@@ -35,6 +56,13 @@ def logout():
     global bot_active
     bot_active = False
     flash("🔌 Disconnected")
+    return redirect('/')
+
+# --- AUTO LOGIN ROUTE (MANUAL TRIGGER) ---
+@app.route('/trigger_autologin')
+def trigger_autologin_route():
+    threading.Thread(target=run_auto_login_process).start()
+    flash("🔄 Auto-Login Process Started in Background...")
     return redirect('/')
 
 @app.route('/callback')
@@ -326,4 +354,6 @@ def close_trade(trade_id):
     return redirect('/')
 
 if __name__ == "__main__":
+    # Attempt Auto Login on Startup in a separate thread
+    threading.Thread(target=run_auto_login_process).start()
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

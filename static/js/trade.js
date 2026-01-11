@@ -10,13 +10,16 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
     let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
     $(slId).val(savedSL);
     
-    // Apply Defaults (Targets & Trailing)
+    // Apply Defaults (Targets, Trailing, Order Type, Trail Limit)
     if(mode === 'SIMULATOR') {
-        // Handled in simulator.js or separate function if needed, but safe to apply here if IDs match
-        // Simulator uses h_ prefix, handled in calcSimSL mostly or separate logic.
-        // For now, let's keep simulator logic in simulator.js or separate block
+        // Handled in simulator.js or separate function
     } else {
         $('#trail_sl').val(modeSettings.trailing_sl || '');
+        
+        // New: Apply Order Type and Trail Limit Defaults
+        $('#ord').val(modeSettings.order_type || 'MARKET').trigger('change');
+        $('select[name="sl_to_entry"]').val(modeSettings.sl_to_entry ? "1" : "0");
+        
         if(modeSettings.targets) {
             ['t1', 't2', 't3'].forEach((k, i) => {
                 let conf = modeSettings.targets[i];

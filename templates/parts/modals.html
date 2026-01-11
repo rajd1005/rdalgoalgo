@@ -55,12 +55,31 @@
                 <span class="input-group-text"><i class="fas fa-robot"></i></span>
                 <input type="text" id="tg_token" class="form-control" placeholder="Bot Token (e.g., 12345:AAH...)">
             </div>
-            <div class="input-group mb-4">
-                <span class="input-group-text"><i class="fas fa-paper-plane"></i></span>
-                <input type="text" id="tg_chat" class="form-control" placeholder="Channel/Chat ID (e.g., -100123...)">
+
+            <h6 class="mt-4 mb-2">📢 Channels & Limits</h6>
+            <div class="table-responsive mb-3">
+                <table class="table table-bordered table-sm">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Channel Name</th>
+                            <th>Chat ID</th>
+                            <th>Daily Limit</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tg_channels_body">
+                        </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="4">
+                                <button class="btn btn-sm btn-outline-primary w-100" onclick="addChannelRow()">+ Add Channel</button>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
             </div>
 
-            <h6 class="mb-2">🔔 Notification Events & Templates</h6>
+            <h6 class="mt-4 mb-2">🔔 Notification Events & Templates</h6>
             <div class="accordion" id="tgAccordion">
                 <div class="accordion-item">
                     <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#tg_c1">1. Trade Added</button></h2>

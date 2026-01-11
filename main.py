@@ -24,35 +24,46 @@ kite = KiteConnect(api_key=config.API_KEY)
 
 # --- GLOBAL STATE MANAGEMENT ---
 bot_active = False
-# States: "IDLE", "WORKING", "FAILED", "STOPPED"
 login_state = "IDLE" 
 login_error_msg = None 
 
 def run_auto_login_process():
     global bot_active, login_state, login_error_msg
     
-    # Validation
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
         login_state = "FAILED"
         login_error_msg = "Missing Credentials in Config"
         return
 
-    # Set State
     login_state = "WORKING"
     login_error_msg = None
     
     try:
-        # Call the auto_login module
         token, error = auto_login.perform_auto_login(kite)
         
-        if token:
-            data = kite.generate_session(token, api_secret=config.API_SECRET)
-            kite.set_access_token(data["access_token"])
+        # CASE 1: Dashboard Detected (Callback handled logic)
+        if token == "SKIP_SESSION":
+            print("✅ Auto-Login Verified: Session Active.")
             bot_active = True
-            smart_trader.fetch_instruments(kite)
-            print("✅ System Auto-Logged In Successfully")
-            # Reset state for future
-            login_state = "IDLE" 
+            login_state = "IDLE" # Reset state to success
+            return
+
+        # CASE 2: Token Captured (Need to generate session manually)
+        if token and token != "SKIP_SESSION":
+            try:
+                data = kite.generate_session(token, api_secret=config.API_SECRET)
+                kite.set_access_token(data["access_token"])
+                bot_active = True
+                smart_trader.fetch_instruments(kite)
+                print("✅ Session Generated Successfully")
+                login_state = "IDLE"
+            except Exception as e:
+                # If token was used during the process, assume success if bot is active
+                if "Token is invalid" in str(e) and bot_active:
+                    print("⚠️ Token Expired but Bot is Active (Race Condition Solved)")
+                    login_state = "IDLE"
+                else:
+                    raise e
         else:
             print(f"❌ Auto-Login Failed: {error}")
             login_state = "FAILED"
@@ -67,7 +78,6 @@ def run_auto_login_process():
 def home():
     global bot_active, login_state
     
-    # 1. IF LOGGED IN: SHOW DASHBOARD
     if bot_active:
         trades = strategy_manager.load_trades()
         for t in trades:
@@ -75,19 +85,13 @@ def home():
         active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
         return render_template('dashboard.html', is_active=True, trades=active)
 
-    # 2. IF NOT LOGGED IN: HANDLE AUTO-LOGIN FLOW
-    
-    # A. First Visit (IDLE) -> Start Auto-Login immediately
     if login_state == "IDLE":
         threading.Thread(target=run_auto_login_process).start()
-        # Render loading immediately so user sees "Connecting..."
         return render_template('dashboard.html', is_active=False, state="WORKING")
         
-    # B. Already Running (WORKING) -> Show Loader
     elif login_state == "WORKING":
         return render_template('dashboard.html', is_active=False, state="WORKING")
 
-    # C. Failed or Logout (FAILED/STOPPED) -> Show Manual Button
     else:
         return render_template('dashboard.html', 
                                is_active=False, 
@@ -95,19 +99,19 @@ def home():
                                error=login_error_msg,
                                login_url=kite.login_url())
 
-@app.route('/logout')
-def logout():
+# Removed Logout Route to prevent accidental stops, 
+# but keeping a manual reset if needed via API or hidden URL
+@app.route('/reset_connection')
+def reset_connection():
     global bot_active, login_state
     bot_active = False
-    # Set to STOPPED so it doesn't auto-login again immediately
-    login_state = "STOPPED" 
-    flash("🔌 Disconnected")
+    login_state = "IDLE"
+    flash("🔄 Connection Reset")
     return redirect('/')
 
 @app.route('/trigger_autologin')
 def trigger_autologin_route():
     global login_state
-    # Force reset to IDLE so the '/' route picks it up and starts fresh
     login_state = "IDLE"
     return redirect('/')
 

@@ -8,7 +8,7 @@ function calcSimSL(source) {
     
     // Apply Trail Limit Default (Only if not already initialized to avoid overwriting user edits)
     if (s.sl_to_entry !== undefined && !$('#h_sl_to_entry').data('init')) {
-        $('#h_sl_to_entry').val(s.sl_to_entry ? "1" : "0");
+        $('#h_sl_to_entry').val(s.sl_to_entry || 0);
         $('#h_sl_to_entry').data('init', true);
     }
 
@@ -60,7 +60,7 @@ window.checkHistory = function() {
         
         // New Fields for Trailing & Targets
         trailing_sl: $('#h_trail').val(),
-        sl_to_entry: $('#h_sl_to_entry').val() === "1",
+        sl_to_entry: parseInt($('#h_sl_to_entry').val()) || 0,
         target_controls: [
             { 
                 enabled: $('#h_check_t1').is(':checked'), 

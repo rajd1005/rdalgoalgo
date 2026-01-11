@@ -13,9 +13,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 import config
 
 def perform_auto_login(kite_instance):
-    print("🔄 Starting Auto-Login Sequence (Deep Debug)...")
+    print("🔄 Starting Auto-Login Sequence...")
     
-    # 1. Setup Headless Chrome
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
@@ -31,7 +30,6 @@ def perform_auto_login(kite_instance):
         
         login_url = kite_instance.login_url()
         driver.get(login_url)
-        # Increased timeout to 25s for slow redirects
         wait = WebDriverWait(driver, 25)
 
         # --- STEP 1: USER ID ---
@@ -68,7 +66,7 @@ def perform_auto_login(kite_instance):
         print("⏳ Waiting for TOTP Page...")
         time.sleep(3) 
 
-        # Check for errors first (Incorrect Password?)
+        # Check for errors
         try:
             err = driver.find_element(By.CSS_SELECTOR, ".su-message.error, .error-message")
             if err.is_displayed():
@@ -80,7 +78,6 @@ def perform_auto_login(kite_instance):
         if not config.TOTP_SECRET:
             return None, "Error: TOTP_SECRET missing."
             
-        # SHOW TOTP IN LOGS
         totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
         print(f"   🔑 Generated TOTP Code: {totp_now}") 
         
@@ -92,10 +89,8 @@ def perform_auto_login(kite_instance):
             for inp in inputs:
                 if not inp.is_displayed(): continue
                 t = inp.get_attribute("type")
-                # Zerodha uses 'number' or 'text' for TOTP
                 if t in ["text", "number", "tel", "password"]:
                     totp_input = inp
-                    print(f"   ✅ Found input field (Type: {t})")
                     break
             
             if not totp_input:
@@ -105,49 +100,52 @@ def perform_auto_login(kite_instance):
             totp_input.send_keys(totp_now)
             time.sleep(1)
             
-            # Submit Strategy: Click Button OR Hit Enter
+            # Submit
             try:
-                # Try explicit button click first
                 continue_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
                 driver.execute_script("arguments[0].click();", continue_btn)
                 print("   Clicked Continue Button.")
             except:
-                # Fallback to Enter key
                 totp_input.send_keys(Keys.ENTER)
                 print("   Hit Enter Key.")
 
         except Exception as e:
             return None, f"Error Entering TOTP: {str(e)}"
 
-        # --- STEP 5: VERIFY SUCCESS ---
-        print("⏳ Waiting for Redirect (Checking for errors)...")
-        time.sleep(3) # Wait for server response
+        # --- STEP 5: VERIFY SUCCESS (UPDATED) ---
+        print("⏳ Waiting for Success...")
         
-        # 1. Check for Invalid TOTP Error
-        try:
-            err = driver.find_element(By.CSS_SELECTOR, ".su-message.error, .error-message, .su-alert-error")
-            if err.is_displayed():
-                print(f"❌ TOTP Rejected: {err.text}")
-                return None, f"TOTP Rejected: {err.text} (Check your Secret Key)"
-        except: pass
-
-        # 2. Wait for Token
-        try:
-            wait.until(EC.url_contains("request_token="))
+        # We wait up to 15 seconds for EITHER:
+        # A) Dashboard Text (System Online / Trade) -> Means Flask handled callback
+        # B) request_token in URL -> Means Flask didn't handle it yet (rare)
+        
+        start_time = time.time()
+        while time.time() - start_time < 15:
             current_url = driver.current_url
-            parsed = urlparse(current_url)
-            request_token = parse_qs(parsed.query).get('request_token', [None])[0]
+            page_text = driver.find_element(By.TAG_NAME, "body").text
             
-            if request_token:
-                print(f"✅ Auto-Login Success! Token: {request_token[:6]}...")
-                return request_token, None
-        except:
-            # DEBUG: Print where we are stuck
-            curr_url = driver.current_url
-            body_text = driver.find_element(By.TAG_NAME, "body").text[:200].replace('\n', ' ')
-            print(f"❌ TIMEOUT at: {curr_url}")
-            print(f"📄 Page Text: {body_text}")
-            return None, "Login timed out. See logs for details."
+            # CHECK 1: Did we reach the Dashboard? (Success!)
+            # Based on your logs, dashboard contains "System Online" or "WATCHLIST"
+            if "System Online" in page_text or "WATCHLIST" in page_text or "Trade" in page_text:
+                print("✅ Dashboard Detected! Login Complete via Callback.")
+                return "SKIP_SESSION", None # Special flag for main.py
+
+            # CHECK 2: Is there a request_token?
+            if "request_token=" in current_url:
+                parsed = urlparse(current_url)
+                request_token = parse_qs(parsed.query).get('request_token', [None])[0]
+                if request_token:
+                    print(f"✅ Token Captured: {request_token[:6]}...")
+                    return request_token, None
+            
+            # CHECK 3: Did it fail?
+            if "Incorrect password" in page_text or "Invalid TOTP" in page_text:
+                return None, "Login Failed: Invalid Credentials detected on screen."
+                
+            time.sleep(1)
+
+        # Timeout Fallback
+        return None, "Login Timed Out. (Could not detect Dashboard or Token)"
 
     except Exception as e:
         print(f"❌ System Error: {e}")

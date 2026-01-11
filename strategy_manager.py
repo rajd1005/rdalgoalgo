@@ -1,4 +1,3 @@
-# strategy_manager.py
 import json
 import time
 from datetime import datetime, timedelta
@@ -39,7 +38,7 @@ def delete_trade(trade_id):
         db.session.rollback()
         return False
 
-def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=None, target_controls=None, sl_to_entry=0):
+def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=None, target_controls=None, sl_to_entry=0, exit_multiplier=1):
     trades = load_trades()
     updated = False
     for t in trades:
@@ -55,12 +54,50 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
                     entry_msg = f" | Entry {old_entry} -> {new_entry}"
             
             t['sl'] = float(sl)
-            t['targets'] = [float(x) for x in targets]
             t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
             t['sl_to_entry'] = int(sl_to_entry)
             
-            if target_controls:
-                t['target_controls'] = target_controls
+            # Handle Exit Multiplier Logic (Recalculate Targets & Controls)
+            if exit_multiplier > 1:
+                eff_entry = t['entry_price']
+                eff_sl_points = eff_entry - float(sl)
+                
+                # Determine Goal from passed targets (user inputs) or default
+                valid_custom = [x for x in targets if x > 0]
+                if valid_custom: final_goal = max(valid_custom)
+                else: final_goal = eff_entry + (eff_sl_points * 2)
+                
+                dist = final_goal - eff_entry
+                new_targets = []
+                new_controls = []
+                
+                lot_size = t.get('lot_size')
+                if not lot_size:
+                    lot_size = smart_trader.get_lot_size(t['symbol'])
+                    
+                total_lots = t['quantity'] // lot_size
+                base_lots = total_lots // exit_multiplier
+                remainder = total_lots % exit_multiplier
+                
+                for i in range(1, exit_multiplier + 1):
+                    fraction = i / exit_multiplier
+                    t_price = eff_entry + (dist * fraction)
+                    new_targets.append(round(t_price, 2))
+                    
+                    lots_here = base_lots
+                    if i == exit_multiplier: lots_here += remainder
+                    new_controls.append({'enabled': True, 'lots': int(lots_here)})
+                
+                while len(new_targets) < 3:
+                    new_targets.append(0)
+                    new_controls.append({'enabled': False, 'lots': 0})
+                
+                t['targets'] = new_targets
+                t['target_controls'] = new_controls
+            else:
+                t['targets'] = [float(x) for x in targets]
+                if target_controls:
+                    t['target_controls'] = target_controls
             
             # Detailed Logging for Targets
             tgt_log = []
@@ -74,7 +111,8 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             trail_map = {0:"Unlimited", 1:"To Entry", 2:"To T1", 3:"To T2", 4:"To T3"}
             trail_mode = trail_map.get(t['sl_to_entry'], "Unlimited")
             
-            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {', '.join(tgt_log)}. Trail: {t['trailing_sl']} ({trail_mode})")
+            mult_msg = f" | Multiplier: {exit_multiplier}x" if exit_multiplier > 1 else ""
+            log_event(t, f"Manual Update: SL {old_sl} -> {t['sl']}{entry_msg}. Targets: {', '.join(tgt_log)}. Trail: {t['trailing_sl']} ({trail_mode}){mult_msg}")
             updated = True
             break
     if updated:

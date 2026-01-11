@@ -27,7 +27,7 @@ function loadSettings() {
             let tmpl = tg.templates || {};
             
             ['TRADE_ADDED', 'TRADE_UPDATE', 'TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].forEach(evt => {
-                $(`#tg_evt_${evt}`).prop('checked', events[evt] !== false); // Default True
+                $(`#tg_evt_${evt}`).prop('checked', events[evt] !== false); 
                 $(`#tg_tmpl_${evt}`).val(tmpl[evt] || '');
             });
             // ----------------------------
@@ -90,10 +90,10 @@ function addChannelRow(name='', cid='', limit=100) {
 }
 
 function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0, trigVal='ANY', tmpl='') {
+    // Note: getChannelOptions relies on loaded settings. If you just added a channel, SAVE first.
     let chOpts = getChannelOptions(); 
     let evtOpts = ['TRADE_ACTIVATED', 'TARGET_HIT', 'MADE_HIGH', 'CLOSE_SUMMARY'].map(e => `<option value="${e}" ${e===trig?'selected':''}>${e}</option>`).join('');
     
-    // Trigger Detail Options
     let valOpts = `
         <option value="ANY" ${trigVal==='ANY'?'selected':''}>Any</option>
         <option value="1" ${trigVal==='1'?'selected':''}>Target 1</option>
@@ -101,6 +101,7 @@ function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0, trigVal
         <option value="3" ${trigVal==='3'?'selected':''}>Target 3</option>
     `;
 
+    // Inject selected source/dest manually if they match
     let srcOpts = chOpts.replace(`value="${src}"`, `value="${src}" selected`);
     let destOpts = chOpts.replace(`value="${dest}"`, `value="${dest}" selected`);
 
@@ -109,7 +110,7 @@ function addForwardRow(src='', dest='', trig='TRADE_ACTIVATED', delay=0, trigVal
         <td><select class="form-select form-select-sm tg-fwd-trig">${evtOpts}</select></td>
         <td><select class="form-select form-select-sm tg-fwd-val">${valOpts}</select></td>
         <td><select class="form-select form-select-sm tg-fwd-dest">${destOpts}</select></td>
-        <td><textarea class="form-control form-control-sm tg-fwd-tmpl" rows="1" placeholder="VIP Progress...">${tmpl}</textarea></td>
+        <td><textarea class="form-control form-control-sm tg-fwd-tmpl" rows="1" placeholder="Custom Msg...">${tmpl}</textarea></td>
         <td><input type="number" class="form-control form-control-sm tg-fwd-delay" value="${delay}" min="0" style="width:60px;"></td>
         <td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" onclick="$(this).closest('tr').remove()">×</button></td>
     </tr>`;
@@ -122,6 +123,8 @@ function saveSettings() {
     settings.exchanges = selectedExchanges;
 
     // --- Telegram Config Save ---
+    
+    // 1. Build Channels Array
     let channels = [];
     $('#tg_channels_body tr').each(function() {
         let name = $(this).find('.tg-name').val();
@@ -129,10 +132,8 @@ function saveSettings() {
         let limit = parseInt($(this).find('.tg-limit').val()) || 100;
         if(cid) channels.push({name: name, chat_id: cid, limit: limit});
     });
-    
-    if(!settings.telegram) settings.telegram = {};
-    settings.telegram.channels = channels;
 
+    // 2. Build Rules Array
     let rules = [];
     $('#tg_forward_body tr').each(function() {
         let src = $(this).find('.tg-fwd-src').val();
@@ -154,9 +155,13 @@ function saveSettings() {
         }
     });
 
+    // 3. Reconstruct Telegram Object properly
+    if (!settings.telegram) settings.telegram = {};
+    
     settings.telegram.enabled = $('#tg_enabled').is(':checked');
     settings.telegram.bot_token = $('#tg_token').val().trim();
-    settings.telegram.forwarding_rules = rules;
+    settings.telegram.channels = channels;
+    settings.telegram.forwarding_rules = rules; // Ensure this is assigned
     
     if(!settings.telegram.events) settings.telegram.events = {};
     if(!settings.telegram.templates) settings.telegram.templates = {};

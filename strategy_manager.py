@@ -56,6 +56,7 @@ def update_trade_protection(trade_id, sl, targets, trailing_sl=0, entry_price=No
             t['sl'] = float(sl)
             t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
             t['sl_to_entry'] = int(sl_to_entry)
+            t['exit_multiplier'] = int(exit_multiplier) # SAVE EXIT MULTIPLIER
             
             # Handle Exit Multiplier Logic (Recalculate Targets & Controls)
             if exit_multiplier > 1:
@@ -308,6 +309,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "mode": mode, "order_type": order_type, "status": status, "entry_price": entry_price, "quantity": quantity,
         "sl": entry_price - sl_points, "targets": targets, "target_controls": target_controls,
         "lot_size": lot_size, "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry),
+        "exit_multiplier": int(exit_multiplayer), # SAVE EXIT MULTIPLIER to Record
         "targets_hit_indices": [],
         "highest_ltp": entry_price, "made_high": entry_price, "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs
     }

@@ -18,7 +18,7 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
         
         // New: Apply Order Type and Trail Limit Defaults
         $('#ord').val(modeSettings.order_type || 'MARKET').trigger('change');
-        $('select[name="sl_to_entry"]').val(modeSettings.sl_to_entry ? "1" : "0");
+        $('select[name="sl_to_entry"]').val(modeSettings.sl_to_entry || 0);
         
         if(modeSettings.targets) {
             ['t1', 't2', 't3'].forEach((k, i) => {

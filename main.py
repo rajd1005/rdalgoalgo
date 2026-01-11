@@ -103,7 +103,8 @@ def api_update_trade():
             data.get('trailing_sl', 0),
             data.get('entry_price'),
             data.get('target_controls'),
-            data.get('sl_to_entry', 0)
+            data.get('sl_to_entry', 0),
+            data.get('exit_multiplier', 1)
         ):
             return jsonify({"status": "success"})
         else:

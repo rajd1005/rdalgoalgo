@@ -11,6 +11,12 @@ function calcSimSL(source) {
         $('#h_sl_to_entry').val(s.sl_to_entry || 0);
         $('#h_sl_to_entry').data('init', true);
     }
+    
+    // Apply Exit Multiplier Default
+    if (s.exit_multiplier !== undefined && !$('#h_exit_mult').data('init')) {
+        $('#h_exit_mult').val(s.exit_multiplier || 1);
+        $('#h_exit_mult').data('init', true);
+    }
 
     // Check if targets need initialization (simple check on T3 full default)
     if (s.targets && !$('#h_check_t3').data('init')) {
@@ -61,6 +67,7 @@ window.checkHistory = function() {
         // New Fields for Trailing & Targets
         trailing_sl: $('#h_trail').val(),
         sl_to_entry: parseInt($('#h_sl_to_entry').val()) || 0,
+        exit_multiplier: parseInt($('#h_exit_mult').val()) || 1,
         target_controls: [
             { 
                 enabled: $('#h_check_t1').is(':checked'), 

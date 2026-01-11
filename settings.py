@@ -34,7 +34,7 @@ def get_defaults():
         "telegram": {
             "enabled": False,
             "bot_token": "",
-            "chat_id": "",
+            "channels": [], # List of {name, chat_id, limit}
             "events": {
                 "TRADE_ADDED": True,
                 "TRADE_UPDATE": True,
@@ -54,7 +54,7 @@ def load_settings():
         if setting:
             saved = json.loads(setting.data)
             
-            # Integrity Check & Migration
+            # Integrity Check & Migration for Modes
             if "modes" not in saved:
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
@@ -65,7 +65,7 @@ def load_settings():
                     "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
                 }
 
-            # Ensure all keys exist
+            # Ensure all keys exist for modes
             for m in ["LIVE", "PAPER", "SIMULATOR"]:
                 if m in saved["modes"]:
                     for key, val in defaults["modes"][m].items():
@@ -90,6 +90,16 @@ def load_settings():
                     if k not in saved["telegram"]["events"]: saved["telegram"]["events"][k] = v
                 for k, v in defaults["telegram"]["templates"].items():
                     if k not in saved["telegram"]["templates"]: saved["telegram"]["templates"][k] = v
+                
+                # Migrate old single chat_id to channels list if needed
+                if "channels" not in saved["telegram"]:
+                    saved["telegram"]["channels"] = []
+                    if saved["telegram"].get("chat_id"):
+                        saved["telegram"]["channels"].append({
+                            "name": "Default Channel",
+                            "chat_id": saved["telegram"]["chat_id"],
+                            "limit": 100
+                        })
 
             return saved
     except Exception as e:

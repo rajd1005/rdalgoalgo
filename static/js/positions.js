@@ -91,6 +91,9 @@ function openEditTradeModal(id) {
     $('#edit_trail').val(t.trailing_sl || 0);
     $('#edit_trail_mode').val(t.sl_to_entry || 0);
     
+    // Reset Exit Multiplier
+    $('#edit_exit_mult').val(1);
+    
     // Default Controls if missing
     let defaults = [
         {enabled: true, lots: 0},
@@ -141,6 +144,7 @@ function saveTradeUpdate() {
         sl: parseFloat($('#edit_sl').val()),
         trailing_sl: parseFloat($('#edit_trail').val()),
         sl_to_entry: parseInt($('#edit_trail_mode').val()) || 0,
+        exit_multiplier: parseInt($('#edit_exit_mult').val()) || 1,
         targets: [
             parseFloat($('#edit_t1').val())||0,
             parseFloat($('#edit_t2').val())||0,

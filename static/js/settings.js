@@ -12,7 +12,11 @@ function loadSettings() {
             let tg = settings.telegram || {};
             $('#tg_enabled').prop('checked', tg.enabled || false);
             $('#tg_token').val(tg.bot_token || '');
-            $('#tg_chat').val(tg.chat_id || '');
+            
+            // Load Channels
+            $('#tg_channels_body').empty();
+            let channels = tg.channels || [];
+            channels.forEach(c => addChannelRow(c.name, c.chat_id, c.limit));
             
             let events = tg.events || {};
             let tmpl = tg.templates || {};
@@ -59,16 +63,34 @@ function loadSettings() {
     });
 }
 
+function addChannelRow(name='', cid='', limit=100) {
+    let row = `<tr>
+        <td><input type="text" class="form-control form-control-sm tg-name" placeholder="e.g. Free" value="${name}"></td>
+        <td><input type="text" class="form-control form-control-sm tg-cid" placeholder="-100..." value="${cid}"></td>
+        <td><input type="number" class="form-control form-control-sm tg-limit" placeholder="Max" value="${limit}"></td>
+        <td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" onclick="$(this).closest('tr').remove()">×</button></td>
+    </tr>`;
+    $('#tg_channels_body').append(row);
+}
+
 function saveSettings() {
     let selectedExchanges = [];
     $('input[name="exch_select"]:checked').each(function() { selectedExchanges.push($(this).val()); });
     settings.exchanges = selectedExchanges;
 
     // --- Telegram Config Save ---
+    let channels = [];
+    $('#tg_channels_body tr').each(function() {
+        let name = $(this).find('.tg-name').val();
+        let cid = $(this).find('.tg-cid').val();
+        let limit = parseInt($(this).find('.tg-limit').val()) || 100;
+        if(cid) channels.push({name: name, chat_id: cid, limit: limit});
+    });
+
     settings.telegram = {
         enabled: $('#tg_enabled').is(':checked'),
         bot_token: $('#tg_token').val().trim(),
-        chat_id: $('#tg_chat').val().trim(),
+        channels: channels,
         events: {},
         templates: {}
     };

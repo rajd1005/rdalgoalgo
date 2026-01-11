@@ -1,6 +1,6 @@
 <div class="modal fade" id="logModal" tabindex="-1"> <div class="modal-dialog modal-dialog-scrollable"> <div class="modal-content"> <div class="modal-header"> <h5 class="modal-title">📄 Trade Logs</h5> <button type="button" class="btn-close" data-bs-dismiss="modal"></button> </div> <div class="modal-body bg-light" id="logModalBody" style="font-family: monospace; font-size: 0.85rem;"> </div> </div> </div> </div>
 <div class="modal fade" id="editTradeModal" tabindex="-1"> <div class="modal-dialog"> <div class="modal-content"> <div class="modal-header"><h5 class="modal-title">✏️ Edit Trade Protection</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div> <div class="modal-body"> <input type="hidden" id="edit_trade_id"> <label class="pos-grid-label">New Entry Price</label><input type="number" step="0.05" id="edit_entry" class="form-control mb-3 text-primary fw-bold"> <label class="pos-grid-label">New Stop Loss</label><input type="number" step="0.05" id="edit_sl" class="form-control mb-3 text-danger fw-bold"> <label class="pos-grid-label">Trailing SL (Points)</label> <div class="input-group mb-3"> <input type="number" step="0.05" id="edit_trail" class="form-control text-info fw-bold" placeholder="0 to disable"> <select id="edit_trail_mode" class="form-select fw-bold" style="max-width: 130px;"> <option value="0">Unlimited</option> <option value="1">Up-to Entry</option> <option value="2">Up-to T1</option> <option value="3">Up-to T2</option> <option value="4">Up-to T3</option> </select> </div> <label class="pos-grid-label">Exit Multiplier (Auto-Calc Targets)</label> <input type="number" id="edit_exit_mult" class="form-control mb-3 fw-bold text-center border-info" value="1" min="1" max="10"> <label class="pos-grid-label">New Targets (Price | Active | Exit Lots)</label> <div class="input-group mb-2"> <span class="input-group-text text-success">T1</span> <input type="number" step="0.05" id="edit_t1" class="form-control"> <div class="input-group-text"> <input class="form-check-input mt-0" type="checkbox" id="check_t1" checked> </div> <input type="number" id="lot_t1" class="form-control" placeholder="Lots" style="max-width: 70px;"> <div class="input-group-text" title="Exit All"> <input class="form-check-input mt-0" type="checkbox" id="full_t1"> <span style="font-size:0.7rem; margin-left:3px;">Full</span> </div> </div> <div class="input-group mb-2"> <span class="input-group-text text-success">T2</span> <input type="number" step="0.05" id="edit_t2" class="form-control"> <div class="input-group-text"> <input class="form-check-input mt-0" type="checkbox" id="check_t2" checked> </div> <input type="number" id="lot_t2" class="form-control" placeholder="Lots" style="max-width: 70px;"> <div class="input-group-text" title="Exit All"> <input class="form-check-input mt-0" type="checkbox" id="full_t2"> <span style="font-size:0.7rem; margin-left:3px;">Full</span> </div> </div> <div class="input-group mb-2"> <span class="input-group-text text-success">T3</span> <input type="number" step="0.05" id="edit_t3" class="form-control"> <div class="input-group-text"> <input class="form-check-input mt-0" type="checkbox" id="check_t3" checked> </div> <input type="number" id="lot_t3" class="form-control" placeholder="Lots" style="max-width: 70px;"> <div class="input-group-text" title="Exit All"> <input class="form-check-input mt-0" type="checkbox" id="full_t3"> <span style="font-size:0.7rem; margin-left:3px;">Full</span> </div> </div> <hr> <h6 class="text-secondary fw-bold">Manage Position (Lots)</h6> <div class="row g-2 mb-2"> <div class="col-6"> <label class="pos-grid-label text-success">Add Lots (Avg)</label> <div class="input-group input-group-sm"> <input type="number" id="man_add_lots" class="form-control fw-bold" placeholder="Qty"> <button class="btn btn-success" onclick="managePos('ADD')">Buy</button> </div> </div> <div class="col-6"> <label class="pos-grid-label text-warning">Exit Lots (Part)</label> <div class="input-group input-group-sm"> <input type="number" id="man_exit_lots" class="form-control fw-bold" placeholder="Qty"> <button class="btn btn-warning" onclick="managePos('EXIT')">Sell</button> </div> </div> </div> </div> <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveTradeUpdate()">💾 Update Protection</button></div> </div> </div> </div>
-<div class="modal fade" id="settingsModal" tabindex="-1"> <div class="modal-dialog modal-lg"> <div class="modal-content"> <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div> <div class="modal-body"> 
+<div class="modal fade" id="settingsModal" tabindex="-1"> <div class="modal-dialog modal-xl"> <div class="modal-content"> <div class="modal-header"><h5 class="modal-title">⚙️ Global Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div> <div class="modal-body"> 
     <ul class="nav nav-tabs mb-3" id="settingTabs" role="tablist"> 
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general">General</button></li> 
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-paper">Paper</button></li> 
@@ -76,19 +76,21 @@
 
             <h6 class="mt-4 mb-2">🔀 Forwarding Rules (VIP -> Free)</h6>
             <div class="table-responsive mb-3">
-                <table class="table table-bordered table-sm">
+                <table class="table table-bordered table-sm align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th>Source</th>
-                            <th>Trigger Event</th>
-                            <th>Destination</th>
-                            <th>Delay (s)</th>
-                            <th>Action</th>
+                            <th style="width: 15%">Source</th>
+                            <th style="width: 15%">Trigger</th>
+                            <th style="width: 10%">Detail</th>
+                            <th style="width: 15%">Dest</th>
+                            <th style="width: 30%">Custom Template (Optional)</th>
+                            <th style="width: 10%">Delay</th>
+                            <th style="width: 5%"></th>
                         </tr>
                     </thead>
                     <tbody id="tg_forward_body"></tbody>
                     <tfoot>
-                        <tr><td colspan="5"><button class="btn btn-sm btn-outline-warning w-100" onclick="addForwardRow()">+ Add Rule</button></td></tr>
+                        <tr><td colspan="7"><button class="btn btn-sm btn-outline-warning w-100" onclick="addForwardRow()">+ Add Rule</button></td></tr>
                     </tfoot>
                 </table>
             </div>

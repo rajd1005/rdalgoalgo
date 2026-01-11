@@ -10,24 +10,13 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
     let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
     $(slId).val(savedSL);
     
-    // Apply Defaults from Global Settings
+    // Apply Defaults (Targets & Trailing)
     if(mode === 'SIMULATOR') {
-         // Handled in simulator.js
+        // Handled in simulator.js or separate function if needed, but safe to apply here if IDs match
+        // Simulator uses h_ prefix, handled in calcSimSL mostly or separate logic.
+        // For now, let's keep simulator logic in simulator.js or separate block
     } else {
-        // Trade Form Specifics
-        if(modeSettings.order_type) $('#ord').val(modeSettings.order_type);
-        if(modeSettings.trail_limit !== undefined) $('#trail_mode').val(modeSettings.trail_limit);
         $('#trail_sl').val(modeSettings.trailing_sl || '');
-        $('#exit_mult').val(modeSettings.exit_mult || 1);
-        
-        // Sync Ratios Display
-        if(modeSettings.ratios) {
-            $('#r_t1').text(modeSettings.ratios[0]);
-            $('#r_t2').text(modeSettings.ratios[1]);
-            $('#r_t3').text(modeSettings.ratios[2]);
-        }
-
-        // Sync Target Config (Active, Lots, Full)
         if(modeSettings.targets) {
             ['t1', 't2', 't3'].forEach((k, i) => {
                 let conf = modeSettings.targets[i];
@@ -133,59 +122,20 @@ function calcRisk() {
             if(basePrice > 0) $('#p_sl').val(calculatedPrice.toFixed(2));
     }
 
-    let mode = $('#mode_input').val(); 
-    let baseRatios = settings.modes[mode].ratios;
+    let mode = $('#mode_input').val(); let ratios = settings.modes[mode].ratios;
     let sl = basePrice - p;
+    let t1 = basePrice + p * ratios[0]; let t2 = basePrice + p * ratios[1]; let t3 = basePrice + p * ratios[2];
 
-    // --- EXIT MULTIPLIER LOGIC ---
-    let exitMult = parseInt($('#exit_mult').val()) || 1;
-    let finalRatio = baseRatios[2]; 
-    
-    if (exitMult > 1) {
-        let steps = Math.min(exitMult, 3); 
-        let ratioStep = finalRatio / steps;
-        let lotsPerStep = Math.floor(qty / steps); 
-        let extraLots = qty % steps;
-
-        for(let i=1; i<=3; i++) {
-             if (i <= steps) {
-                 let targetPrice = basePrice + (p * (ratioStep * i));
-                 $(`#p_t${i}`).val(targetPrice.toFixed(2));
-                 
-                 let thisLots = lotsPerStep;
-                 if (i === steps) thisLots += extraLots; 
-                 
-                 $(`#t${i}_active`).prop('checked', true);
-                 $(`#t${i}_lots`).val(thisLots);
-                 $(`#t${i}_full`).prop('checked', false); 
-                 $(`#pnl_t${i}`).text(`₹ ${((targetPrice - basePrice) * thisLots).toFixed(0)}`);
-             } else {
-                 $(`#t${i}_active`).prop('checked', false);
-                 $(`#t${i}_lots`).val('');
-                 $(`#p_t${i}`).val('');
-                 $(`#pnl_t${i}`).text('₹ 0');
-             }
-        }
-    } else {
-        // Standard Behavior
-        let t1 = basePrice + p * baseRatios[0]; 
-        let t2 = basePrice + p * baseRatios[1]; 
-        let t3 = basePrice + p * baseRatios[2];
-    
-        if (!document.activeElement || !['p_t1', 'p_t2', 'p_t3'].includes(document.activeElement.id)) {
-                $('#p_t1').val(t1.toFixed(2)); $('#p_t2').val(t2.toFixed(2)); $('#p_t3').val(t3.toFixed(2));
-                $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`); 
-                $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`); 
-                $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);
-        }
+    if (!document.activeElement || !['p_t1', 'p_t2', 'p_t3'].includes(document.activeElement.id)) {
+            $('#p_t1').val(t1.toFixed(2)); $('#p_t2').val(t2.toFixed(2)); $('#p_t3').val(t3.toFixed(2));
+            $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`); $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`); $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);
     }
-
     $('#pnl_sl').text(`₹ ${((sl-basePrice)*qty).toFixed(0)}`);
 
-    // Handle Full Checkbox Logic
+    // Handle Full Checkbox Logic (Auto-set 1000 lots)
     ['t1', 't2', 't3'].forEach(k => {
         if ($(`#${k}_full`).is(':checked')) {
-            $(`#${k}_lots`).val(1000).prop('readonly', true);
+            $(`#${k}_lots`).val(1000).prop('readonly', true); // Visual feedback
         } else {
             $(`#${k}_lots`).prop('readonly', false);
         }

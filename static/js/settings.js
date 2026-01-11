@@ -17,13 +17,10 @@ function loadSettings() {
                 $(`#${k}_r2`).val(s.ratios[1]);
                 $(`#${k}_r3`).val(s.ratios[2]);
                 
-                // New Defaults: Order, Trail Limit, Trail, Exit Mult
-                $(`#${k}_def_ord`).val(s.order_type || 'MARKET');
-                $(`#${k}_def_tlimit`).val(s.trail_limit || 0);
+                // New: Trailing SL
                 $(`#${k}_def_trail`).val(s.trailing_sl || 0);
-                $(`#${k}_exit_mult`).val(s.exit_mult || 1);
 
-                // Target Config
+                // New: Targets Config (Default structure if missing)
                 let tgts = s.targets || [
                     {active: true, lots: 0, full: false},
                     {active: true, lots: 0, full: false},
@@ -63,12 +60,7 @@ function saveSettings() {
         
         s.qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;
         s.ratios = [parseFloat($(`#${k}_r1`).val()), parseFloat($(`#${k}_r2`).val()), parseFloat($(`#${k}_r3`).val())];
-        
-        // Save New Defaults
-        s.order_type = $(`#${k}_def_ord`).val();
-        s.trail_limit = parseInt($(`#${k}_def_tlimit`).val()) || 0;
         s.trailing_sl = parseFloat($(`#${k}_def_trail`).val()) || 0;
-        s.exit_mult = parseInt($(`#${k}_exit_mult`).val()) || 1;
         
         // Save Target Configs
         s.targets = [

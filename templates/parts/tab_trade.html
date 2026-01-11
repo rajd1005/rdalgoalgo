@@ -70,20 +70,16 @@
                 </div>
 
                 <div class="row g-2 align-items-center mb-3">
-                    <div class="col-4">
-                        <label class="pos-grid-label">Trailing SL (Pts)</label>
-                        <input type="number" step="0.5" name="trailing_sl" id="trail_sl" class="form-control fw-bold text-center text-info" placeholder="0">
+                    <div class="col-6">
+                        <label class="pos-grid-label">Trailing SL (Points)</label>
+                        <input type="number" step="0.05" name="trailing_sl" id="trail_sl" class="form-control fw-bold text-center text-info" placeholder="0">
                     </div>
-                    <div class="col-4">
+                    <div class="col-6">
                         <label class="pos-grid-label">Trail Limit</label>
-                        <select name="sl_to_entry" id="trail_mode" class="form-select fw-bold text-center">
+                        <select name="sl_to_entry" class="form-select fw-bold text-center">
                              <option value="0">Unlimited</option>
                              <option value="1">Up-to Entry</option>
                         </select>
-                    </div>
-                    <div class="col-4">
-                        <label class="pos-grid-label">Exit Multiplier</label>
-                        <input type="number" step="1" name="exit_mult" id="exit_mult" class="form-control fw-bold text-center text-warning" placeholder="1" oninput="calcRisk()">
                     </div>
                 </div>
                 

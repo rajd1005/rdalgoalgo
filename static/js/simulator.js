@@ -2,31 +2,23 @@ function calcSimSL(source) {
     let entry = parseFloat($('#h_entry').val()) || 0;
     if(entry <= 0) return;
     
-    // Apply Defaults for Simulator (One-time check logic using a data flag)
+    // Apply Defaults for Simulator if this is the first load/calc
+    // Note: To prevent overwriting user edits, we could check if fields are empty.
+    // However, calcSimSL is called often. Better to rely on loadDetails or explicit init.
+    // But since simulator structure is separate, we do a lightweight check here.
     let s = settings.modes.SIMULATOR;
-    if (!$(document).data('sim_init_done')) {
-        if (s.trailing_sl !== undefined) $('#h_trail').val(s.trailing_sl);
-        if (s.trail_limit !== undefined) $('#h_sl_to_entry').val(s.trail_limit);
-        if (s.exit_mult !== undefined) $('#h_exit_mult').val(s.exit_mult);
-        
-        // Sync Ratios Labels
-        if(s.ratios) {
-             $('#hr_t1').text(s.ratios[0]);
-             $('#hr_t2').text(s.ratios[1]);
-             $('#hr_t3').text(s.ratios[2]);
-        }
-
-        // Apply Targets
-        if (s.targets) {
-            ['t1', 't2', 't3'].forEach((k, i) => {
-                let conf = s.targets[i];
-                $(`#h_check_${k}`).prop('checked', conf.active);
-                $(`#h_full_${k}`).prop('checked', conf.full);
-                if(conf.full) $(`#h_lot_${k}`).val(1000);
-                else $(`#h_lot_${k}`).val(conf.lots > 0 ? conf.lots : '');
-            });
-        }
-        $(document).data('sim_init_done', true);
+    if ($('#h_trail').val() === '' && s.trailing_sl) $('#h_trail').val(s.trailing_sl);
+    
+    // Check if targets need initialization (simple check on T3 full default)
+    if (s.targets && !$('#h_check_t3').data('init')) {
+        ['t1', 't2', 't3'].forEach((k, i) => {
+            let conf = s.targets[i];
+            $(`#h_check_${k}`).prop('checked', conf.active);
+            $(`#h_full_${k}`).prop('checked', conf.full);
+            if(conf.full) $(`#h_lot_${k}`).val(1000);
+            else $(`#h_lot_${k}`).val(conf.lots > 0 ? conf.lots : '');
+        });
+        $('#h_check_t3').data('init', true); // Flag to prevent reset
     }
 
     if(source === 'pts') {
@@ -38,43 +30,6 @@ function calcSimSL(source) {
     }
     $('#h_entry').trigger('input'); 
     
-    // --- EXIT MULTIPLIER LOGIC FOR SIMULATOR ---
-    let qty = parseInt($('#h_qty').val()) || 1;
-    let pts = parseFloat($('#h_sl_pts').val()) || 0;
-    let exitMult = parseInt($('#h_exit_mult').val()) || 1;
-    let baseRatios = s.ratios || [0.5, 1.0, 1.5];
-    let finalRatio = baseRatios[2];
-
-    if(exitMult > 1) {
-        let steps = Math.min(exitMult, 3);
-        let ratioStep = finalRatio / steps;
-        let lotsPerStep = Math.floor(qty / steps);
-        let extraLots = qty % steps;
-
-        for(let i=1; i<=3; i++) {
-            if(i <= steps) {
-                let targetPrice = entry + (pts * (ratioStep * i));
-                $(`#h_t${i}`).val(targetPrice.toFixed(2));
-                
-                let thisLots = lotsPerStep;
-                if(i === steps) thisLots += extraLots;
-                
-                $(`#h_check_t${i}`).prop('checked', true);
-                $(`#h_lot_t${i}`).val(thisLots);
-                $(`#h_full_t${i}`).prop('checked', false);
-                
-                // Update PnL display
-                $(`#h_pnl_t${i}`).text(`₹ ${((targetPrice - entry) * thisLots).toFixed(0)}`);
-            } else {
-                $(`#h_check_t${i}`).prop('checked', false);
-                $(`#h_lot_t${i}`).val('');
-                $(`#h_t${i}`).val('');
-                $(`#h_pnl_t${i}`).text('₹ 0');
-            }
-        }
-    }
-    // -------------------------------------------
-
     // Handle Full Checkbox UI
     ['t1', 't2', 't3'].forEach(k => {
         if ($(`#h_full_${k}`).is(':checked')) $(`#h_lot_${k}`).val(1000).prop('readonly', true);
@@ -103,7 +58,6 @@ window.checkHistory = function() {
         // New Fields for Trailing & Targets
         trailing_sl: $('#h_trail').val(),
         sl_to_entry: $('#h_sl_to_entry').val() === "1",
-        exit_mult: $('#h_exit_mult').val(),
         target_controls: [
             { 
                 enabled: $('#h_check_t1').is(':checked'), 

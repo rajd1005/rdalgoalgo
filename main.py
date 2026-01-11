@@ -222,10 +222,18 @@ def place_trade():
         trailing_sl = float(request.form.get('trailing_sl') or 0)
         sl_to_entry = int(request.form.get('sl_to_entry', 0))
         
+        # New Exit Multiplier
+        exit_multiplayer = int(request.form.get('exit_multiplayer', 1))
+
         t1 = float(request.form.get('t1_price', 0))
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
-        custom_targets = [t1, t2, t3] if t1 > 0 else []
+        
+        # Pass targets if Exit Multiplier is used OR if T1 is set
+        if exit_multiplayer > 1:
+            custom_targets = [t1, t2, t3] 
+        else:
+            custom_targets = [t1, t2, t3] if t1 > 0 else []
         
         # New Target Controls from Form
         target_controls = []
@@ -243,7 +251,7 @@ def place_trade():
         if not final_sym:
             return redirect('/')
 
-        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry)
+        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplayer)
         if res['status'] == 'success':
             flash(f"✅ Order Placed: {final_sym}")
         else:

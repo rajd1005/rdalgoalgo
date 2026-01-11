@@ -20,7 +20,7 @@ function loadSettings() {
                 // Trailing SL & Defaults
                 $(`#${k}_def_trail`).val(s.trailing_sl || 0);
                 $(`#${k}_order_type`).val(s.order_type || 'MARKET');
-                $(`#${k}_trail_limit`).val(s.sl_to_entry ? "1" : "0");
+                $(`#${k}_trail_limit`).val(s.sl_to_entry || 0);
 
                 // Target Config
                 let tgts = s.targets || [
@@ -66,7 +66,7 @@ function saveSettings() {
         
         // Save Defaults
         s.order_type = $(`#${k}_order_type`).val();
-        s.sl_to_entry = $(`#${k}_trail_limit`).val() === "1";
+        s.sl_to_entry = parseInt($(`#${k}_trail_limit`).val()) || 0;
         
         // Save Target Configs
         s.targets = [

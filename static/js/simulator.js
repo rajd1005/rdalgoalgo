@@ -2,23 +2,31 @@ function calcSimSL(source) {
     let entry = parseFloat($('#h_entry').val()) || 0;
     if(entry <= 0) return;
     
-    // Apply Defaults for Simulator if this is the first load/calc
-    // Note: To prevent overwriting user edits, we could check if fields are empty.
-    // However, calcSimSL is called often. Better to rely on loadDetails or explicit init.
-    // But since simulator structure is separate, we do a lightweight check here.
+    // Apply Defaults for Simulator (One-time check logic using a data flag)
     let s = settings.modes.SIMULATOR;
-    if ($('#h_trail').val() === '' && s.trailing_sl) $('#h_trail').val(s.trailing_sl);
-    
-    // Check if targets need initialization (simple check on T3 full default)
-    if (s.targets && !$('#h_check_t3').data('init')) {
-        ['t1', 't2', 't3'].forEach((k, i) => {
-            let conf = s.targets[i];
-            $(`#h_check_${k}`).prop('checked', conf.active);
-            $(`#h_full_${k}`).prop('checked', conf.full);
-            if(conf.full) $(`#h_lot_${k}`).val(1000);
-            else $(`#h_lot_${k}`).val(conf.lots > 0 ? conf.lots : '');
-        });
-        $('#h_check_t3').data('init', true); // Flag to prevent reset
+    if (!$(document).data('sim_init_done')) {
+        if (s.trailing_sl !== undefined) $('#h_trail').val(s.trailing_sl);
+        if (s.trail_limit !== undefined) $('#h_sl_to_entry').val(s.trail_limit);
+        if (s.exit_mult !== undefined) $('#h_exit_mult').val(s.exit_mult);
+        
+        // Sync Ratios Labels
+        if(s.ratios) {
+             $('#hr_t1').text(s.ratios[0]);
+             $('#hr_t2').text(s.ratios[1]);
+             $('#hr_t3').text(s.ratios[2]);
+        }
+
+        // Apply Targets
+        if (s.targets) {
+            ['t1', 't2', 't3'].forEach((k, i) => {
+                let conf = s.targets[i];
+                $(`#h_check_${k}`).prop('checked', conf.active);
+                $(`#h_full_${k}`).prop('checked', conf.full);
+                if(conf.full) $(`#h_lot_${k}`).val(1000);
+                else $(`#h_lot_${k}`).val(conf.lots > 0 ? conf.lots : '');
+            });
+        }
+        $(document).data('sim_init_done', true);
     }
 
     if(source === 'pts') {
@@ -58,6 +66,7 @@ window.checkHistory = function() {
         // New Fields for Trailing & Targets
         trailing_sl: $('#h_trail').val(),
         sl_to_entry: $('#h_sl_to_entry').val() === "1",
+        exit_mult: $('#h_exit_mult').val(),
         target_controls: [
             { 
                 enabled: $('#h_check_t1').is(':checked'), 

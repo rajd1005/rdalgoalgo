@@ -1,6 +1,7 @@
 kiteconnect
 pandas
 flask
+flask_login
 gunicorn
 flask_sqlalchemy
 psycopg2-binary

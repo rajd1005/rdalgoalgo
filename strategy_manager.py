@@ -148,7 +148,7 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                 if t['quantity'] > qty_delta:
                     t['quantity'] -= qty_delta
                     pnl_booked = (ltp - t['entry_price']) * qty_delta
-                    t['booked_pnl'] = t.get('booked_pnl', 0) + pnl_booked  # Track Manual Exit PnL
+                    t['booked_pnl'] = t.get('booked_pnl', 0) + pnl_booked
                     
                     log_event(t, f"Partial Profit: Sold {qty_delta} Qty ({lots_count} Lots) @ {ltp}. Booked P/L: ₹ {pnl_booked:.2f}")
                     
@@ -360,12 +360,12 @@ def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
     trade_data['booked_pnl'] = 0.0 # Init
     
-    if 'entry_time' not in trade_data:
-        val_from_params = trade_data.get('raw_params', {}).get('time')
-        if val_from_params:
-            trade_data['entry_time'] = val_from_params.replace("T", " ")
-        else:
-            trade_data['entry_time'] = get_time_str()
+    # FORCE ENTRY TIME from Simulator Input if available (Date/Time importance)
+    val_from_params = trade_data.get('raw_params', {}).get('time')
+    if val_from_params:
+        trade_data['entry_time'] = val_from_params.replace("T", " ")
+    elif 'entry_time' not in trade_data:
+        trade_data['entry_time'] = get_time_str()
 
     entry_time_str = trade_data['entry_time']
     is_today = False
@@ -446,7 +446,6 @@ def inject_simulated_trade(trade_data, is_active):
         save_trades(trades)
     else:
         # If historical or force closed
-        # Calc PnL logic here must match move_to_history logic
         exit_p = 0
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
@@ -455,7 +454,7 @@ def inject_simulated_trade(trade_data, is_active):
         elif "SL" in trade_data.get('status', ''):
              exit_p = trade_data.get('sl', 0)
         else:
-             exit_p = trade_data.get('made_high', 0) # Simulation close at high?
+             exit_p = trade_data.get('made_high', 0) # Simulation close at high
         
         trade_data['exit_price'] = exit_p
         

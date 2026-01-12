@@ -4,8 +4,7 @@ let settings = {
     watchlist: [],
     modes: {
         LIVE: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
-        PAPER: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}},
-        SIMULATOR: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}}
+        PAPER: {qty_mult: 1, ratios: [0.5, 1.0, 1.5], symbol_sl: {}}
     }
 };
 
@@ -30,13 +29,11 @@ function normalizeSymbol(s) {
 }
 
 function getTradeCategory(t) { 
-    if (t.order_type === 'SIMULATION') return 'SIMULATOR'; 
     if (t.mode === 'LIVE') return 'LIVE'; 
     return 'PAPER'; 
 }
 
 function getMarkBadge(category) { 
-    if (category === 'SIMULATOR') return '<span class="badge bg-info text-dark" style="font-size:0.7rem;">SIM</span>'; 
     if (category === 'LIVE') return '<span class="badge bg-danger" style="font-size:0.7rem;">LIVE</span>'; 
     return '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">PAPER</span>'; 
 }

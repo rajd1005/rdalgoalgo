@@ -401,11 +401,17 @@ def inject_simulated_trade(trade_data, is_active):
             if i not in trade_data['targets_hit_indices']:
                 trade_data['targets_hit_indices'].append(i)
                 
+                # Check if Final Target
+                is_final_target = (i == len(targets) - 1)
+                
                 if i < len(controls):
                     conf = controls[i]
                     if conf['enabled']:
-                            exit_lots = conf.get('lots', 0)
-                            qty_exit = exit_lots * lot_size
+                            if is_final_target:
+                                qty_exit = trade_data['quantity'] # FORCE FULL EXIT ON FINAL TARGET
+                            else:
+                                exit_lots = conf.get('lots', 0)
+                                qty_exit = exit_lots * lot_size
                             
                             if trade_data['quantity'] > qty_exit:
                                 trade_data['quantity'] -= qty_exit
@@ -418,7 +424,11 @@ def inject_simulated_trade(trade_data, is_active):
                                 trade_data['booked_pnl'] += pnl_chunk
                                 
                                 trade_data['quantity'] = 0
-                                log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Trade Closed.")
+                                
+                                # Custom Log for Final Target
+                                msg_type = "Final Target Hit" if is_final_target else f"Target {i+1} Hit"
+                                log_event(trade_data, f"{msg_type} (Simulated) @ {tgt}. Trade Closed.")
+                                
                                 trade_data['status'] = "TARGET_HIT"
                                 trade_data['exit_price'] = tgt
                                 should_be_active_db = False
@@ -443,6 +453,7 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
+        # PnL & Status Logic for History
         exit_p = 0
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)

@@ -148,6 +148,8 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                 if t['quantity'] > qty_delta:
                     t['quantity'] -= qty_delta
                     pnl_booked = (ltp - t['entry_price']) * qty_delta
+                    t['booked_pnl'] = t.get('booked_pnl', 0) + pnl_booked  # Track Manual Exit PnL
+                    
                     log_event(t, f"Partial Profit: Sold {qty_delta} Qty ({lots_count} Lots) @ {ltp}. Booked P/L: ₹ {pnl_booked:.2f}")
                     
                     if t['mode'] == 'LIVE':
@@ -173,26 +175,40 @@ def log_event(trade, message):
     trade['logs'].append(f"[{get_time_str()}] {message}")
 
 def move_to_history(trade, final_status, exit_price):
-    real_pnl = 0
     was_active = trade['status'] != 'PENDING'
-    if was_active: real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
+    booked_pnl = trade.get('booked_pnl', 0)
+    
+    # Calculate PnL on remaining quantity
+    remainder_pnl = 0
+    if was_active:
+        remainder_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
 
-    if not was_active:
+    # FINAL PnL LOGIC:
+    # 1. If we have Booked Profit (Targets Hit) AND we hit SL on remainder -> IGNORE SL Loss (Show only Booked Profit)
+    # 2. Else -> Show Total (Booked + Remainder)
+    if was_active:
+        if booked_pnl > 0 and "SL" in final_status:
+            trade['pnl'] = round(booked_pnl, 2)
+        else:
+            trade['pnl'] = round(booked_pnl + remainder_pnl, 2)
+    else:
         trade['pnl'] = 0
-    else: 
-        trade['pnl'] = real_pnl
     
     trade['status'] = final_status; trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
     
     if "Closed:" not in str(trade['logs']):
-         log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}")
+         log_event(trade, f"Closed: {final_status} @ {exit_price} | Final P/L ₹ {trade['pnl']:.2f}")
     
     if was_active:
         made_high = trade.get('made_high', trade['entry_price'])
         trade['made_high'] = made_high
-        max_pnl = (made_high - trade['entry_price']) * trade['quantity']
-        log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {max_pnl:.2f}")
+        
+        # Potential Profit = Booked + (High - Entry) * Remaining Qty
+        max_pnl_remainder = (made_high - trade['entry_price']) * trade['quantity']
+        total_potential = booked_pnl + max_pnl_remainder
+        
+        log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
         telegram_bot.send_alert("CLOSE_SUMMARY", trade, extra={'high': made_high})
     
     try:
@@ -273,7 +289,8 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "targets_hit_indices": [], "highest_ltp": entry_price, "made_high": entry_price, 
         "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs,
         "last_notified_high": entry_price,
-        "telegram_msg_ids": {}
+        "telegram_msg_ids": {},
+        "booked_pnl": 0.0  # Initialize Booked PnL
     }
 
     # TELEGRAM LOGIC: Channel Selection with Override Support
@@ -341,6 +358,7 @@ def close_trade_manual(kite, trade_id):
 
 def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
+    trade_data['booked_pnl'] = 0.0 # Init
     
     if 'entry_time' not in trade_data:
         val_from_params = trade_data.get('raw_params', {}).get('time')
@@ -370,6 +388,7 @@ def inject_simulated_trade(trade_data, is_active):
 
     should_be_active_db = is_active and is_today
 
+    # --- STATUS RE-CALCULATION & TAG FINALIZATION ---
     if should_be_active_db:
         made_high = trade_data.get('made_high', trade_data['entry_price'])
         targets = trade_data.get('targets', [])
@@ -378,9 +397,6 @@ def inject_simulated_trade(trade_data, is_active):
         entry_price = trade_data.get('entry_price', 0)
         
         if 'targets_hit_indices' not in trade_data: trade_data['targets_hit_indices'] = []
-        
-        accumulated_pnl = 0
-        original_qty = trade_data['quantity']
         
         for i, tgt in enumerate(targets):
             if tgt > 0 and made_high >= tgt:
@@ -396,19 +412,18 @@ def inject_simulated_trade(trade_data, is_active):
                              if trade_data['quantity'] > qty_exit:
                                  trade_data['quantity'] -= qty_exit
                                  pnl_chunk = (tgt - entry_price) * qty_exit
-                                 accumulated_pnl += pnl_chunk
+                                 trade_data['booked_pnl'] += pnl_chunk
                                  log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
                              else:
+                                 # FULL EXIT
                                  pnl_chunk = (tgt - entry_price) * trade_data['quantity']
-                                 accumulated_pnl += pnl_chunk
+                                 trade_data['booked_pnl'] += pnl_chunk
                                  
                                  trade_data['quantity'] = 0
                                  log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Trade Closed.")
                                  trade_data['status'] = "TARGET_HIT"
                                  trade_data['exit_price'] = tgt
                                  should_be_active_db = False
-                                 
-                                 trade_data['pnl'] = accumulated_pnl
                                  break
                         else:
                              log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled).")
@@ -430,18 +445,26 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
+        # If historical or force closed
+        # Calc PnL logic here must match move_to_history logic
+        exit_p = 0
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
-             trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)
-             trade_data['exit_price'] = exit_p
+        elif trade_data.get('status') == 'TARGET_HIT':
+             exit_p = trade_data.get('exit_price', trade_data.get('targets')[-1])
+        elif "SL" in trade_data.get('status', ''):
+             exit_p = trade_data.get('sl', 0)
+        else:
+             exit_p = trade_data.get('made_high', 0) # Simulation close at high?
         
-        if 'pnl' not in trade_data or trade_data['pnl'] == 0:
-             if "SL" in trade_data.get('status', ''):
-                  exit_p = trade_data.get('sl', 0)
-                  trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)
-                  if 'exit_price' not in trade_data: trade_data['exit_price'] = exit_p
-             else:
-                  trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
+        trade_data['exit_price'] = exit_p
+        
+        # PnL Calc: If Booked > 0 and SL hit -> Show Booked only
+        if trade_data.get('booked_pnl', 0) > 0 and "SL" in trade_data.get('status', ''):
+             trade_data['pnl'] = trade_data['booked_pnl']
+        else:
+             rem_pnl = (exit_p - trade_data['entry_price']) * trade_data['quantity']
+             trade_data['pnl'] = trade_data.get('booked_pnl', 0) + rem_pnl
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
@@ -465,11 +488,8 @@ def update_risk_engine(kite):
         return
 
     active_trades = load_trades()
-    # history_trades = load_history()  <-- REMOVED TO STOP POST-EXIT MONITORING
-    # monitoring_history = ...         <-- REMOVED
-
+    
     instruments_to_fetch = set([f"{t['exchange']}:{t['symbol']}" for t in active_trades])
-    # for t in monitoring_history: ... <-- REMOVED
     
     if not instruments_to_fetch: return
     try: live_prices = kite.quote(list(instruments_to_fetch))
@@ -538,6 +558,7 @@ def update_risk_engine(kite):
                         elif qty_to_exit > 0:
                              t['quantity'] -= qty_to_exit
                              pnl_booked = (tgt - t['entry_price']) * qty_to_exit
+                             t['booked_pnl'] = t.get('booked_pnl', 0) + pnl_booked
                              log_event(t, f"Target {i+1} Hit @ {tgt}. Auto-Exited {qty_to_exit} Qty. P/L Booked: {pnl_booked:.2f}")
                              if t['mode'] == 'LIVE':
                                 try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)

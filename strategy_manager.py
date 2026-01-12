@@ -209,8 +209,9 @@ def get_exchange(symbol):
 
 def get_daily_trade_count():
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
-    hist_count = len([t for t in load_history() if t['entry_time'].startswith(today_str)])
-    active_count = len([t for t in load_trades() if t['entry_time'].startswith(today_str)])
+    # FIX: Use .get() to avoid KeyError if entry_time is missing in old/simulated records
+    hist_count = len([t for t in load_history() if t.get('entry_time', '').startswith(today_str)])
+    active_count = len([t for t in load_trades() if t.get('entry_time', '').startswith(today_str)])
     return hist_count + active_count + 1 # +1 for the current new trade
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1, telegram_mode="AUTO"):
@@ -341,6 +342,16 @@ def close_trade_manual(kite, trade_id):
 def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
     
+    # FIX: Ensure entry_time exists to prevent future KeyErrors
+    if 'entry_time' not in trade_data:
+        # Use provided time from simulation params or current time
+        val_from_params = trade_data.get('raw_params', {}).get('time')
+        # If it's a T format like 2023-10-27T10:00, replace T with space
+        if val_from_params:
+            trade_data['entry_time'] = val_from_params.replace("T", " ")
+        else:
+            trade_data['entry_time'] = get_time_str()
+
     if is_active:
         trade_data['order_type'] = "MARKET" # Auto-convert to Paper Trade if active
     else:

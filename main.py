@@ -35,10 +35,12 @@ def init_db_and_admin():
         inspector = inspect(db.engine)
         if not inspector.has_table("user"):
             db.create_all()
-            # Create Default Admin
-            if not User.query.filter_by(username='admin').first():
+            
+            # Create Default Admin using Config Variables
+            admin_user = config.ADMIN_USERNAME
+            if not User.query.filter_by(username=admin_user).first():
                 admin = User(
-                    username='admin',
+                    username=admin_user,
                     password=generate_password_hash(config.ADMIN_PASSWORD),
                     role='ADMIN',
                     plan='YEARLY',
@@ -46,7 +48,7 @@ def init_db_and_admin():
                 )
                 db.session.add(admin)
                 db.session.commit()
-                print("✅ Default Admin Created (User: admin)")
+                print(f"✅ Default Admin Created (User: {admin_user})")
         else:
             # Migration check for new columns if needed
             db.create_all()

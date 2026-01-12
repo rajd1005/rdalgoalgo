@@ -30,20 +30,6 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
                 else $(`#${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
             });
         }
-        
-        // --- Populate Telegram Selector from Settings ---
-        if(settings.telegram && settings.telegram.channels) {
-            let sel = $('#tg_selector');
-            if(sel.length > 0) {
-                 // Keep first 2 default options
-                 let staticOpts = sel.find('option').slice(0, 2); 
-                 sel.empty().append(staticOpts);
-                 
-                 settings.telegram.channels.forEach(c => {
-                     sel.append(`<option value="${c.chat_id}">📢 ${c.name}</option>`);
-                 });
-            }
-        }
     }
     
     if(mode === 'SIMULATOR') calcSimSL('pts'); 

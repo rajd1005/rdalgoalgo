@@ -41,14 +41,14 @@ def run_auto_login_process():
     try:
         token, error = auto_login.perform_auto_login(kite)
         
-        # CASE 1: Dashboard Detected
+        # CASE 1: Dashboard Detected (Callback handled logic)
         if token == "SKIP_SESSION":
             print("✅ Auto-Login Verified: Session Active.")
             bot_active = True
             login_state = "IDLE" 
             return
 
-        # CASE 2: Token Captured
+        # CASE 2: Token Captured (Need to generate session manually)
         if token and token != "SKIP_SESSION":
             try:
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
@@ -58,6 +58,7 @@ def run_auto_login_process():
                 print("✅ Session Generated Successfully")
                 login_state = "IDLE"
             except Exception as e:
+                # If token was used during the process, assume success if bot is active
                 if "Token is invalid" in str(e) and bot_active:
                     print("⚠️ Token Expired but Bot is Active (Race Condition Solved)")
                     login_state = "IDLE"
@@ -98,6 +99,7 @@ def home():
                                error=login_error_msg,
                                login_url=kite.login_url())
 
+# --- NEW STATUS ENDPOINT FOR FRONTEND POLLING ---
 @app.route('/api/status')
 def api_status():
     return jsonify({"active": bot_active, "state": login_state})
@@ -131,6 +133,7 @@ def callback():
             flash(f"Login Error: {e}")
     return redirect('/')
 
+# --- SETTINGS API ---
 @app.route('/api/settings/load')
 def api_settings_load():
     return jsonify(settings.load_settings())
@@ -141,6 +144,7 @@ def api_settings_save():
         return jsonify({"status": "success"})
     return jsonify({"status": "error"})
 
+# --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
     if bot_active:
@@ -198,25 +202,12 @@ def api_manage_trade():
     
     return jsonify({"status": "error", "message": "Action Failed"})
 
+# --- MARKET DATA API ---
 @app.route('/api/indices')
 def api_indices():
-    global bot_active, login_state
-    
     if not bot_active:
         return jsonify({"NIFTY":0, "BANKNIFTY":0, "SENSEX":0})
-    
-    data = smart_trader.get_indices_ltp(kite)
-    
-    # --- AUTO-LOGIN FAILSAFE ---
-    # Trigger auto-login if NIFTY is 0 (session dead)
-    if data.get("NIFTY", 0) == 0:
-        if login_state != "WORKING":
-            print("⚠️ Zero Price Detected (Session Dead?). Triggering Re-Login...")
-            bot_active = False 
-            login_state = "IDLE" 
-            threading.Thread(target=run_auto_login_process).start()
-    
-    return jsonify(data)
+    return jsonify(smart_trader.get_indices_ltp(kite))
 
 @app.route('/api/search')
 def api_search():
@@ -236,6 +227,7 @@ def api_chain():
 def api_s_ltp(): 
     return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
+# --- SIMULATION & EXECUTION ---
 @app.route('/api/history_check', methods=['POST'])
 def api_history():
     if not bot_active:
@@ -291,14 +283,6 @@ def api_history():
         trade_data = result['trade_data']
         trade_data['quantity'] = qty
         trade_data['targets'] = custom_targets if custom_targets else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
-        
-        # --- FIX: Ensure Form Settings are transferred to Trade Data ---
-        trade_data['trailing_sl'] = trailing_sl
-        trade_data['sl_to_entry'] = sl_to_entry
-        trade_data['exit_multiplier'] = exit_multiplier
-        trade_data['target_controls'] = target_controls
-        # ---------------------------------------------------------------
-        
         trade_data['raw_params'] = {'symbol': data['symbol'], 'expiry': data['expiry'], 'strike': data['strike'], 'type': data['type'], 'time': data['time']}
         strategy_manager.inject_simulated_trade(trade_data, result['is_active'])
         return jsonify({"status": "success", "message": "Simulation Complete", "is_active": result['is_active']})
@@ -320,10 +304,6 @@ def place_trade():
         trailing_sl = float(request.form.get('trailing_sl') or 0)
         sl_to_entry = int(request.form.get('sl_to_entry', 0))
         exit_multiplayer = int(request.form.get('exit_multiplayer', 1))
-        
-        # New: Telegram Mode
-        tg_mode = request.form.get('tg_mode', 'AUTO')
-        
         t1 = float(request.form.get('t1_price', 0))
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
@@ -343,13 +323,7 @@ def place_trade():
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         if not final_sym: return redirect('/')
 
-        # Pass tg_mode to manager
-        res = strategy_manager.create_trade_direct(
-            kite, mode, final_sym, qty, sl_points, custom_targets, 
-            order_type, limit_price, target_controls, trailing_sl, 
-            sl_to_entry, exit_multiplayer, telegram_mode=tg_mode
-        )
-        
+        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplayer)
         if res['status'] == 'success': flash(f"✅ Order Placed: {final_sym}")
         else: flash(f"❌ Error: {res['message']}")
     except Exception as e: flash(f"Error: {e}")

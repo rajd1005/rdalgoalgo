@@ -53,16 +53,23 @@ def get_lot_size(tradingsymbol):
     return 1
 
 def get_display_name(tradingsymbol):
+    """
+    Formats the trading symbol to: SymbolName Strike CE/PE ExpDate
+    Example: BANKNIFTY 59300 PE 26 JAN
+    """
     global instrument_dump
     if instrument_dump is None:
         return tradingsymbol
         
     try:
+        # Fast lookup
         row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
         if not row.empty:
             data = row.iloc[0]
             name = data['name']
             inst_type = data['instrument_type']
+            
+            # Format expiry to "26 JAN"
             expiry_dt = data['expiry_date'] 
             expiry_str = expiry_dt.strftime('%d %b').upper()
             
@@ -235,8 +242,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
     if token_row.empty: return {"status": "error", "message": "Token Not Found"}
     token = token_row.iloc[0]['instrument_token']
     
-    lot_size = get_lot_size(tradingsymbol)
-    
     try:
         start_dt = datetime.strptime(time_str.replace("T", " "), "%Y-%m-%d %H:%M")
         end_dt = datetime.now(IST) + timedelta(days=1)
@@ -246,14 +251,11 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         first = candles[0]
         is_limit_order = (float(custom_entry) > 0)
         entry = float(custom_entry) if is_limit_order else first['open']
-        tgts = custom_targets if (len(custom_targets) >= 1 and custom_targets[0] > 0) else [entry+sl_points*0.5, entry+sl_points*1.0, entry+sl_points*2.0]
+        tgts = custom_targets if (len(custom_targets) == 3 and custom_targets[0] > 0) else [entry+sl_points*0.5, entry+sl_points*1.0, entry+sl_points*2.0]
         sl = entry - sl_points
         status = "PENDING" if is_limit_order else "OPEN"
         exit_p = 0; exit_t = ""; logs = [f"[{time_str}] Trade Added/Setup"]
         trade_active = False; targets_hit_indices = []; made_high = entry
-        
-        current_qty = quantity # Track remaining quantity
-        booked_pnl = 0.0
         
         # Determine Trigger Direction
         trigger_dir = "ABOVE" if entry >= first['open'] else "BELOW"
@@ -264,119 +266,45 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             
         for c in candles:
             curr_high = c['high']; curr_low = c['low']; c_time = str(c['date'])
-            
-            # --- Activation Logic ---
             if not trade_active and status == "PENDING":
                 if curr_low <= entry <= curr_high:
                     status = "OPEN"; trade_active = True; made_high = entry
                     logs.append(f"[{c_time}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
                 else: continue 
             
-            # --- HIGH TRACKING & MONITORING ---
-            should_track_high = (status == "OPEN") or (status == "TARGET_HIT")
-            if status == "SL_HIT" and len(targets_hit_indices) > 0: should_track_high = True
-            if status == "SL_HIT" and len(targets_hit_indices) == 0: should_track_high = False
-            if status == "COST_EXIT": should_track_high = False 
-
-            if status != "PENDING" and should_track_high:
-                if curr_high > made_high: made_high = curr_high
-
+            if status != "PENDING" and curr_high > made_high: made_high = curr_high
+            
             if status == "OPEN":
-                # --- TRAILING SL LOGIC ---
-                if trailing_sl > 0:
-                    new_sl = made_high - trailing_sl
-                    if new_sl > sl:
-                        sl = new_sl # Trailing Move
-                
-                # --- SL TO ENTRY LOGIC (If T1 Hit) ---
-                # Check if T1 (index 0) is hit
-                if sl_to_entry and 0 in targets_hit_indices:
-                     # Move SL to Entry if it's currently lower
-                     if sl < entry: sl = entry
-
-                # --- STOP LOSS CHECK ---
                 if curr_low <= sl:
-                    # Full exit of remaining quantity
-                    loss = (sl - entry) * current_qty
-                    booked_pnl += loss
-                    
+                    loss = (sl - entry) * quantity
                     status = "COST_EXIT" if sl >= entry else "SL_HIT"
-                    logs.append(f"[{c_time}] {status} @ {sl} | P/L ₹ {loss:.2f} (Rem Qty: {current_qty})")
-                    
-                    current_qty = 0
+                    logs.append(f"[{c_time}] {status} @ {sl} | P/L ₹ {loss:.2f}")
                     exit_p = sl; exit_t = c_time
-                    break # Exit Loop
-                else:
-                    # --- TARGET CHECK ---
+                elif status == "OPEN":
                     for i, t_price in enumerate(tgts):
                         if i not in targets_hit_indices and curr_high >= t_price:
                             targets_hit_indices.append(i)
-                            
-                            # Determine Exit Quantity based on Config
-                            qty_to_exit = 0
-                            is_final_target = (i == len(tgts) - 1)
-                            
-                            if is_final_target:
-                                qty_to_exit = current_qty # Force full exit on final target
-                            else:
-                                # Check Controls
-                                if target_controls and i < len(target_controls):
-                                    ctrl = target_controls[i]
-                                    if ctrl.get('enabled', True):
-                                         lots = ctrl.get('lots', 0)
-                                         qty_to_exit = lots * lot_size
-                            
-                            # Ensure we don't exit more than we have
-                            qty_to_exit = min(qty_to_exit, current_qty)
-                            
-                            if qty_to_exit > 0:
-                                gain = (t_price - entry) * qty_to_exit
-                                booked_pnl += gain
-                                current_qty -= qty_to_exit
-                                logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price} | Exited {qty_to_exit} Qty | P/L ₹ {gain:.2f}")
-                            else:
-                                logs.append(f"[{c_time}] Target {i+1} Crossed @ {t_price} | No Exit (0 Lots/Disabled)")
-                                
-                            if is_final_target or current_qty == 0:
+                            gain = (t_price - entry) * quantity
+                            logs.append(f"[{c_time}] Target {i+1} Hit @ {t_price} | P/L ₹ {gain:.2f}")
+                            if i == len(tgts) - 1:
                                 status = "TARGET_HIT"; exit_p = t_price; exit_t = c_time
-                                logs.append(f"[{c_time}] Final Target Hit @ {t_price} | Trade Closed.")
-                                pass 
+                                logs.append(f"[{c_time}] Final Target Hit @ {t_price} | P/L ₹ {gain:.2f}")
 
         # Keep active if OPEN *OR* PENDING (Limit Order Logic)
         active = (status == "OPEN" or status == "PENDING")
         ltp = candles[-1]['close'] if active else exit_p
         
-        # --- LOGGING POTENTIAL PROFIT ---
-        show_high_stats = False
-        if status in ["OPEN", "TARGET_HIT", "PROMOTED_LIVE"]:
-            show_high_stats = True
-        elif status == "SL_HIT" and len(targets_hit_indices) > 0:
-            show_high_stats = True
-        
-        # EXCLUDE COST_EXIT
-        if status == "COST_EXIT": show_high_stats = False
-        
-        # Final P/L Calculation (Booked + Open if active, but here we simulated history)
-        final_pnl = booked_pnl
-        if status == "OPEN":
-             final_pnl += (ltp - entry) * current_qty
-        
-        if show_high_stats and status != "PENDING":
-             # Potential is based on Initial Quantity
-             total_potential = (made_high - entry) * quantity
-             logs.append(f"[{exit_t if exit_t else time_str}] Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
+        if status != "PENDING":
+             logs.append(f"[{exit_t if exit_t else time_str}] Info: Made High: {made_high} | Max P/L ₹ {((made_high - entry) * quantity):.2f}")
         
         return {
             "status": "success", "is_active": active,
             "trade_data": {
                 "symbol": tradingsymbol, "entry_price": entry, "current_ltp": ltp,
                 "sl": sl, "targets": tgts, "status": status, "exit_price": exit_p,
-                "exit_time": exit_t, "logs": logs, "quantity": current_qty, 
-                "initial_quantity": quantity, "booked_pnl": booked_pnl, # Pass booked PnL
-                "made_high": made_high,
+                "exit_time": exit_t, "logs": logs, "quantity": 0, "made_high": made_high,
                 "trigger_dir": trigger_dir,
-                "trailing_sl": trailing_sl, "sl_to_entry": sl_to_entry, "target_controls": target_controls,
-                "targets_hit_indices": targets_hit_indices
+                "trailing_sl": trailing_sl, "sl_to_entry": sl_to_entry, "target_controls": target_controls
             }
         }
     except Exception as e:

@@ -19,37 +19,25 @@ function loadClosedTrades() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
-                // --- Logic for Potential Profit Display ---
+                // Logic for Potential Profit Display
+                // Condition: Show ONLY if PNL > 0 (Profitable)
                 let potHtml = '';
-                let mh = t.made_high || 0;
-                let calcQty = t.initial_quantity || t.quantity; 
-                
-                // Condition: Show if PNL > 0 OR Booked PNL > 0 OR Targets were Hit (for SL Hit After Target)
-                // Explicitly EXCLUDE 'COST_EXIT'
-                let showPotential = (t.pnl > 0) || (t.booked_pnl && t.booked_pnl > 0) || (t.targets_hit_indices && t.targets_hit_indices.length > 0);
-                
-                if (t.status === 'COST_EXIT') showPotential = false;
-
-                if (showPotential && mh > t.entry_price && calcQty > 0) {
-                    let pot = (mh - t.entry_price) * calcQty;
-                    totalPotential += pot; 
+                if(t.pnl > 0) {
+                    let mh = t.made_high || t.entry_price;
+                    if(mh < t.exit_price) mh = t.exit_price; // Safety fix
+                    let pot = (mh - t.entry_price) * t.quantity;
+                    totalPotential += pot; // Add to global sum
+                    
                     potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
                 }
 
-                // --- Status Tag Logic (Updated for "SL Hit After Target") ---
+                // --- Live Status Tag Logic for Closed Trades (Updated) ---
                 let statusTag = '';
                 if (t.status === 'SL_HIT') {
-                     if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
-                         let maxHit = Math.max(...t.targets_hit_indices);
-                         // maxHit: 0=T1, 1=T2, 2=T3
-                         statusTag = `<span class="badge bg-danger" style="font-size:0.7rem;">SL Hit After T${maxHit + 1}</span>`;
-                     } else {
-                         statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
-                     }
-
+                     statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
                 } else if (t.status === 'TARGET_HIT') {
-                     // Check if Final Target or specific
-                     let maxHit = 2; 
+                     // Try to determine which target was hit from indices
+                     let maxHit = 2; // Default to all (Target 3)
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          maxHit = Math.max(...t.targets_hit_indices);
                      }
@@ -63,7 +51,7 @@ function loadClosedTrades() {
                 } else {
                      statusTag = `<span class="badge bg-secondary" style="font-size:0.7rem;">${t.status}</span>`;
                 }
-                // -----------------------------------------------------------
+                // -----------------------------------------------
 
                 // Action Buttons
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-xs btn-outline-primary" onclick="editSim('${t.id}')">✏️ Edit</button>` : '';
@@ -104,6 +92,7 @@ function loadClosedTrades() {
         $('#total_wins').text("Wins: ₹ " + totalWins.toFixed(2));
         $('#total_losses').text("Loss: ₹ " + totalLosses.toFixed(2));
         
+        // Update New Potential Badge
         $('#total_potential').text("Total Potential Profit: ₹ " + totalPotential.toFixed(2));
     });
 }

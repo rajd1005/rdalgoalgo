@@ -3,7 +3,7 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
-# --- RESTORED AppSetting ---
+# --- RESTORED AppSetting (Required for settings.py) ---
 class AppSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.Text, nullable=False) # Stores JSON string

@@ -65,3 +65,17 @@ function setMode(el, mode) {
     updateDisplayValues(); 
     loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'); 
 }
+
+// --- NEW FUNCTION: PANIC TRIGGER ---
+function triggerPanic() {
+    if(confirm("🚨 ARE YOU SURE? \n\nThis will CLOSE ALL ACTIVE POSITIONS and CANCEL ALL PENDING ORDERS immediately.")) {
+        $.post('/api/panic_squareoff', function(res) {
+            if(res.status === 'success') {
+                alert("✅ SUCCESS: All positions have been squared off.");
+                location.reload();
+            } else {
+                alert("❌ Error: " + res.message);
+            }
+        });
+    }
+}

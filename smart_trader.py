@@ -52,24 +52,28 @@ def get_lot_size(tradingsymbol):
     except: pass
     return 1
 
+def get_exchange(tradingsymbol):
+    """Finds the correct exchange (NSE, NFO, MCX) for a symbol"""
+    global instrument_dump
+    if instrument_dump is None: return "NFO" # Default fallback
+    try:
+        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
+        if not row.empty:
+            return row.iloc[0]['exchange']
+    except: pass
+    return "NFO"
+
 def get_display_name(tradingsymbol):
-    """
-    Formats the trading symbol to: SymbolName Strike CE/PE ExpDate
-    Example: BANKNIFTY 59300 PE 26 JAN
-    """
     global instrument_dump
     if instrument_dump is None:
         return tradingsymbol
         
     try:
-        # Fast lookup
         row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
         if not row.empty:
             data = row.iloc[0]
             name = data['name']
             inst_type = data['instrument_type']
-            
-            # Format expiry to "26 JAN"
             expiry_dt = data['expiry_date'] 
             expiry_str = expiry_dt.strftime('%d %b').upper()
             

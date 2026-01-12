@@ -342,23 +342,16 @@ def close_trade_manual(kite, trade_id):
 def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
     
-    # FIX: Ensure entry_time exists to prevent future KeyErrors
     if 'entry_time' not in trade_data:
-        # Use provided time from simulation params or current time
         val_from_params = trade_data.get('raw_params', {}).get('time')
-        # If it's a T format like 2023-10-27T10:00, replace T with space
         if val_from_params:
             trade_data['entry_time'] = val_from_params.replace("T", " ")
         else:
             trade_data['entry_time'] = get_time_str()
 
-    # DATE CHECK LOGIC
-    # Only convert to proper Paper Trade (MARKET order type) if Date is TODAY.
-    # This applies to both Active and Closed trades of today.
     entry_time_str = trade_data['entry_time']
     is_today = False
     try:
-        # Parse YYYY-MM-DD from the entry time string
         et_date_str = entry_time_str.split(' ')[0]
         et_date = datetime.strptime(et_date_str, "%Y-%m-%d").date()
         if et_date == datetime.now(IST).date():
@@ -366,23 +359,49 @@ def inject_simulated_trade(trade_data, is_active):
     except Exception as e:
         print(f"Date Parsing Error: {e}")
 
-    # If it's TODAY, we treat it as a standard Paper Trade (MARKET type)
-    # If it's PAST, we keep it as SIMULATION.
     if is_today:
-        trade_data['order_type'] = "MARKET" # Shows as 'Paper' tag/style in UI
+        trade_data['order_type'] = "MARKET" 
     else:
-        trade_data['order_type'] = "SIMULATION" # Shows as 'Simulation' tag in UI
+        trade_data['order_type'] = "SIMULATION" 
 
     if 'exchange' not in trade_data: trade_data['exchange'] = get_exchange(trade_data['symbol'])
     trade_data['last_notified_high'] = trade_data.get('entry_price', 0)
     trade_data['telegram_msg_ids'] = {}
 
-    # Logic: 
-    # If Active & Today -> Go to Active Trades DB
-    # If Closed (Today or Past) -> Go to History DB
-    # If Active & Past -> Go to History DB (Forced Close)
-    
     should_be_active_db = is_active and is_today
+
+    # --- TAG FINALIZATION & QUANTITY ADJUSTMENT START ---
+    if should_be_active_db:
+        made_high = trade_data.get('made_high', trade_data['entry_price'])
+        targets = trade_data.get('targets', [])
+        controls = trade_data.get('target_controls', [])
+        lot_size = trade_data.get('lot_size', 1)
+        
+        if 'targets_hit_indices' not in trade_data: trade_data['targets_hit_indices'] = []
+        
+        for i, tgt in enumerate(targets):
+            if tgt > 0 and made_high >= tgt:
+                if i not in trade_data['targets_hit_indices']:
+                    trade_data['targets_hit_indices'].append(i)
+                    
+                    if i < len(controls):
+                        conf = controls[i]
+                        if conf['enabled']:
+                             exit_lots = conf.get('lots', 0)
+                             qty_exit = exit_lots * lot_size
+                             
+                             if trade_data['quantity'] > qty_exit:
+                                 trade_data['quantity'] -= qty_exit
+                                 log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
+                             else:
+                                 trade_data['quantity'] = 0
+                                 log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Trade Closed.")
+                                 trade_data['status'] = "TARGET_HIT"
+                                 should_be_active_db = False 
+                                 break
+                        else:
+                             log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled).")
+    # --- TAG FINALIZATION END ---
 
     if should_be_active_db:
         daily_count = get_daily_trade_count()
@@ -401,8 +420,6 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
-        # Calculate PnL for history display
-        # If it was "Open" but we are forcing it to history (past date), use current_ltp as exit
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
              trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)

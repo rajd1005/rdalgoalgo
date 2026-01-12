@@ -1,6 +1,17 @@
 function updateData() {
     if(!document.getElementById('n_lp')) return;
-    $.get('/api/indices', d => { $('#n_lp').text(d.NIFTY); $('#b_lp').text(d.BANKNIFTY); $('#s_lp').text(d.SENSEX); });
+    $.get('/api/indices', d => { 
+        // 1. Zero Price Auto-Detection Logic
+        if (d.NIFTY === 0 || d.BANKNIFTY === 0) {
+            console.warn("❌ Zero Price Detected! Session likely expired. Reloading for Auto-Login...");
+            location.reload();
+            return;
+        }
+
+        $('#n_lp').text(d.NIFTY); 
+        $('#b_lp').text(d.BANKNIFTY); 
+        $('#s_lp').text(d.SENSEX); 
+    });
     
     let currentSym = $('#sym').val();
     if(currentSym && $('#trade').is(':visible')) {

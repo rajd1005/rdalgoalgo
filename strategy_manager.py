@@ -3,7 +3,8 @@ import time
 from datetime import datetime, timedelta
 import pandas as pd
 import pytz
-from database import db, ActiveTrade, TradeHistory, TradeNotification, AppSetting
+# REMOVED AppSetting from import as it is not used here directly
+from database import db, ActiveTrade, TradeHistory, TradeNotification
 import smart_trader 
 
 IST = pytz.timezone('Asia/Kolkata')
@@ -207,11 +208,11 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
 def get_time_str(): return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
 
 def log_event(trade, message):
-    # 1. Standard JSON Log (For UI Trade Card)
+    # 1. Standard JSON Log
     if 'logs' not in trade: trade['logs'] = []
     trade['logs'].append(f"[{get_time_str()}] {message}")
 
-    # 2. NEW: Central Database Notification Store (Permanent)
+    # 2. Database Notification
     try:
         notif = TradeNotification(
             timestamp=datetime.now(IST),
@@ -259,7 +260,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     
     current_ltp = 0.0
     try: current_ltp = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
-    except: return {"status": "error", "message": "Failed to fetch Live Price"}
+    except: return {"status": "error", "message": "Failed to fetch Live Price (Symbol Invalid?)"}
 
     status = "OPEN"; entry_price = current_ltp; trigger_dir = "BELOW"
     if order_type == "LIMIT":
@@ -305,7 +306,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     
     if mode == "LIVE" and status == "OPEN": _place_sl_order(kite, record)
     
-    # LOG INITIAL EVENT TO DB
     try:
         db.session.add(TradeNotification(timestamp=datetime.now(IST), mode=mode, symbol=specific_symbol, message=f"Trade Added: {status}", trade_id=str(record['id'])))
         db.session.commit()

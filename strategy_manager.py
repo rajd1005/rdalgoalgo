@@ -3,8 +3,7 @@ import time
 from datetime import datetime, timedelta
 import pandas as pd
 import pytz
-# Added TradeNotification to imports
-from database import db, ActiveTrade, TradeHistory, TradeNotification
+from database import db, ActiveTrade, TradeHistory, TradeNotification, AppSetting
 import smart_trader 
 
 IST = pytz.timezone('Asia/Kolkata')
@@ -174,11 +173,10 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
         except Exception as e:
             err_msg = str(e)
             log_event(t, f"❌ Broker REJECTED ({action}): {err_msg}")
-            save_trades(trades) # Save the log
+            save_trades(trades) 
             return False, f"Broker Reject: {err_msg}"
     # -----------------------------
 
-    # If we reached here, Broker call was success OR mode is PAPER
     if action == 'ADD':
         old_qty = t['quantity']
         old_entry = t['entry_price']
@@ -261,7 +259,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     
     current_ltp = 0.0
     try: current_ltp = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
-    except: return {"status": "error", "message": "Failed to fetch Live Price (Symbol Invalid?)"}
+    except: return {"status": "error", "message": "Failed to fetch Live Price"}
 
     status = "OPEN"; entry_price = current_ltp; trigger_dir = "BELOW"
     if order_type == "LIMIT":
@@ -270,14 +268,12 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         status = "PENDING"
         trigger_dir = "ABOVE" if entry_price >= current_ltp else "BELOW"
 
-    # --- STRICT LIVE ORDER PLACEMENT ---
     if mode == "LIVE" and status == "OPEN":
         try:
             kite.place_order(tradingsymbol=specific_symbol, exchange=exchange, transaction_type=kite.TRANSACTION_TYPE_BUY,
                 quantity=quantity, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
         except Exception as e:
             return {"status": "error", "message": f"Broker Rejected: {str(e)}"}
-    # -----------------------------------
 
     targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
     if not target_controls: target_controls = [{'enabled':True, 'lots':0}, {'enabled':True, 'lots':0}, {'enabled':True, 'lots':1000}]
@@ -307,7 +303,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "targets_hit_indices": [], "highest_ltp": entry_price, "made_high": entry_price, "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs
     }
     
-    # SL PLACEMENT
     if mode == "LIVE" and status == "OPEN": _place_sl_order(kite, record)
     
     # LOG INITIAL EVENT TO DB
@@ -346,7 +341,6 @@ def close_trade_manual(kite, trade_id):
     for t in trades:
         if t['id'] == int(trade_id):
             found = True
-            
             _cancel_sl_order(kite, t)
 
             if t['status'] == "PENDING":

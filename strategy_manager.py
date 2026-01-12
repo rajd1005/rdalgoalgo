@@ -177,7 +177,6 @@ def move_to_history(trade, final_status, exit_price):
     was_active = trade['status'] != 'PENDING'
     if was_active: real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
 
-    # UPDATED: Uniform PnL calculation for all modes (including SIMULATION)
     if not was_active:
         trade['pnl'] = 0
     else: 
@@ -211,10 +210,9 @@ def get_exchange(symbol):
 
 def get_daily_trade_count():
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
-    # FIX: Use .get() to avoid KeyError if entry_time is missing in old/simulated records
     hist_count = len([t for t in load_history() if t.get('entry_time', '').startswith(today_str)])
     active_count = len([t for t in load_trades() if t.get('entry_time', '').startswith(today_str)])
-    return hist_count + active_count + 1 # +1 for the current new trade
+    return hist_count + active_count + 1 
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1, telegram_mode="AUTO"):
     trades = load_trades()
@@ -351,7 +349,6 @@ def inject_simulated_trade(trade_data, is_active):
         else:
             trade_data['entry_time'] = get_time_str()
 
-    # DATE CHECK: Only convert to Paper Trade style if date is TODAY
     entry_time_str = trade_data['entry_time']
     is_today = False
     try:
@@ -363,7 +360,7 @@ def inject_simulated_trade(trade_data, is_active):
         print(f"Date Parsing Error: {e}")
 
     if is_today:
-        trade_data['order_type'] = "MARKET" # Show as Paper
+        trade_data['order_type'] = "MARKET" 
     else:
         trade_data['order_type'] = "SIMULATION" 
 
@@ -373,8 +370,6 @@ def inject_simulated_trade(trade_data, is_active):
 
     should_be_active_db = is_active and is_today
 
-    # --- STATUS RE-CALCULATION & TAG FINALIZATION ---
-    # Even if simulation says 'Active', we must check if Target Logic forces a close.
     if should_be_active_db:
         made_high = trade_data.get('made_high', trade_data['entry_price'])
         targets = trade_data.get('targets', [])
@@ -404,7 +399,6 @@ def inject_simulated_trade(trade_data, is_active):
                                  accumulated_pnl += pnl_chunk
                                  log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
                              else:
-                                 # FULL EXIT
                                  pnl_chunk = (tgt - entry_price) * trade_data['quantity']
                                  accumulated_pnl += pnl_chunk
                                  
@@ -414,12 +408,10 @@ def inject_simulated_trade(trade_data, is_active):
                                  trade_data['exit_price'] = tgt
                                  should_be_active_db = False
                                  
-                                 # Re-inject PnL for History
                                  trade_data['pnl'] = accumulated_pnl
                                  break
                         else:
                              log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled).")
-    # ------------------------------------------------
 
     if should_be_active_db:
         daily_count = get_daily_trade_count()
@@ -438,15 +430,12 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
-        # If it was active but not today (Historical), use current_ltp as exit for PnL
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
              trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)
              trade_data['exit_price'] = exit_p
         
-        # If we didn't already calculate PnL in the force-close block above
         if 'pnl' not in trade_data or trade_data['pnl'] == 0:
-             # UPDATED: Calculate PnL if SL Hit, instead of 0
              if "SL" in trade_data.get('status', ''):
                   exit_p = trade_data.get('sl', 0)
                   trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)
@@ -476,12 +465,12 @@ def update_risk_engine(kite):
         return
 
     active_trades = load_trades()
-    history_trades = load_history()
-    today_str = now.strftime("%Y-%m-%d")
-    monitoring_history = [t for t in history_trades if t.get('exit_time', '').startswith(today_str)]
+    # history_trades = load_history()  <-- REMOVED TO STOP POST-EXIT MONITORING
+    # monitoring_history = ...         <-- REMOVED
 
     instruments_to_fetch = set([f"{t['exchange']}:{t['symbol']}" for t in active_trades])
-    for t in monitoring_history: instruments_to_fetch.add(f"{t['exchange']}:{t['symbol']}")
+    # for t in monitoring_history: ... <-- REMOVED
+    
     if not instruments_to_fetch: return
     try: live_prices = kite.quote(list(instruments_to_fetch))
     except: return
@@ -563,19 +552,3 @@ def update_risk_engine(kite):
             else: active_list.append(t)
     
     if updated_active: save_trades(active_list)
-
-    updated_hist = False
-    for t in monitoring_history:
-        inst_key = f"{t['exchange']}:{t['symbol']}"
-        if inst_key in live_prices:
-            ltp = live_prices[inst_key]['last_price']
-            current_high = t.get('made_high', 0)
-            if ltp > current_high:
-                t['made_high'] = ltp
-                try:
-                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
-                    updated_hist = True
-                except: pass
-    if updated_hist:
-        try: db.session.commit()
-        except: db.session.rollback()

@@ -1,11 +1,11 @@
-// Global flag to prevent multiple login triggers
+// Global flag for polling management
 window.isAutoLoggingIn = false;
 
 function updateData() {
     if(!document.getElementById('n_lp')) return;
     
     $.get('/api/indices', d => { 
-        // 1. Zero Price Detection & Background Logic
+        // 1. Zero Price Detection (Server Offline/Reconnecting)
         if (d.NIFTY === 0 || d.BANKNIFTY === 0) {
             
             // UI: Update Ticker with Loading Animation
@@ -14,28 +14,20 @@ function updateData() {
             $('#b_lp').html(spinner); 
             $('#s_lp').html(spinner);
 
-            // UI: Update Status Badge
+            // UI: Update Status Badge (Waiting for Server Loop)
             if ($('#status-badge').text().trim() !== "Manual Login") {
                 $('#status-badge').attr('class', 'badge bg-warning text-dark shadow-sm blink').html('<i class="fas fa-sync fa-spin"></i> Auto-Login...');
             }
 
-            // Trigger Background Auto-Login (Once)
-            if (!window.isAutoLoggingIn) {
-                window.isAutoLoggingIn = true;
-                console.warn("⚠️ Zero Price Detected. Attempting Background Auto-Login...");
-                
-                // Hit the trigger route which starts the thread in backend
-                $.get('/trigger_autologin');
-            }
+            // NOTE: We do NOT trigger login here anymore. The server background_monitor does it.
 
-            // Poll Backend Status to Check for Failure
+            // Poll Backend Status to Check for Failure (to show Manual Button)
             $.get('/api/status', statusData => {
                 if (statusData.state === 'FAILED') {
                      // UI: Show Manual Login Button in Ticker Bar (Replaces Status Badge)
                      let btnHtml = `<a href="${statusData.login_url}" class="btn btn-sm btn-danger fw-bold shadow-sm py-0" style="font-size: 0.75rem;" target="_blank"><i class="fas fa-key"></i> Manual Login</a>`;
                      
                      $('#status-badge').removeClass('bg-warning blink').addClass('bg-transparent p-0').html(btnHtml);
-                     // Note: We keep window.isAutoLoggingIn = true to stop retrying until user action or reload
                 }
             });
 
@@ -45,7 +37,7 @@ function updateData() {
         // 2. Normal Operation (Prices Valid)
         window.isAutoLoggingIn = false;
 
-        // Restore Badge if it was in error state
+        // Restore Badge if it was in error/waiting state
         if ($('#status-badge').find('.fa-sync').length > 0 || $('#status-badge').find('.fa-key').length > 0) {
              $('#status-badge').attr('class', 'badge bg-success shadow-sm').html('<i class="fas fa-wifi"></i> Connected');
         }

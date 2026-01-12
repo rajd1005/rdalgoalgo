@@ -53,12 +53,13 @@
             {% endif %}
 
             <div class="mt-4">
-                <p class="text-muted mb-2">Auto-login failed or was stopped.</p>
-                <div class="d-grid gap-2 col-md-8 mx-auto">
-                    <a href="/trigger_autologin" class="btn btn-outline-primary btn-lg">
-                        <i class="fas fa-sync"></i> Retry Auto-Login
-                    </a>
-                    <a href="{{ login_url }}" class="btn btn-primary btn-lg fw-bold">
+                <div class="alert alert-secondary d-inline-block px-4 py-2">
+                    <i class="fas fa-robot"></i> Background Monitor is active. Retrying...
+                </div>
+                
+                <div class="mt-3">
+                     <p class="text-muted small">If auto-login fails repeatedly, use manual login:</p>
+                     <a href="{{ login_url }}" class="btn btn-primary fw-bold">
                         <i class="fas fa-key"></i> Manual Login (Web)
                     </a>
                 </div>

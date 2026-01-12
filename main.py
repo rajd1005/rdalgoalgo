@@ -102,7 +102,12 @@ def home():
 # --- NEW STATUS ENDPOINT FOR FRONTEND POLLING ---
 @app.route('/api/status')
 def api_status():
-    return jsonify({"active": bot_active, "state": login_state})
+    # UPDATED: Added login_url to response for frontend manual login handling
+    return jsonify({
+        "active": bot_active, 
+        "state": login_state,
+        "login_url": kite.login_url()
+    })
 
 @app.route('/reset_connection')
 def reset_connection():

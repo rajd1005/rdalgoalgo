@@ -134,6 +134,8 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                 
                 t['quantity'] = new_total_qty
                 t['entry_price'] = new_avg_entry
+                t['initial_quantity'] = t.get('initial_quantity', old_qty) + qty_delta # Update Initial if Adding? Or keep base? Usually average up increases total exposure.
+                
                 log_event(t, f"Added {qty_delta} Qty ({lots_count} Lots) @ {ltp}. New Avg Entry: {new_avg_entry:.2f}")
                 
                 if t['mode'] == 'LIVE':
@@ -200,8 +202,9 @@ def move_to_history(trade, final_status, exit_price):
         made_high = trade.get('made_high', trade['entry_price'])
         trade['made_high'] = made_high
         
-        max_pnl_remainder = (made_high - trade['entry_price']) * trade['quantity']
-        total_potential = booked_pnl + max_pnl_remainder
+        # Max P/L = (High - Entry) * Initial Quantity (Show Full Potential)
+        init_qty = trade.get('initial_quantity', trade.get('quantity', 0))
+        total_potential = (made_high - trade['entry_price']) * init_qty
         
         log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
         telegram_bot.send_alert("CLOSE_SUMMARY", trade, extra={'high': made_high})
@@ -278,6 +281,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     record = {
         "id": int(time.time()), "entry_time": get_time_str(), "symbol": specific_symbol, "exchange": exchange,
         "mode": mode, "order_type": order_type, "status": status, "entry_price": entry_price, "quantity": quantity,
+        "initial_quantity": quantity, # Track Initial Size
         "sl": entry_price - sl_points, "targets": targets, "target_controls": target_controls,
         "lot_size": lot_size, "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry),
         "exit_multiplier": int(exit_multiplayer), 
@@ -351,6 +355,10 @@ def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
     trade_data['booked_pnl'] = 0.0 
     
+    # Init Quantity Setup
+    if 'initial_quantity' not in trade_data:
+        trade_data['initial_quantity'] = trade_data.get('quantity', 0)
+
     val_from_params = trade_data.get('raw_params', {}).get('time')
     if val_from_params:
         trade_data['entry_time'] = val_from_params.replace("T", " ")
@@ -378,43 +386,44 @@ def inject_simulated_trade(trade_data, is_active):
 
     should_be_active_db = is_active and is_today
 
-    if should_be_active_db:
-        made_high = trade_data.get('made_high', trade_data['entry_price'])
-        targets = trade_data.get('targets', [])
-        controls = trade_data.get('target_controls', [])
-        lot_size = trade_data.get('lot_size', 1)
-        entry_price = trade_data.get('entry_price', 0)
-        
-        if 'targets_hit_indices' not in trade_data: trade_data['targets_hit_indices'] = []
-        
-        for i, tgt in enumerate(targets):
-            if tgt > 0 and made_high >= tgt:
-                if i not in trade_data['targets_hit_indices']:
-                    trade_data['targets_hit_indices'].append(i)
-                    
-                    if i < len(controls):
-                        conf = controls[i]
-                        if conf['enabled']:
-                             exit_lots = conf.get('lots', 0)
-                             qty_exit = exit_lots * lot_size
-                             
-                             if trade_data['quantity'] > qty_exit:
-                                 trade_data['quantity'] -= qty_exit
-                                 pnl_chunk = (tgt - entry_price) * qty_exit
-                                 trade_data['booked_pnl'] += pnl_chunk
-                                 log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
-                             else:
-                                 pnl_chunk = (tgt - entry_price) * trade_data['quantity']
-                                 trade_data['booked_pnl'] += pnl_chunk
-                                 
-                                 trade_data['quantity'] = 0
-                                 log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Trade Closed.")
-                                 trade_data['status'] = "TARGET_HIT"
-                                 trade_data['exit_price'] = tgt
-                                 should_be_active_db = False
-                                 break
-                        else:
-                             log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled).")
+    # --- SIMULATE TARGET/PARTIAL EXITS FOR ALL (To get correct Logs/PnL) ---
+    made_high = trade_data.get('made_high', trade_data['entry_price'])
+    targets = trade_data.get('targets', [])
+    controls = trade_data.get('target_controls', [])
+    lot_size = trade_data.get('lot_size', 1)
+    entry_price = trade_data.get('entry_price', 0)
+    
+    if 'targets_hit_indices' not in trade_data: trade_data['targets_hit_indices'] = []
+    
+    for i, tgt in enumerate(targets):
+        if tgt > 0 and made_high >= tgt:
+            if i not in trade_data['targets_hit_indices']:
+                trade_data['targets_hit_indices'].append(i)
+                
+                if i < len(controls):
+                    conf = controls[i]
+                    if conf['enabled']:
+                            exit_lots = conf.get('lots', 0)
+                            qty_exit = exit_lots * lot_size
+                            
+                            if trade_data['quantity'] > qty_exit:
+                                trade_data['quantity'] -= qty_exit
+                                pnl_chunk = (tgt - entry_price) * qty_exit
+                                trade_data['booked_pnl'] += pnl_chunk
+                                log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
+                            else:
+                                # FULL EXIT
+                                pnl_chunk = (tgt - entry_price) * trade_data['quantity']
+                                trade_data['booked_pnl'] += pnl_chunk
+                                
+                                trade_data['quantity'] = 0
+                                log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Trade Closed.")
+                                trade_data['status'] = "TARGET_HIT"
+                                trade_data['exit_price'] = tgt
+                                should_be_active_db = False
+                                break
+                    else:
+                            log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled).")
 
     if should_be_active_db:
         daily_count = get_daily_trade_count()
@@ -433,6 +442,7 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
+        # PnL & Status Logic for History
         exit_p = 0
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
@@ -445,6 +455,7 @@ def inject_simulated_trade(trade_data, is_active):
         
         trade_data['exit_price'] = exit_p
         
+        # PnL: If Booked > 0 and SL hit -> Show Booked only
         if trade_data.get('booked_pnl', 0) > 0 and "SL" in trade_data.get('status', ''):
              trade_data['pnl'] = trade_data['booked_pnl']
         else:
@@ -453,16 +464,14 @@ def inject_simulated_trade(trade_data, is_active):
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
-        # --- NEW: Append Info: Made High Log for Closed/Historical Sim Trades ---
+        # --- LOG MADE HIGH (POTENTIAL PROFIT) ---
+        # Formula: (High - Entry) * Initial Qty
         made_high = trade_data.get('made_high', trade_data['entry_price'])
-        current_qty = trade_data.get('quantity', 0)
-        booked = trade_data.get('booked_pnl', 0)
-        
-        max_pnl_remainder = (made_high - trade_data['entry_price']) * current_qty
-        total_potential = booked + max_pnl_remainder
+        init_qty = trade_data.get('initial_quantity', trade_data.get('quantity', 0))
+        total_potential = (made_high - trade_data['entry_price']) * init_qty
         
         log_event(trade_data, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
-        # ------------------------------------------------------------------------
+        # ----------------------------------------
 
         try:
             db.session.merge(TradeHistory(id=trade_data['id'], data=json.dumps(trade_data)))

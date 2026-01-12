@@ -87,8 +87,10 @@ def background_monitor():
             # 1. Health Check & Risk Engine if Active
             if bot_active:
                 # A. Run Risk Engine (SL/Targets) Continuously
+                # FIX: Must use app_context() for DB access in thread
                 try:
-                    strategy_manager.update_risk_engine(kite)
+                    with app.app_context(): 
+                        strategy_manager.update_risk_engine(kite)
                 except Exception as re:
                     print(f"⚠️ Risk Engine Warning: {re}")
 

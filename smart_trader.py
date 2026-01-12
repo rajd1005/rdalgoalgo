@@ -272,15 +272,16 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                     logs.append(f"[{c_time}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
                 else: continue 
             
-            if status != "PENDING" and curr_high > made_high: made_high = curr_high
-            
+            # --- MODIFIED: Only update High if Status is OPEN (Stop updating if SL Hit) ---
             if status == "OPEN":
+                if curr_high > made_high: made_high = curr_high
+
                 if curr_low <= sl:
                     loss = (sl - entry) * quantity
                     status = "COST_EXIT" if sl >= entry else "SL_HIT"
                     logs.append(f"[{c_time}] {status} @ {sl} | P/L ₹ {loss:.2f}")
                     exit_p = sl; exit_t = c_time
-                elif status == "OPEN":
+                else:
                     for i, t_price in enumerate(tgts):
                         if i not in targets_hit_indices and curr_high >= t_price:
                             targets_hit_indices.append(i)
@@ -294,7 +295,14 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         active = (status == "OPEN" or status == "PENDING")
         ltp = candles[-1]['close'] if active else exit_p
         
-        if status != "PENDING":
+        # --- MODIFIED: Log 'Made High' only if Profit or Target Hit (Hide for Direct SL) ---
+        show_high_stats = False
+        if status in ["OPEN", "TARGET_HIT", "PROMOTED_LIVE"]:
+            show_high_stats = True
+        elif status == "SL_HIT" and len(targets_hit_indices) > 0:
+            show_high_stats = True
+        
+        if show_high_stats and status != "PENDING":
              logs.append(f"[{exit_t if exit_t else time_str}] Info: Made High: {made_high} | Max P/L ₹ {((made_high - entry) * quantity):.2f}")
         
         return {
@@ -304,7 +312,8 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                 "sl": sl, "targets": tgts, "status": status, "exit_price": exit_p,
                 "exit_time": exit_t, "logs": logs, "quantity": 0, "made_high": made_high,
                 "trigger_dir": trigger_dir,
-                "trailing_sl": trailing_sl, "sl_to_entry": sl_to_entry, "target_controls": target_controls
+                "trailing_sl": trailing_sl, "sl_to_entry": sl_to_entry, "target_controls": target_controls,
+                "targets_hit_indices": targets_hit_indices # Passed for UI tagging
             }
         }
     except Exception as e:

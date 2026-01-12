@@ -1,6 +1,3 @@
-// Global flag for polling management
-window.isAutoLoggingIn = false;
-
 function updateData() {
     if(!document.getElementById('n_lp')) return;
     
@@ -19,8 +16,6 @@ function updateData() {
                 $('#status-badge').attr('class', 'badge bg-warning text-dark shadow-sm blink').html('<i class="fas fa-sync fa-spin"></i> Auto-Login...');
             }
 
-            // NOTE: We do NOT trigger login here anymore. The server background_monitor does it.
-
             // Poll Backend Status to Check for Failure (to show Manual Button)
             $.get('/api/status', statusData => {
                 if (statusData.state === 'FAILED') {
@@ -33,9 +28,6 @@ function updateData() {
 
             return; // Stop processing further updates while offline
         }
-
-        // 2. Normal Operation (Prices Valid)
-        window.isAutoLoggingIn = false;
 
         // Restore Badge if it was in error/waiting state
         if ($('#status-badge').find('.fa-sync').length > 0 || $('#status-badge').find('.fa-key').length > 0) {

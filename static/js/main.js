@@ -7,7 +7,7 @@ $(document).ready(function() {
     
     // Global Bindings
     $('#hist_date, #hist_filter').change(loadClosedTrades);
-    $('#active_filter').change(updateData);
+    $('#active_filter').change(fetchPositions);
     
     $('input[name="type"]').change(function() {
         let s = $('#sym').val();
@@ -31,12 +31,36 @@ $(document).ready(function() {
         $('.floating-alert').fadeOut('slow', function() {
             $(this).remove();
         });
-    }, 4000); // 4 seconds before auto removal
+    }, 4000);
 
     // Loops
     setInterval(updateClock, 1000); updateClock();
-    setInterval(updateData, 1000); updateData();
+    setInterval(fetchPositions, 1000); 
+    setInterval(fetchMarketData, 2000); fetchMarketData(); // Added Ticker Loop
 });
+
+// --- 1. TICKER UPDATE ---
+function fetchMarketData() {
+    $.get('/api/market_status', function(data) {
+        if(data.NIFTY > 0) {
+            $('#n_lp').text(data.NIFTY.toFixed(2));
+            $('#n_lp').removeClass('text-warning').addClass('text-success');
+        }
+        if(data.BANKNIFTY > 0) {
+            $('#b_lp').text(data.BANKNIFTY.toFixed(2));
+            $('#b_lp').removeClass('text-warning').addClass('text-success');
+        }
+    });
+}
+
+// --- 2. POSITIONS UPDATE ---
+function fetchPositions() {
+    $.get('/api/positions', function(trades) {
+        if(typeof updateActiveTab === "function") {
+            updateActiveTab(trades);
+        }
+    });
+}
 
 function updateDisplayValues() {
     let mode = $('#mode_input').val(); 

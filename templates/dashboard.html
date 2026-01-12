@@ -78,13 +78,11 @@
         <div class="nav-btn active" onclick="switchTab('trade')">🚀 Trade</div>
         <div class="nav-btn" onclick="switchTab('pos')">💼 Active</div>
         <div class="nav-btn" onclick="switchTab('closed')">📜 Closed</div>
-        <div class="nav-btn" onclick="switchTab('history')">📅 Simulator</div>
     </div>
 
     {% include 'parts/tab_trade.html' %}
     {% include 'parts/tab_active.html' %}
     {% include 'parts/tab_closed.html' %}
-    {% include 'parts/tab_simulator.html' %}
 
     {% endif %}
 </div>
@@ -96,7 +94,6 @@
 <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
 <script src="{{ url_for('static', filename='js/positions.js') }}"></script>
 <script src="{{ url_for('static', filename='js/history.js') }}"></script>
-<script src="{{ url_for('static', filename='js/simulator.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 
 {% if is_active %}

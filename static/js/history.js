@@ -20,23 +20,23 @@ function loadClosedTrades() {
                 let badge = getMarkBadge(cat);
                 
                 // Logic for Potential Profit Display
-                // Condition: Show ONLY if PNL > 0 (Profitable)
+                // Updated: Show for ALL trades (including SL) if High > Entry
                 let potHtml = '';
-                if(t.pnl > 0) {
-                    let mh = t.made_high || t.entry_price;
-                    if(mh < t.exit_price) mh = t.exit_price; // Safety fix
-                    let pot = (mh - t.entry_price) * t.quantity;
+                let mh = t.made_high || 0;
+                let calcQty = t.initial_quantity || t.quantity; // Use initial if avail
+                
+                if(mh > t.entry_price && calcQty > 0) {
+                    let pot = (mh - t.entry_price) * calcQty;
                     totalPotential += pot; // Add to global sum
                     
                     potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
                 }
 
-                // --- Live Status Tag Logic for Closed Trades (Updated) ---
+                // --- Live Status Tag Logic for Closed Trades ---
                 let statusTag = '';
                 if (t.status === 'SL_HIT') {
                      statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
                 } else if (t.status === 'TARGET_HIT') {
-                     // Try to determine which target was hit from indices
                      let maxHit = 2; // Default to all (Target 3)
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          maxHit = Math.max(...t.targets_hit_indices);

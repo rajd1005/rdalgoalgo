@@ -29,17 +29,12 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# --- DB INIT & ADMIN CHECK (FIXED) ---
+# --- DB INIT & ADMIN CHECK ---
 def init_db_and_admin():
     with app.app_context():
-        # 1. Always ensure tables exist
         db.create_all()
-        
-        # 2. Check and Create Admin User
         admin_user = config.ADMIN_USERNAME
-        existing_admin = User.query.filter_by(username=admin_user).first()
-        
-        if not existing_admin:
+        if not User.query.filter_by(username=admin_user).first():
             print(f"⚙️ Admin not found. Creating Default Admin: {admin_user}")
             admin = User(
                 username=admin_user,
@@ -51,15 +46,13 @@ def init_db_and_admin():
             db.session.add(admin)
             db.session.commit()
             print("✅ Admin User Created Successfully.")
-        else:
-            print(f"ℹ️ Admin user '{admin_user}' found. Database is ready.")
 
-# Run Init Logic
 init_db_and_admin()
 
 # --- GLOBAL DATA KITE (ADMIN'S ZERODHA) ---
 admin_kite = KiteConnect(api_key=config.API_KEY)
 admin_data_active = False
+admin_connection_error = None # NEW: Track specific error
 
 # --- AUTH & SINGLE DEVICE LOGIC ---
 @app.before_request
@@ -80,26 +73,17 @@ def login():
     if request.method == 'POST':
         u = request.form.get('username')
         p = request.form.get('password')
-        
-        # Debugging Print (Check logs to see what is being received)
-        print(f"Login Attempt: User={u}")
-        
         user = User.query.filter_by(username=u).first()
         
-        if user:
-            if check_password_hash(user.password, p):
-                token = str(uuid.uuid4())
-                user.session_token = token
-                db.session.commit()
-                session['device_token'] = token
-                login_user(user)
-                return redirect('/')
-            else:
-                print("❌ Password Check Failed")
-                flash("Invalid Credentials (Password Incorrect)")
+        if user and check_password_hash(user.password, p):
+            token = str(uuid.uuid4())
+            user.session_token = token
+            db.session.commit()
+            session['device_token'] = token
+            login_user(user)
+            return redirect('/')
         else:
-            print("❌ User Not Found in DB")
-            flash("Invalid Credentials (User not found)")
+            flash("Invalid Credentials")
             
     return render_template('login.html')
 
@@ -200,26 +184,81 @@ def user_zerodha_login():
     kite_login = KiteConnect(api_key=current_user.broker_api_key)
     return redirect(kite_login.login_url())
 
-# --- MAIN DASHBOARD & CALLBACK ---
+# --- MAIN DASHBOARD & SYSTEM MONITOR ---
+
 import auto_login
+
 def maintain_admin_session():
-    global admin_data_active
+    """
+    Background Thread:
+    1. Checks connection health.
+    2. Tries Auto-Login if disconnected.
+    3. Handles Manual Login updates if Auto-Login fails.
+    """
+    global admin_data_active, admin_connection_error
+    
+    print("🖥️ System Monitor Started...")
+    
     while True:
         try:
-            try: admin_kite.quote("NSE:NIFTY 50")
-            except: 
-                print("🔄 [SYSTEM] Admin Data Feed Reconnecting...")
-                token, err = auto_login.perform_auto_login(admin_kite)
-                if token and token != "SKIP_SESSION":
-                    data = admin_kite.generate_session(token, api_secret=config.API_SECRET)
-                    admin_kite.set_access_token(data["access_token"])
-                admin_data_active = True
-                smart_trader.fetch_instruments(admin_kite)
-                strategy_manager.start_monitor(admin_kite, app)
+            # 1. Health Check
+            if admin_data_active:
+                try: 
+                    admin_kite.quote("NSE:NIFTY 50")
+                    # If successful, wait 60s before next check
+                    time.sleep(60)
+                    continue 
+                except:
+                    print("⚠️ Admin Connection Lost. Reconnecting...")
+                    admin_data_active = False
+            
+            # 2. Reconnection Logic (If we reach here, we are Offline)
+            if not admin_data_active:
+                try:
+                    # Attempt Auto-Login
+                    token, err = auto_login.perform_auto_login(admin_kite)
+                    
+                    if token:
+                         if token != "SKIP_SESSION":
+                            # It's a fresh token from Auto-Login
+                            data = admin_kite.generate_session(token, api_secret=config.API_SECRET)
+                            admin_kite.set_access_token(data["access_token"])
+                         
+                         # Success!
+                         print("✅ Admin System Online.")
+                         admin_data_active = True
+                         admin_connection_error = None
+                         
+                         # Start Strategy Engine
+                         smart_trader.fetch_instruments(admin_kite)
+                         strategy_manager.start_monitor(admin_kite, app)
+                         
+                    else:
+                        # Auto-Login Failed
+                        admin_connection_error = err if err else "Unknown Auto-Login Error"
+                        print(f"❌ Auto-Login Failed: {admin_connection_error}")
+                
+                except Exception as e:
+                    admin_connection_error = str(e)
+                    print(f"❌ System Error: {e}")
+            
+            # 3. Wait before retrying (Fast retry if offline)
+            time.sleep(15)
+
         except Exception as e:
-            print(f"❌ [SYSTEM] Data Feed Error: {e}")
-            admin_data_active = False
-        time.sleep(300)
+            print(f"❌ Critical Thread Error: {e}")
+            time.sleep(15)
+
+# --- MANUAL ADMIN LOGIN (NEW) ---
+@app.route('/admin/manual_login_trigger')
+@login_required
+def admin_manual_login_trigger():
+    if current_user.role != 'ADMIN':
+        flash("❌ Only Admin can connect the Main Data Feed.")
+        return redirect('/')
+    
+    # Redirect Admin to Zerodha Login (Manual Override)
+    return redirect(admin_kite.login_url())
 
 @app.route('/')
 @login_required
@@ -227,13 +266,20 @@ def home():
     trades = strategy_manager.load_trades(current_user.id)
     for t in trades: t['symbol'] = smart_trader.get_display_name(t['symbol'])
     active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
-    return render_template('dashboard.html', is_active=admin_data_active, trades=active, user=current_user)
+    
+    return render_template('dashboard.html', 
+                           is_active=admin_data_active, 
+                           connection_error=admin_connection_error, # Pass Error to UI
+                           trades=active, 
+                           user=current_user)
 
 @app.route('/callback')
 def callback():
-    if not current_user.is_authenticated: return "System Callback Received"
     t = request.args.get("request_token")
-    if t:
+    if not t: return redirect('/')
+
+    # CASE A: User Broker Callback
+    if current_user.is_authenticated and current_user.role == 'USER':
         try:
             ukite = KiteConnect(api_key=current_user.broker_api_key)
             data = ukite.generate_session(t, api_secret=current_user.broker_api_secret)
@@ -242,7 +288,26 @@ def callback():
             db.session.commit()
             flash("✅ Broker Connected!")
         except Exception as e: flash(f"❌ Login Failed: {e}")
-    return redirect('/')
+        return redirect('/')
+
+    # CASE B: Admin System Callback (Manual Override)
+    if current_user.is_authenticated and current_user.role == 'ADMIN':
+        global admin_data_active, admin_connection_error
+        try:
+            data = admin_kite.generate_session(t, api_secret=config.API_SECRET)
+            admin_kite.set_access_token(data["access_token"])
+            
+            admin_data_active = True
+            admin_connection_error = None
+            
+            smart_trader.fetch_instruments(admin_kite)
+            strategy_manager.start_monitor(admin_kite, app)
+            flash("✅ System Online (Manual Login)")
+        except Exception as e:
+            flash(f"❌ System Login Failed: {e}")
+        return redirect('/')
+        
+    return "Unknown Callback Context"
 
 # --- API ROUTES ---
 @app.route('/api/search')

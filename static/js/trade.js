@@ -1,147 +1,91 @@
-function loadDetails(symId, expId, typeSelector, qtyId, slId) {
-    let s = $(symId).val(); if(!s) return;
+$(document).ready(function() {
+    renderWatchlist();
+    loadSettings();
     
-    let settingsKey = normalizeSymbol(s);
-    let mode = 'PAPER';
-    if (symId === '#h_sym' || $('#history').is(':visible')) mode = 'SIMULATOR'; 
-    else mode = $('#mode_input').val();
+    let now = new Date(); const offset = now.getTimezoneOffset(); let localDate = new Date(now.getTime() - (offset*60*1000));
+    $('#hist_date').val(localDate.toISOString().slice(0,10)); 
     
-    let modeSettings = settings.modes[mode] || settings.modes.PAPER;
-    let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
-    $(slId).val(savedSL);
+    // Global Bindings
+    $('#hist_date, #hist_filter').change(loadClosedTrades);
+    $('#active_filter').change(fetchPositions);
     
-    // Apply Defaults (Targets, Trailing, Order Type, Trail Limit)
-    if(mode === 'SIMULATOR') {
-        // Handled in simulator.js or separate function
-    } else {
-        $('#trail_sl').val(modeSettings.trailing_sl || '');
-        
-        // New: Apply Order Type and Trail Limit Defaults
-        $('#ord').val(modeSettings.order_type || 'MARKET').trigger('change');
-        $('select[name="sl_to_entry"]').val(modeSettings.sl_to_entry || 0);
-        $('#exit_mult').val(modeSettings.exit_multiplier || 1);
-        
-        if(modeSettings.targets) {
-            ['t1', 't2', 't3'].forEach((k, i) => {
-                let conf = modeSettings.targets[i];
-                $(`#${k}_active`).prop('checked', conf.active);
-                $(`#${k}_full`).prop('checked', conf.full);
-                if(conf.full) $(`#${k}_lots`).val(1000);
-                else $(`#${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
-            });
-        }
-    }
+    $('input[name="type"]').change(function() {
+        let s = $('#sym').val();
+        if(s) loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts');
+    });
     
-    if(mode === 'SIMULATOR') calcSimSL('pts'); 
-    else calcRisk();
+    $('#sl_pts, #qty, #lim_pr, #ord').on('input change', calcRisk);
+    
+    // Bind Search Logic
+    bindSearch('#sym', '#sym_list'); 
+    
+    // Chain & input Bindings
+    $('#sym').change(() => loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'));
+    $('#exp').change(() => fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str'));
+    $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
+    
+    $('#str').change(fetchLTP);
 
-    $.get('/api/details?symbol='+s, d => { 
-        symLTP[symId] = d.ltp; 
-        if(d.lot_size > 0) {
-            curLotSize = d.lot_size;
-            $('#lot').text(curLotSize); 
-            let mult = parseInt(modeSettings.qty_mult) || 1;
-            $(qtyId).val(curLotSize * mult).attr('step', curLotSize).attr('min', curLotSize);
+    // Auto-Remove Floating Notifications
+    setTimeout(function() {
+        $('.floating-alert').fadeOut('slow', function() {
+            $(this).remove();
+        });
+    }, 4000);
+
+    // Loops
+    setInterval(updateClock, 1000); updateClock();
+    setInterval(fetchPositions, 1000); 
+    setInterval(fetchMarketData, 2000); fetchMarketData(); // Added Ticker Loop
+});
+
+// --- 1. TICKER UPDATE ---
+function fetchMarketData() {
+    $.get('/api/market_status', function(data) {
+        if(data.NIFTY > 0) {
+            $('#n_lp').text(data.NIFTY.toFixed(2));
+            $('#n_lp').removeClass('text-warning').addClass('text-success');
         }
-        window[symId+'_fut'] = d.fut_expiries; window[symId+'_opt'] = d.opt_expiries;
-        
-        let typeVal = $(typeSelector).val();
-        if (typeVal) {
-            fillExp(expId, typeSelector, symId);
-        } else {
-            $(expId).empty();
-            let strId = (expId === '#exp') ? '#str' : '#h_str';
-            $(strId).empty().append('<option>Select Type First</option>');
+        if(data.BANKNIFTY > 0) {
+            $('#b_lp').text(data.BANKNIFTY.toFixed(2));
+            $('#b_lp').removeClass('text-warning').addClass('text-success');
         }
     });
 }
 
-function adjQty(inputId, dir) {
-    let val = parseInt($(inputId).val()) || curLotSize;
-    let step = curLotSize;
-    let newVal = val + (dir * step);
-    if(newVal >= step) {
-        $(inputId).val(newVal).trigger('input');
-    }
-}
-
-function fillExp(expId, typeSelector, symId) { 
-    let typeVal = $(typeSelector).val();
-    let l = typeVal=='FUT' ? window[symId+'_fut'] : window[symId+'_opt']; 
-    let $e = $(expId).empty(); if(l) l.forEach(d => $e.append(`<option value="${d}">${d}</option>`)); 
-    if(expId === '#exp') fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str');
-    if(expId === '#h_exp') fillChain('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_str');
-}
-
-function fillChain(sym, exp, typeSelector, str) {
-    let spot = symLTP[sym] || 0; let sVal = $(sym).val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
-    $.get(`/api/chain?symbol=${sVal}&expiry=${$(exp).val()}&type=${$(typeSelector).val()}&ltp=${spot}`, d => {
-        let $s = $(str).empty(); 
-        d.forEach(r => { let mark = r.label.includes('ATM') ? '🔴' : ''; let style = r.label.includes('ATM') ? 'style="color:red; font-weight:bold;"' : ''; let selected = r.label.includes('ATM') ? 'selected' : ''; $s.append(`<option value="${r.strike}" ${selected} ${style}>${mark} ${r.strike} ${r.label}</option>`); });
-        if(str === '#str') fetchLTP();
-    });
-}
-
-function fetchLTP() {
-    let sVal = $('#sym').val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
-    $.get(`/api/specific_ltp?symbol=${sVal}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('input[name="type"]:checked').val()}`, d => {
-        curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP); if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
-        calcRisk();
-    });
-}
-
-function calcSLPriceFromPts(ptsId, priceId) {
-    let pts = parseFloat($(ptsId).val()) || 0;
-    let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
-    if(basePrice > 0) {
-        let price = basePrice - pts;
-        $(priceId).val(price.toFixed(2));
-        calcRisk();
-    }
-}
-
-function calcSLPtsFromPrice(priceId, ptsId) {
-    let price = parseFloat($(priceId).val()) || 0;
-    let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
-    if(basePrice > 0 && price > 0) {
-        let pts = basePrice - price;
-        $(ptsId).val(pts.toFixed(2));
-        calcRisk();
-    }
-}
-
-function calcPnl(id) { 
-    let val = parseFloat($('#p_' + id).val()) || 0; 
-    let qty = parseInt($('#qty').val()) || 1; 
-    let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP; 
-    if (val > 0) $('#pnl_' + id).text(`₹ ${((val - basePrice) * qty).toFixed(0)}`); 
-}
-
-function calcRisk() {
-    let p = parseFloat($('#sl_pts').val())||0; let qty = parseInt($('#qty').val())||1;
-    let basePrice = ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() > 0) ? parseFloat($('#lim_pr').val()) : curLTP;
-    
-    if (document.activeElement.id !== 'p_sl') {
-            let calculatedPrice = basePrice - p;
-            if(basePrice > 0) $('#p_sl').val(calculatedPrice.toFixed(2));
-    }
-
-    let mode = $('#mode_input').val(); let ratios = settings.modes[mode].ratios;
-    let sl = basePrice - p;
-    let t1 = basePrice + p * ratios[0]; let t2 = basePrice + p * ratios[1]; let t3 = basePrice + p * ratios[2];
-
-    if (!document.activeElement || !['p_t1', 'p_t2', 'p_t3'].includes(document.activeElement.id)) {
-            $('#p_t1').val(t1.toFixed(2)); $('#p_t2').val(t2.toFixed(2)); $('#p_t3').val(t3.toFixed(2));
-            $('#pnl_t1').text(`₹ ${((t1-basePrice)*qty).toFixed(0)}`); $('#pnl_t2').text(`₹ ${((t2-basePrice)*qty).toFixed(0)}`); $('#pnl_t3').text(`₹ ${((t3-basePrice)*qty).toFixed(0)}`);
-    }
-    $('#pnl_sl').text(`₹ ${((sl-basePrice)*qty).toFixed(0)}`);
-
-    // Handle Full Checkbox Logic (Auto-set 1000 lots)
-    ['t1', 't2', 't3'].forEach(k => {
-        if ($(`#${k}_full`).is(':checked')) {
-            $(`#${k}_lots`).val(1000).prop('readonly', true); // Visual feedback
-        } else {
-            $(`#${k}_lots`).prop('readonly', false);
+// --- 2. POSITIONS UPDATE ---
+function fetchPositions() {
+    $.get('/api/positions', function(trades) {
+        if(typeof updateActiveTab === "function") {
+            updateActiveTab(trades);
         }
     });
+}
+
+function updateDisplayValues() {
+    let mode = $('#mode_input').val(); 
+    
+    let s = settings.modes[mode]; if(!s) return;
+    $('#qty_mult_disp').text(s.qty_mult); 
+    $('#r_t1').text(s.ratios[0]); 
+    $('#r_t2').text(s.ratios[1]); 
+    $('#r_t3').text(s.ratios[2]); 
+    
+    if(typeof calcRisk === "function") calcRisk();
+}
+
+function switchTab(id) { 
+    $('.dashboard-tab').hide(); $(`#${id}`).show(); 
+    $('.nav-btn').removeClass('active'); $(event.target).addClass('active'); 
+    if(id==='closed') loadClosedTrades(); 
+    updateDisplayValues(); 
+    if(id === 'trade') $('.sticky-footer').show(); else $('.sticky-footer').hide();
+}
+
+function setMode(el, mode) { 
+    $('#mode_input').val(mode); 
+    $(el).parent().find('.btn').removeClass('active'); 
+    $(el).addClass('active'); 
+    updateDisplayValues(); 
+    loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'); 
 }

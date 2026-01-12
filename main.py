@@ -79,6 +79,9 @@ def background_monitor():
     global bot_active, login_state
     print("🖥️ Background Monitor Started")
     
+    # Give the server a moment to fully initialize
+    time.sleep(2)
+    
     while True:
         try:
             # 1. Health Check if Active
@@ -94,7 +97,9 @@ def background_monitor():
             if not bot_active and login_state == "IDLE":
                 print("🔄 Monitor: System Offline. Initiating Auto-Login...")
                 # This call blocks this thread until login attempt finishes, which is desired.
-                run_auto_login_process()
+                # We wrap in app context in case DB access is needed inside login flow
+                with app.app_context():
+                    run_auto_login_process()
                 
         except Exception as e:
             print(f"❌ Monitor Loop Error: {e}")
@@ -113,7 +118,6 @@ def home():
         active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
         return render_template('dashboard.html', is_active=True, trades=active)
 
-    # Note: We no longer spawn a thread here. The background_monitor handles it.
     return render_template('dashboard.html', 
                            is_active=False, 
                            state=login_state, 
@@ -306,7 +310,12 @@ def close_trade(trade_id):
     else: flash("❌ Error")
     return redirect('/')
 
+# --- START MONITOR FOR GUNICORN & FLASK ---
+# This ensures the monitor thread starts when Gunicorn imports the app.
+# We check !debug to avoid starting it twice if using the Flask reloader during local dev.
+if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    t = threading.Thread(target=background_monitor, daemon=True)
+    t.start()
+
 if __name__ == "__main__":
-    # Start the background monitor in a daemon thread
-    threading.Thread(target=background_monitor, daemon=True).start()
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

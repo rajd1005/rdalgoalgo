@@ -26,6 +26,13 @@ $(document).ready(function() {
     
     $('#str').change(fetchLTP);
 
+    // Auto-Remove Floating Notifications
+    setTimeout(function() {
+        $('.floating-alert').fadeOut('slow', function() {
+            $(this).remove();
+        });
+    }, 4000); // 4 seconds before auto removal
+
     // Loops
     setInterval(updateClock, 1000); updateClock();
     setInterval(updateData, 1000); updateData();

@@ -4,6 +4,7 @@ import threading
 import time
 from flask import Flask, render_template, request, redirect, flash, jsonify
 from kiteconnect import KiteConnect
+from sqlalchemy import inspect # Required for Schema Check
 import config
 import strategy_manager
 import smart_trader
@@ -17,8 +18,28 @@ app.config.from_object(config)
 
 # Initialize Database
 db.init_app(app)
-with app.app_context():
-    db.create_all()
+
+def check_and_update_db_schema():
+    """
+    Checks if the database matches the new code structure.
+    If 'active_trade' is missing the 'trade_ref' column, it resets the tables.
+    """
+    with app.app_context():
+        inspector = inspect(db.engine)
+        if inspector.has_table("active_trade"):
+            columns = [c['name'] for c in inspector.get_columns("active_trade")]
+            if "trade_ref" not in columns:
+                print("⚠️  [DB UPGRADE] Old Schema Detected. Recreating Tables...")
+                db.drop_all()
+                db.create_all()
+                print("✅ [DB UPGRADE] Database Schema Updated successfully.")
+            else:
+                db.create_all()
+        else:
+            db.create_all()
+
+# Run the check immediately
+check_and_update_db_schema()
 
 kite = KiteConnect(api_key=config.API_KEY)
 
@@ -41,22 +62,20 @@ def run_auto_login_process():
     try:
         token, error = auto_login.perform_auto_login(kite)
         
-        # CASE 1: Dashboard Detected (Callback handled logic)
         if token == "SKIP_SESSION":
             print("✅ Auto-Login Verified: Session Active.")
             bot_active = True
-            strategy_manager.start_monitor(kite, app) # START BACKGROUND THREAD
+            strategy_manager.start_monitor(kite, app) # Start Background Thread
             login_state = "IDLE" 
             return
 
-        # CASE 2: Token Captured
         if token and token != "SKIP_SESSION":
             try:
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
                 kite.set_access_token(data["access_token"])
                 bot_active = True
                 smart_trader.fetch_instruments(kite)
-                strategy_manager.start_monitor(kite, app) # START BACKGROUND THREAD
+                strategy_manager.start_monitor(kite, app) # Start Background Thread
                 print("✅ Session Generated Successfully")
                 login_state = "IDLE"
             except Exception as e:
@@ -90,7 +109,7 @@ def background_monitor():
                 except Exception as e:
                     print(f"⚠️ Health Check Failed: {e}")
                     bot_active = False
-                    strategy_manager.stop_monitor() # STOP RISK ENGINE
+                    strategy_manager.stop_monitor() # Stop Risk Engine
 
             if not bot_active:
                 if login_state == "IDLE":
@@ -161,7 +180,7 @@ def callback():
             kite.set_access_token(data["access_token"])
             bot_active = True
             smart_trader.fetch_instruments(kite)
-            strategy_manager.start_monitor(kite, app) # START BACKGROUND THREAD
+            strategy_manager.start_monitor(kite, app) # Start Background Thread
             flash("✅ System Online")
         except Exception as e:
             flash(f"Login Error: {e}")
@@ -181,9 +200,8 @@ def api_settings_save():
 # --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
-    # REMOVED: strategy_manager.update_risk_engine(kite) 
-    # This prevents Rate Limits. The background thread updates DB now.
-    
+    # Rate Limit Fix: We do NOT call update_risk_engine here anymore.
+    # It runs in the background thread.
     trades = strategy_manager.load_trades()
     for t in trades:
         t['symbol'] = smart_trader.get_display_name(t['symbol'])
@@ -225,18 +243,8 @@ def api_manage_trade():
     action = data.get('action') 
     lots = int(data.get('lots', 0))
     
-    # Need to fetch lot size if not passed (though JS passes logic, backend should be safe)
-    # Strategy manager now handles DB lookup internally.
-    # We pass lot_size 1 temporarily, strategy manager will use stored lot_size in DB if needed 
-    # OR we fetch it here. Strategy manager manage_trade_position now uses trade.lot_size from DB.
-    # But we need to pass the lot size multiplied by lots.
-    
-    # Fix: We pass the lot count, the manager handles the multiplication
-    # But wait, original code passed `lot_size` to manager.
-    # Updated manager uses `lot_size` from `ActiveTrade` DB column.
-    
     if lots > 0:
-         # Note: We pass 0 or 1 as dummy for lot_size because we use DB's stored lot_size inside
+         # Race Condition Fix: strategy_manager now handles DB updates safely
          if strategy_manager.manage_trade_position(kite, trade_id, action, 0, lots):
              return jsonify({"status": "success"})
     

@@ -178,14 +178,10 @@ def move_to_history(trade, final_status, exit_price):
     was_active = trade['status'] != 'PENDING'
     booked_pnl = trade.get('booked_pnl', 0)
     
-    # Calculate PnL on remaining quantity
     remainder_pnl = 0
     if was_active:
         remainder_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
 
-    # FINAL PnL LOGIC:
-    # 1. If we have Booked Profit (Targets Hit) AND we hit SL on remainder -> IGNORE SL Loss (Show only Booked Profit)
-    # 2. Else -> Show Total (Booked + Remainder)
     if was_active:
         if booked_pnl > 0 and "SL" in final_status:
             trade['pnl'] = round(booked_pnl, 2)
@@ -204,7 +200,6 @@ def move_to_history(trade, final_status, exit_price):
         made_high = trade.get('made_high', trade['entry_price'])
         trade['made_high'] = made_high
         
-        # Potential Profit = Booked + (High - Entry) * Remaining Qty
         max_pnl_remainder = (made_high - trade['entry_price']) * trade['quantity']
         total_potential = booked_pnl + max_pnl_remainder
         
@@ -290,22 +285,18 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs,
         "last_notified_high": entry_price,
         "telegram_msg_ids": {},
-        "booked_pnl": 0.0  # Initialize Booked PnL
+        "booked_pnl": 0.0 
     }
 
-    # TELEGRAM LOGIC: Channel Selection with Override Support
     conf = settings.load_settings().get('telegram', {})
     channels = conf.get('channels', [])
     eligible_channels = []
     
     if telegram_mode == "FORCE_ALL":
-        # Send to ALL channels (Bypass limits)
         eligible_channels = channels
     elif telegram_mode and telegram_mode != "AUTO":
-        # Send to SPECIFIC channel (Bypass limits)
         eligible_channels = [c for c in channels if str(c.get('chat_id')) == str(telegram_mode)]
     else:
-        # AUTO (Default Daily Limit Logic)
         daily_count = get_daily_trade_count()
         for ch in channels:
             limit = int(ch.get('limit', 0))
@@ -358,9 +349,8 @@ def close_trade_manual(kite, trade_id):
 
 def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
-    trade_data['booked_pnl'] = 0.0 # Init
+    trade_data['booked_pnl'] = 0.0 
     
-    # FORCE ENTRY TIME from Simulator Input if available (Date/Time importance)
     val_from_params = trade_data.get('raw_params', {}).get('time')
     if val_from_params:
         trade_data['entry_time'] = val_from_params.replace("T", " ")
@@ -388,7 +378,6 @@ def inject_simulated_trade(trade_data, is_active):
 
     should_be_active_db = is_active and is_today
 
-    # --- STATUS RE-CALCULATION & TAG FINALIZATION ---
     if should_be_active_db:
         made_high = trade_data.get('made_high', trade_data['entry_price'])
         targets = trade_data.get('targets', [])
@@ -415,7 +404,6 @@ def inject_simulated_trade(trade_data, is_active):
                                  trade_data['booked_pnl'] += pnl_chunk
                                  log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
                              else:
-                                 # FULL EXIT
                                  pnl_chunk = (tgt - entry_price) * trade_data['quantity']
                                  trade_data['booked_pnl'] += pnl_chunk
                                  
@@ -445,7 +433,6 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
-        # If historical or force closed
         exit_p = 0
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
@@ -454,11 +441,10 @@ def inject_simulated_trade(trade_data, is_active):
         elif "SL" in trade_data.get('status', ''):
              exit_p = trade_data.get('sl', 0)
         else:
-             exit_p = trade_data.get('made_high', 0) # Simulation close at high
+             exit_p = trade_data.get('made_high', 0)
         
         trade_data['exit_price'] = exit_p
         
-        # PnL Calc: If Booked > 0 and SL hit -> Show Booked only
         if trade_data.get('booked_pnl', 0) > 0 and "SL" in trade_data.get('status', ''):
              trade_data['pnl'] = trade_data['booked_pnl']
         else:
@@ -467,6 +453,17 @@ def inject_simulated_trade(trade_data, is_active):
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
+        # --- NEW: Append Info: Made High Log for Closed/Historical Sim Trades ---
+        made_high = trade_data.get('made_high', trade_data['entry_price'])
+        current_qty = trade_data.get('quantity', 0)
+        booked = trade_data.get('booked_pnl', 0)
+        
+        max_pnl_remainder = (made_high - trade_data['entry_price']) * current_qty
+        total_potential = booked + max_pnl_remainder
+        
+        log_event(trade_data, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
+        # ------------------------------------------------------------------------
+
         try:
             db.session.merge(TradeHistory(id=trade_data['id'], data=json.dumps(trade_data)))
             db.session.commit()

@@ -24,11 +24,8 @@ function loadClosedTrades() {
                 let mh = t.made_high || 0;
                 let calcQty = t.initial_quantity || t.quantity; 
                 
-                // Check if any Target was hit
-                let targetsHit = t.targets_hit_indices && t.targets_hit_indices.length > 0;
-                
-                // Show Potential if Profitable OR (SL Hit but Targets were hit)
-                let showPotential = (t.pnl > 0) || (t.status.includes('SL') && targetsHit);
+                // Condition: Show if PNL > 0 OR Booked PNL > 0 (Meaning targets were hit)
+                let showPotential = (t.pnl > 0) || (t.booked_pnl && t.booked_pnl > 0);
 
                 if (showPotential && mh > t.entry_price && calcQty > 0) {
                     let pot = (mh - t.entry_price) * calcQty;
@@ -38,9 +35,7 @@ function loadClosedTrades() {
 
                 // --- Status Tag Logic (Updated for "SL Hit After Target") ---
                 let statusTag = '';
-                
                 if (t.status === 'SL_HIT') {
-                     // Check if targets were hit before SL
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          let maxHit = Math.max(...t.targets_hit_indices);
                          // maxHit: 0=T1, 1=T2, 2=T3
@@ -50,6 +45,7 @@ function loadClosedTrades() {
                      }
 
                 } else if (t.status === 'TARGET_HIT') {
+                     // Check if Final Target or specific
                      let maxHit = 2; 
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          maxHit = Math.max(...t.targets_hit_indices);

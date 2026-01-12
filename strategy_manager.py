@@ -352,7 +352,9 @@ def inject_simulated_trade(trade_data, is_active):
         else:
             trade_data['entry_time'] = get_time_str()
 
-    # DATE CHECK LOGIC: Only convert to Paper Trade if Date is TODAY
+    # DATE CHECK LOGIC
+    # Only convert to proper Paper Trade (MARKET order type) if Date is TODAY.
+    # This applies to both Active and Closed trades of today.
     entry_time_str = trade_data['entry_time']
     is_today = False
     try:
@@ -364,19 +366,25 @@ def inject_simulated_trade(trade_data, is_active):
     except Exception as e:
         print(f"Date Parsing Error: {e}")
 
-    # It goes to Active (Paper) ONLY if it's currently active AND the date is today.
-    should_be_active_paper = is_active and is_today
-
-    if should_be_active_paper:
-        trade_data['order_type'] = "MARKET" # Auto-convert to Paper Trade
+    # If it's TODAY, we treat it as a standard Paper Trade (MARKET type)
+    # If it's PAST, we keep it as SIMULATION.
+    if is_today:
+        trade_data['order_type'] = "MARKET" # Shows as 'Paper' tag/style in UI
     else:
-        trade_data['order_type'] = "SIMULATION" # Keep as Simulation record
+        trade_data['order_type'] = "SIMULATION" # Shows as 'Simulation' tag in UI
 
     if 'exchange' not in trade_data: trade_data['exchange'] = get_exchange(trade_data['symbol'])
     trade_data['last_notified_high'] = trade_data.get('entry_price', 0)
     trade_data['telegram_msg_ids'] = {}
 
-    if should_be_active_paper:
+    # Logic: 
+    # If Active & Today -> Go to Active Trades DB
+    # If Closed (Today or Past) -> Go to History DB
+    # If Active & Past -> Go to History DB (Forced Close)
+    
+    should_be_active_db = is_active and is_today
+
+    if should_be_active_db:
         daily_count = get_daily_trade_count()
         conf = settings.load_settings().get('telegram', {})
         channels = conf.get('channels', [])

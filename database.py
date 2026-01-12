@@ -9,13 +9,12 @@ class AppSetting(db.Model):
 
 class ActiveTrade(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    # We keep the original timestamp-based ID logic as a reference for the frontend
+    # New Relational Columns
     trade_ref = db.Column(db.String(50), unique=True, nullable=False) 
-    
     symbol = db.Column(db.String(50), nullable=False)
     exchange = db.Column(db.String(20), nullable=False)
     mode = db.Column(db.String(10), nullable=False) # LIVE / PAPER
-    status = db.Column(db.String(20), nullable=False) # OPEN, PENDING, etc.
+    status = db.Column(db.String(20), nullable=False) # OPEN, PENDING
     order_type = db.Column(db.String(20), default="MARKET")
     
     # Price & Quantity
@@ -34,7 +33,7 @@ class ActiveTrade(db.Model):
     sl_to_entry = db.Column(db.Integer, default=0)
     exit_multiplier = db.Column(db.Integer, default=1)
     
-    # Complex Data Stored as JSON Strings
+    # Complex Data (Targets/Logs) stored as JSON strings
     targets_json = db.Column(db.Text, default="[]")
     target_controls_json = db.Column(db.Text, default="[]")
     targets_hit_indices_json = db.Column(db.Text, default="[]")
@@ -74,4 +73,4 @@ class ActiveTrade(db.Model):
 class TradeHistory(db.Model):
     # BigInteger to handle timestamp IDs safely
     id = db.Column(db.BigInteger, primary_key=True)
-    data = db.Column(db.Text, nullable=False) # Keeping History as JSON for simplicity
+    data = db.Column(db.Text, nullable=False) # Keeping History as JSON

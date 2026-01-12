@@ -15,7 +15,6 @@ def _place_sl_order(kite, trade):
     try:
         trigger_price = float(trade['sl'])
         # SL-M must be SELL if we bought (Long)
-        # Assuming Long Only strategy for simplicity based on provided code
         order_id = kite.place_order(
             tradingsymbol=trade['symbol'],
             exchange=trade['exchange'],
@@ -211,11 +210,13 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                 log_event(t, f"Added {qty_delta} Qty ({lots_count} Lots) @ {ltp}. New Avg Entry: {new_avg_entry:.2f}")
                 
                 if t['mode'] == 'LIVE':
-                    try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY,
+                    try: 
+                        kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY,
                         quantity=qty_delta, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         # --- SYNC BROKER SL QTY ---
                         _modify_sl_order(kite, t, new_qty=t['quantity'])
-                    except Exception as e: log_event(t, f"Broker Fail (Add): {e}")
+                    except Exception as e: 
+                        log_event(t, f"Broker Fail (Add): {e}")
 
                 updated = True
                 
@@ -228,11 +229,13 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                     log_event(t, f"Partial Profit: Sold {qty_delta} Qty ({lots_count} Lots) @ {ltp}. Booked P/L: ₹ {pnl_booked:.2f}")
                     
                     if t['mode'] == 'LIVE':
-                        try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL,
+                        try: 
+                            kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL,
                             quantity=qty_delta, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
-                        # --- SYNC BROKER SL QTY ---
-                        _modify_sl_order(kite, t, new_qty=t['quantity'])
-                    except Exception as e: log_event(t, f"Broker Fail (Exit): {e}")
+                            # --- SYNC BROKER SL QTY ---
+                            _modify_sl_order(kite, t, new_qty=t['quantity'])
+                        except Exception as e: 
+                            log_event(t, f"Broker Fail (Exit): {e}")
 
                     updated = True
                 else:
@@ -272,14 +275,9 @@ def move_to_history(trade, final_status, exit_price):
     
     # 2. Log "Info: Made High" LAST
     if was_active:
-        # Use whatever high was recorded during the trade. 
-        # We do NOT force update to exit_price here (as per instruction).
-        # Post-close monitoring in update_risk_engine will catch higher prices.
         made_high = trade.get('made_high', trade['entry_price'])
-        
         trade['made_high'] = made_high
         max_pnl = (made_high - trade['entry_price']) * trade['quantity']
-        
         log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {max_pnl:.2f}")
     
     try:

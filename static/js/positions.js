@@ -17,15 +17,14 @@ function updateData() {
     let filterType = $('#active_filter').val();
     $.get('/api/positions', trades => {
         activeTradesList = trades; 
-        let sumLive = 0, sumPaper = 0, sumSim = 0;
+        let sumLive = 0, sumPaper = 0;
         trades.forEach(t => {
             let pnl = (t.status === 'PENDING') ? 0 : (t.current_ltp - t.entry_price) * t.quantity;
             let cat = getTradeCategory(t);
-            if(cat === 'LIVE') sumLive += pnl; else if(cat === 'PAPER') sumPaper += pnl; else if(cat === 'SIMULATOR') sumSim += pnl;
+            if(cat === 'LIVE') sumLive += pnl; else if(cat === 'PAPER') sumPaper += pnl;
         });
         $('#sum_live').text("₹ " + sumLive.toFixed(2)).attr('class', sumLive >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
         $('#sum_paper').text("₹ " + sumPaper.toFixed(2)).attr('class', sumPaper >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
-        $('#sum_sim').text("₹ " + sumSim.toFixed(2)).attr('class', sumSim >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
 
         let filtered = trades.filter(t => filterType === 'ALL' || getTradeCategory(t) === filterType);
         let html = '';
@@ -37,7 +36,7 @@ function updateData() {
                 if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
-                let editBtn = (cat !== 'SIMULATOR') ? `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>` : '';
+                let editBtn = `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>`;
                 
                 // --- Active Trade Status Tags (Updated) ---
                 let statusTag = '';

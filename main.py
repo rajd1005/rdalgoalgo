@@ -36,7 +36,7 @@ def init_db_and_admin():
         db.create_all()
         admin_user = config.ADMIN_USERNAME
         if not User.query.filter_by(username=admin_user).first():
-            print(f"⚙️ Creating Default Admin: {admin_user}")
+            print(f"⚙️ Creating Default Admin: {admin_user}", flush=True)
             admin = User(
                 username=admin_user,
                 password=generate_password_hash(config.ADMIN_PASSWORD),
@@ -46,7 +46,7 @@ def init_db_and_admin():
             )
             db.session.add(admin)
             db.session.commit()
-            print("✅ Admin Created.")
+            print("✅ Admin Created.", flush=True)
 
 init_db_and_admin()
 
@@ -140,7 +140,7 @@ def admin_manual_login_trigger():
 # --- BACKGROUND MONITOR ---
 def maintain_admin_session():
     global admin_data_active, admin_connection_error
-    print("🖥️ System Monitor Started...")
+    print("🖥️ System Monitor Started (Background Thread)...", flush=True)
     while True:
         try:
             if admin_data_active:
@@ -149,12 +149,12 @@ def maintain_admin_session():
                     time.sleep(60) 
                     continue
                 except:
-                    print("⚠️ Admin Connection Lost.")
+                    print("⚠️ Admin Connection Lost.", flush=True)
                     admin_data_active = False
             
             if not admin_data_active:
                 try:
-                    print("🔄 Attempting Auto-Login...")
+                    print("🔄 Attempting Auto-Login...", flush=True)
                     token, err = auto_login.perform_auto_login(admin_kite)
                     if token:
                         if token != "SKIP_SESSION":
@@ -165,17 +165,17 @@ def maintain_admin_session():
                         admin_connection_error = None
                         smart_trader.fetch_instruments(admin_kite)
                         strategy_manager.start_monitor(admin_kite, app)
-                        print("✅ System Online.")
+                        print("✅ System Online.", flush=True)
                     else:
                         admin_connection_error = err or "Auto-Login Failed"
-                        print(f"❌ Login Failed: {admin_connection_error}")
+                        print(f"❌ Login Failed: {admin_connection_error}", flush=True)
                 except Exception as e:
                     admin_connection_error = str(e)
-                    print(f"❌ Error: {e}")
+                    print(f"❌ Error: {e}", flush=True)
             
             time.sleep(15) 
         except Exception as e:
-            print(f"❌ Thread Error: {e}")
+            print(f"❌ Thread Error: {e}", flush=True)
             time.sleep(15)
 
 @app.route('/')
@@ -188,7 +188,6 @@ def home():
 
 @app.route('/callback')
 def callback():
-    # FIX: Declare global BEFORE using variable in condition
     global admin_data_active, admin_connection_error
     
     t = request.args.get("request_token")
@@ -283,7 +282,10 @@ def close_trade(trade_id):
     else: flash("❌ Error")
     return redirect('/')
 
+# --- START BACKGROUND THREAD (GLOBAL SCOPE FOR GUNICORN) ---
+# This ensures the thread runs even when Gunicorn imports the app.
+monitor_thread = threading.Thread(target=maintain_admin_session, daemon=True)
+monitor_thread.start()
+
 if __name__ == "__main__":
-    t = threading.Thread(target=maintain_admin_session, daemon=True)
-    t.start()
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

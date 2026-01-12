@@ -227,68 +227,7 @@ def api_chain():
 def api_s_ltp(): 
     return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
-# --- SIMULATION & EXECUTION ---
-@app.route('/api/history_check', methods=['POST'])
-def api_history():
-    if not bot_active:
-        return jsonify({"status":"error", "message":"Offline"})
-    data = request.json
-    
-    qty = int(data.get('qty', 50))
-    sl_points = float(data.get('sl_points', 20))
-    entry_price = float(data.get('entry_price', 0))
-    custom_targets = [float(data.get('t1', 0)), float(data.get('t2', 0)), float(data.get('t3', 0))] if float(data.get('t1', 0)) > 0 else []
-    
-    trailing_sl = float(data.get('trailing_sl') or 0)
-    sl_to_entry = int(data.get('sl_to_entry', 0))
-    exit_multiplier = int(data.get('exit_multiplier', 1))
-    target_controls = data.get('target_controls', None)
-    
-    if target_controls and len(target_controls) >= 3:
-        if target_controls[2]['lots'] == 0:
-            target_controls[2]['lots'] = 1000
-
-    if exit_multiplier > 1:
-        final_goal = max(custom_targets) if any(x > 0 for x in custom_targets) else entry_price + (sl_points * 2)
-        dist = final_goal - entry_price
-        new_targets = []
-        new_controls = []
-        tradingsymbol = smart_trader.get_exact_symbol(smart_trader.get_zerodha_symbol(data['symbol']), data['expiry'], data['strike'], data['type'])
-        lot_size = smart_trader.get_lot_size(tradingsymbol) if tradingsymbol else 1
-        total_lots = qty // lot_size
-        base_lots = total_lots // exit_multiplier
-        remainder = total_lots % exit_multiplier
-        
-        for i in range(1, exit_multiplier + 1):
-            fraction = i / exit_multiplier
-            t_price = entry_price + (dist * fraction)
-            new_targets.append(round(t_price, 2))
-            lots_here = base_lots + (remainder if i == exit_multiplier else 0)
-            new_controls.append({'enabled': True, 'lots': int(lots_here)})
-        
-        while len(new_targets) < 3:
-            new_targets.append(0)
-            new_controls.append({'enabled': False, 'lots': 0})
-            
-        custom_targets = new_targets
-        target_controls = new_controls
-
-    result = smart_trader.simulate_trade(
-        kite, data['symbol'], data['expiry'], data['strike'], data['type'], 
-        data['time'], sl_points, entry_price, custom_targets, 
-        qty, trailing_sl, sl_to_entry, target_controls
-    )
-    
-    if result['status'] == 'success':
-        trade_data = result['trade_data']
-        trade_data['quantity'] = qty
-        trade_data['targets'] = custom_targets if custom_targets else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
-        trade_data['raw_params'] = {'symbol': data['symbol'], 'expiry': data['expiry'], 'strike': data['strike'], 'type': data['type'], 'time': data['time']}
-        strategy_manager.inject_simulated_trade(trade_data, result['is_active'])
-        return jsonify({"status": "success", "message": "Simulation Complete", "is_active": result['is_active']})
-        
-    return jsonify(result)
-
+# --- EXECUTION ---
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active:

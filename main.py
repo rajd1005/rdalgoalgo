@@ -188,12 +188,14 @@ def home():
 
 @app.route('/callback')
 def callback():
+    # FIX: Declare global BEFORE using variable in condition
+    global admin_data_active, admin_connection_error
+    
     t = request.args.get("request_token")
     if not t: return redirect('/')
     
     # ADMIN SYSTEM LOGIN
     if current_user.is_authenticated and current_user.role == 'ADMIN' and not admin_data_active:
-        global admin_data_active, admin_connection_error
         try:
             data = admin_kite.generate_session(t, api_secret=config.API_SECRET)
             admin_kite.set_access_token(data["access_token"])

@@ -202,12 +202,12 @@ def move_to_history(trade, final_status, exit_price):
         made_high = trade.get('made_high', trade['entry_price'])
         trade['made_high'] = made_high
         
-        # Max P/L using Initial Qty
-        init_qty = trade.get('initial_quantity', trade.get('quantity', 0))
-        total_potential = (made_high - trade['entry_price']) * init_qty
-        
-        log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
-        telegram_bot.send_alert("CLOSE_SUMMARY", trade, extra={'high': made_high})
+        # Condition: Only show potential if Profitable OR Partial Profit Booked
+        if trade['pnl'] > 0 or booked_pnl > 0:
+            init_qty = trade.get('initial_quantity', trade.get('quantity', 0))
+            total_potential = (made_high - trade['entry_price']) * init_qty
+            log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
+            telegram_bot.send_alert("CLOSE_SUMMARY", trade, extra={'high': made_high})
     
     try:
         db.session.merge(TradeHistory(id=trade['id'], data=json.dumps(trade)))
@@ -475,12 +475,13 @@ def inject_simulated_trade(trade_data, is_active):
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
-        # --- LOG MADE HIGH (POTENTIAL PROFIT) using Initial Qty ---
-        made_high = trade_data.get('made_high', trade_data['entry_price'])
-        init_qty = trade_data.get('initial_quantity', trade_data.get('quantity', 0))
-        total_potential = (made_high - trade_data['entry_price']) * init_qty
-        
-        log_event(trade_data, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
+        # --- LOG MADE HIGH (POTENTIAL PROFIT) CONDITIONAL ---
+        # Show only if PnL > 0 OR Booked PnL > 0 (meaning targets were hit)
+        if trade_data['pnl'] > 0 or trade_data.get('booked_pnl', 0) > 0:
+            made_high = trade_data.get('made_high', trade_data['entry_price'])
+            init_qty = trade_data.get('initial_quantity', trade_data.get('quantity', 0))
+            total_potential = (made_high - trade_data['entry_price']) * init_qty
+            log_event(trade_data, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
         # -----------------------------------------------------------
 
         try:

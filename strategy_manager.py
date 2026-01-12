@@ -254,7 +254,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
                 quantity=quantity, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
         except Exception as e: return {"status": "error", "message": str(e)}
 
-    targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
+    targets = custom_targets if len(custom_targets) >= 1 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
     if not target_controls:
         target_controls = [{'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 1000}]
     
@@ -365,6 +365,9 @@ def inject_simulated_trade(trade_data, is_active):
     
     if 'targets_hit_indices' not in trade_data: trade_data['targets_hit_indices'] = []
     
+    # Calculate using current quantity state if not already done
+    current_qty = trade_data['quantity']
+    
     for i, tgt in enumerate(targets):
         if tgt > 0 and made_high >= tgt:
             if i not in trade_data['targets_hit_indices']:
@@ -373,43 +376,40 @@ def inject_simulated_trade(trade_data, is_active):
                 # Check if Final Target
                 is_final_target = (i == len(targets) - 1)
                 
-                if i < len(controls):
+                qty_exit = 0
+                if is_final_target:
+                    qty_exit = current_qty
+                elif i < len(controls):
                     conf = controls[i]
                     if conf['enabled']:
-                            if is_final_target:
-                                qty_exit = trade_data['quantity'] # FORCE FULL EXIT ON FINAL TARGET
-                            else:
-                                exit_lots = conf.get('lots', 0)
-                                qty_exit = exit_lots * lot_size
-                            
-                            if trade_data['quantity'] > qty_exit:
-                                trade_data['quantity'] -= qty_exit
-                                pnl_chunk = (tgt - entry_price) * qty_exit
-                                trade_data['booked_pnl'] += pnl_chunk
-                                log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
-                            else:
-                                # FULL EXIT
-                                pnl_chunk = (tgt - entry_price) * trade_data['quantity']
-                                trade_data['booked_pnl'] += pnl_chunk
-                                
-                                trade_data['quantity'] = 0
-                                
-                                msg_type = "Final Target Hit" if is_final_target else f"Target {i+1} Hit"
-                                
-                                if is_today:
-                                    # If it's today, keep monitoring till 3:30
-                                    trade_data['status'] = "MONITORING"
-                                    should_be_active_db = True
-                                    log_event(trade_data, f"{msg_type} (Simulated) @ {tgt}. Entering Monitoring Mode.")
-                                else:
-                                    trade_data['status'] = "TARGET_HIT"
-                                    trade_data['exit_price'] = tgt
-                                    should_be_active_db = False
-                                    log_event(trade_data, f"{msg_type} (Simulated) @ {tgt}. Trade Closed.")
-                                
-                                break
+                        exit_lots = conf.get('lots', 0)
+                        qty_exit = exit_lots * lot_size
+                
+                qty_exit = min(qty_exit, current_qty)
+                
+                if qty_exit > 0:
+                    current_qty -= qty_exit
+                    trade_data['quantity'] = current_qty # Update Qty
+                    pnl_chunk = (tgt - entry_price) * qty_exit
+                    trade_data['booked_pnl'] += pnl_chunk
+                    
+                    if is_final_target or current_qty == 0:
+                        msg_type = "Final Target Hit" if is_final_target else f"Target {i+1} Hit"
+                        
+                        if is_today:
+                             trade_data['status'] = "MONITORING"
+                             should_be_active_db = True
+                             log_event(trade_data, f"{msg_type} (Simulated) @ {tgt}. Entering Monitoring Mode.")
+                        else:
+                             trade_data['status'] = "TARGET_HIT"
+                             trade_data['exit_price'] = tgt
+                             should_be_active_db = False
+                             log_event(trade_data, f"{msg_type} (Simulated) @ {tgt}. Trade Closed.")
+                        break
                     else:
-                            log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled).")
+                        log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
+                else:
+                    log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled/0 Lots).")
 
     if should_be_active_db:
         daily_count = get_daily_trade_count()
@@ -559,13 +559,20 @@ def update_risk_engine(kite):
                 for i, tgt in enumerate(t['targets']):
                     if i not in t.get('targets_hit_indices', []) and ltp >= tgt:
                         t.setdefault('targets_hit_indices', []).append(i)
+                        
                         conf = controls[i]
                         telegram_bot.send_alert("TARGET_HIT", t, extra={'index': i+1, 'ltp': ltp})
+                        
                         if not conf['enabled']:
                              log_event(t, f"Crossed T{i+1} @ {tgt} (Target Disabled - No Action)")
                              continue
+                             
                         lot_size = t.get('lot_size', 1); exit_lots = conf.get('lots', 0); qty_to_exit = exit_lots * lot_size
-                        if qty_to_exit >= t['quantity']: exit_triggered = True; exit_reason = "TARGET_HIT"; break
+                        
+                        # Logic: If Final Target OR exit qty > remaining -> Exit All
+                        is_final = (i == len(t['targets']) - 1)
+                        if is_final or qty_to_exit >= t['quantity']:
+                            exit_triggered = True; exit_reason = "TARGET_HIT"; break
                         elif qty_to_exit > 0:
                              t['quantity'] -= qty_to_exit
                              pnl_booked = (tgt - t['entry_price']) * qty_to_exit
@@ -581,12 +588,12 @@ def update_risk_engine(kite):
                     try: kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                     except: pass
                 
-                # --- MODIFIED: ENTER MONITORING IF FINAL TARGET HIT ---
+                # --- ENTER MONITORING IF FINAL TARGET HIT ---
                 if exit_reason == "TARGET_HIT":
                      t['quantity'] = 0
                      t['status'] = "MONITORING"
                      log_event(t, "Final Target Hit. Entered Monitoring Mode.")
-                     active_list.append(t) # Keep active
+                     active_list.append(t) 
                 else:
                      move_to_history(t, exit_reason, (t['sl'] if exit_reason=="SL_HIT" else t['targets'][-1] if exit_reason=="TARGET_HIT" else ltp))
             else: active_list.append(t)

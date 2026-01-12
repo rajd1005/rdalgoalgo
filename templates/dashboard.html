@@ -11,11 +11,21 @@
 </head>
 <body>
 
-<div class="container mt-3">
+<div class="notification-container">
     {% with messages = get_flashed_messages() %}
-        {% if messages %} <div class="alert alert-info py-2 shadow-sm border-0">{{ messages[0] }}</div> {% endif %}
+        {% if messages %}
+            {% for message in messages %}
+            <div class="alert alert-light alert-dismissible fade show floating-alert py-3 border-0" role="alert">
+                <span class="fw-bold">{{ message }}</span>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+        {% endif %}
     {% endwith %}
+</div>
 
+<div class="container mt-3">
+    
     {% if not is_active %}
     <div class="custom-card p-5 text-center mt-5">
         

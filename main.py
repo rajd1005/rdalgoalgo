@@ -29,34 +29,35 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# --- DB INIT & ADMIN CHECK ---
+# --- DB INIT & ADMIN CHECK (FIXED) ---
 def init_db_and_admin():
     with app.app_context():
-        inspector = inspect(db.engine)
-        if not inspector.has_table("user"):
-            db.create_all()
-            
-            # Create Default Admin using Config Variables
-            admin_user = config.ADMIN_USERNAME
-            if not User.query.filter_by(username=admin_user).first():
-                admin = User(
-                    username=admin_user,
-                    password=generate_password_hash(config.ADMIN_PASSWORD),
-                    role='ADMIN',
-                    plan='YEARLY',
-                    plan_expiry=datetime.now() + timedelta(days=3650)
-                )
-                db.session.add(admin)
-                db.session.commit()
-                print(f"✅ Default Admin Created (User: {admin_user})")
+        # 1. Always ensure tables exist
+        db.create_all()
+        
+        # 2. Check and Create Admin User
+        admin_user = config.ADMIN_USERNAME
+        existing_admin = User.query.filter_by(username=admin_user).first()
+        
+        if not existing_admin:
+            print(f"⚙️ Admin not found. Creating Default Admin: {admin_user}")
+            admin = User(
+                username=admin_user,
+                password=generate_password_hash(config.ADMIN_PASSWORD),
+                role='ADMIN',
+                plan='YEARLY',
+                plan_expiry=datetime.now() + timedelta(days=3650)
+            )
+            db.session.add(admin)
+            db.session.commit()
+            print("✅ Admin User Created Successfully.")
         else:
-            # Migration check for new columns if needed
-            db.create_all()
+            print(f"ℹ️ Admin user '{admin_user}' found. Database is ready.")
 
+# Run Init Logic
 init_db_and_admin()
 
 # --- GLOBAL DATA KITE (ADMIN'S ZERODHA) ---
-# This is used ONLY for fetching Live Data for the dashboard
 admin_kite = KiteConnect(api_key=config.API_KEY)
 admin_data_active = False
 
@@ -64,13 +65,11 @@ admin_data_active = False
 @app.before_request
 def check_session():
     if current_user.is_authenticated:
-        # Check if plan expired
         if current_user.plan_expiry and current_user.plan_expiry < datetime.now():
             logout_user()
             flash("❌ Subscription Expired. Contact Admin.")
             return redirect(url_for('login'))
         
-        # Check Single Device
         if current_user.session_token != session.get('device_token'):
             logout_user()
             flash("⚠️ Logged in from another device.")
@@ -81,19 +80,26 @@ def login():
     if request.method == 'POST':
         u = request.form.get('username')
         p = request.form.get('password')
+        
+        # Debugging Print (Check logs to see what is being received)
+        print(f"Login Attempt: User={u}")
+        
         user = User.query.filter_by(username=u).first()
         
-        if user and check_password_hash(user.password, p):
-            # Generate Session Token (Single Device)
-            token = str(uuid.uuid4())
-            user.session_token = token
-            db.session.commit()
-            
-            session['device_token'] = token
-            login_user(user)
-            return redirect('/')
+        if user:
+            if check_password_hash(user.password, p):
+                token = str(uuid.uuid4())
+                user.session_token = token
+                db.session.commit()
+                session['device_token'] = token
+                login_user(user)
+                return redirect('/')
+            else:
+                print("❌ Password Check Failed")
+                flash("Invalid Credentials (Password Incorrect)")
         else:
-            flash("Invalid Credentials")
+            print("❌ User Not Found in DB")
+            flash("Invalid Credentials (User not found)")
             
     return render_template('login.html')
 
@@ -142,9 +148,8 @@ def generate_auto_link(uid):
     user = User.query.get(uid)
     if not user: return jsonify({"error": "User not found"})
     
-    # Simple Magic Link Logic (Token valid for 1 use/short time logic omitted for brevity, using session token update)
     token = str(uuid.uuid4())
-    user.session_token = token # Pre-set token
+    user.session_token = token
     db.session.commit()
     
     link = url_for('magic_login', token=token, uid=user.id, _external=True)
@@ -163,13 +168,13 @@ def magic_login(uid, token):
 @login_required
 def delete_user(uid):
     if current_user.role != 'ADMIN': return redirect('/')
-    if uid == current_user.id: return redirect('/admin') # Prevent self-delete
+    if uid == current_user.id: return redirect('/admin') 
     User.query.filter_by(id=uid).delete()
     db.session.commit()
     flash("User deleted")
     return redirect('/admin')
 
-# --- USER BROKER SETUP (For LIVE Trading) ---
+# --- USER BROKER SETUP ---
 @app.route('/user/broker_config', methods=['POST'])
 @login_required
 def user_broker_config():
@@ -183,7 +188,7 @@ def user_broker_config():
     current_user.broker_api_key = api_key
     current_user.broker_api_secret = api_secret
     db.session.commit()
-    flash("✅ Broker Credentials Saved. Please Login to Zerodha now.")
+    flash("✅ Broker Credentials Saved.")
     return redirect('/')
 
 @app.route('/user/zerodha_login')
@@ -192,20 +197,15 @@ def user_zerodha_login():
     if not current_user.broker_api_key:
         flash("⚠️ Setup Broker API Key first.")
         return redirect('/')
-    
-    # Redirect to User's Zerodha Login
     kite_login = KiteConnect(api_key=current_user.broker_api_key)
     return redirect(kite_login.login_url())
 
-# --- MAIN APP ---
-
-# Admin Auto-Login Background Process (Maintains Data Feed)
+# --- MAIN DASHBOARD & CALLBACK ---
 import auto_login
 def maintain_admin_session():
     global admin_data_active
     while True:
         try:
-            # Check Admin Connection
             try: admin_kite.quote("NSE:NIFTY 50")
             except: 
                 print("🔄 [SYSTEM] Admin Data Feed Reconnecting...")
@@ -213,38 +213,25 @@ def maintain_admin_session():
                 if token and token != "SKIP_SESSION":
                     data = admin_kite.generate_session(token, api_secret=config.API_SECRET)
                     admin_kite.set_access_token(data["access_token"])
-                
                 admin_data_active = True
                 smart_trader.fetch_instruments(admin_kite)
                 strategy_manager.start_monitor(admin_kite, app)
         except Exception as e:
             print(f"❌ [SYSTEM] Data Feed Error: {e}")
             admin_data_active = False
-        time.sleep(300) # Check every 5 mins
+        time.sleep(300)
 
 @app.route('/')
 @login_required
 def home():
-    # Filter trades for CURRENT USER only
     trades = strategy_manager.load_trades(current_user.id)
-    for t in trades:
-        t['symbol'] = smart_trader.get_display_name(t['symbol'])
-    
+    for t in trades: t['symbol'] = smart_trader.get_display_name(t['symbol'])
     active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
-    
-    # System status is now Admin's status (Data Feed)
-    return render_template('dashboard.html', 
-                           is_active=admin_data_active, 
-                           trades=active,
-                           user=current_user)
+    return render_template('dashboard.html', is_active=admin_data_active, trades=active, user=current_user)
 
 @app.route('/callback')
 def callback():
-    # Handles User's Zerodha Callback
-    if not current_user.is_authenticated:
-        # If Admin Auto-Login callback (handled by Selenium usually, but just in case)
-        return "System Callback Received"
-        
+    if not current_user.is_authenticated: return "System Callback Received"
     t = request.args.get("request_token")
     if t:
         try:
@@ -253,24 +240,18 @@ def callback():
             current_user.broker_access_token = data["access_token"]
             current_user.broker_login_date = datetime.now().strftime("%Y-%m-%d")
             db.session.commit()
-            flash("✅ Your Broker Connected Successfully!")
-        except Exception as e:
-            flash(f"❌ Broker Login Failed: {e}")
+            flash("✅ Broker Connected!")
+        except Exception as e: flash(f"❌ Login Failed: {e}")
     return redirect('/')
 
-# --- API & TRADING (UPDATED FOR MULTI-USER) ---
-
+# --- API ROUTES ---
 @app.route('/api/search')
 @login_required
-def api_search():
-    # Uses Admin's Kite for Data
-    return jsonify(smart_trader.search_symbols(admin_kite, request.args.get('q', '')))
+def api_search(): return jsonify(smart_trader.search_symbols(admin_kite, request.args.get('q', '')))
 
 @app.route('/api/details')
 @login_required
-def api_details():
-    # Uses Admin's Kite for Data
-    return jsonify(smart_trader.get_symbol_details(admin_kite, request.args.get('symbol', '')))
+def api_details(): return jsonify(smart_trader.get_symbol_details(admin_kite, request.args.get('symbol', '')))
 
 @app.route('/api/positions')
 @login_required
@@ -290,17 +271,14 @@ def api_closed_trades():
 @login_required
 def place_trade():
     mode = request.form['mode']
-    
-    # Trial Restriction
     if current_user.plan == 'TRIAL' and mode == 'LIVE':
         flash("❌ Trial Users cannot place LIVE trades.")
         return redirect('/')
-
-    # Broker Check for Live
+    
     if mode == 'LIVE':
         today = datetime.now().strftime("%Y-%m-%d")
         if not current_user.broker_access_token or current_user.broker_login_date != today:
-             flash("⚠️ Broker Not Connected or Token Expired. Please Login to Zerodha.")
+             flash("⚠️ Broker Not Connected/Expired.")
              return redirect('/')
 
     try:
@@ -322,17 +300,14 @@ def place_trade():
             if i == 3 and lots == 0: lots = 1000
             target_controls.append({'enabled': enabled, 'lots': lots})
         
-        # Use Admin Kite to find symbol (Data)
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         if not final_sym: return redirect('/')
 
-        # Execute Strategy (Pass Current User)
         res = strategy_manager.create_trade_direct(
             admin_kite, current_user, mode, final_sym, qty, sl_points, 
             custom_targets, order_type, limit_price, target_controls, 
             trailing_sl, sl_to_entry, exit_multiplayer
         )
-        
         if res['status'] == 'success': flash(f"✅ Order Placed: {final_sym}")
         else: flash(f"❌ Error: {res['message']}")
     except Exception as e: flash(f"Error: {e}")
@@ -345,9 +320,7 @@ def close_trade(trade_id):
     else: flash("❌ Error")
     return redirect('/')
 
-# --- STARTUP ---
 if __name__ == "__main__":
-    # Start Admin Monitor Thread (Uses auto_login settings from config)
     t = threading.Thread(target=maintain_admin_session, daemon=True)
     t.start()
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

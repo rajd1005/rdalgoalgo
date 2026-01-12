@@ -201,22 +201,19 @@ def api_manage_trade():
 @app.route('/api/indices')
 def api_indices():
     global bot_active, login_state
-    
     if not bot_active:
         return jsonify({"NIFTY":0, "BANKNIFTY":0, "SENSEX":0})
     
     data = smart_trader.get_indices_ltp(kite)
     
     # --- AUTO-LOGIN FAILSAFE ---
-    # If NIFTY is 0, it means the token is likely dead/expired or connection failed.
-    # We trigger the auto-login process automatically if not already working.
+    # Trigger auto-login if NIFTY is 0 (session dead)
     if data.get("NIFTY", 0) == 0:
         if login_state != "WORKING":
             print("⚠️ Zero Price Detected (Session Dead?). Triggering Re-Login...")
-            bot_active = False # Temporarily mark offline to prevent loops
+            bot_active = False 
             login_state = "IDLE" 
             threading.Thread(target=run_auto_login_process).start()
-    # ---------------------------
     
     return jsonify(data)
 

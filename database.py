@@ -3,6 +3,7 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
+# --- RESTORED AppSetting ---
 class AppSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.Text, nullable=False) # Stores JSON string
@@ -15,7 +16,6 @@ class TradeHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.Text, nullable=False) # Stores JSON string
 
-# --- NEW: PERMANENT NOTIFICATION TABLE ---
 class TradeNotification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime)

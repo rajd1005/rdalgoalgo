@@ -96,30 +96,5 @@
 <script src="{{ url_for('static', filename='js/history.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 
-{% if is_active %}
-<script>
-    setInterval(function() {
-        fetch('/api/status')
-            .then(response => response.json())
-            .then(data => {
-                const badge = document.getElementById('status-badge');
-                if (data.active) {
-                    badge.className = 'badge bg-success shadow-sm';
-                    badge.innerHTML = '<i class="fas fa-wifi"></i> Connected';
-                } else {
-                    // UPDATED: No reload, visual feedback only.
-                    badge.className = 'badge bg-warning text-dark shadow-sm blink';
-                    badge.innerHTML = '<i class="fas fa-sync fa-spin"></i> Reconnecting...';
-                }
-            })
-            .catch(err => console.error("Status check failed", err));
-    }, 5000); // Check every 5 seconds
-</script>
-<style>
-    .blink { animation: blinker 1.5s linear infinite; }
-    @keyframes blinker { 50% { opacity: 0.5; } }
-</style>
-{% endif %}
-
 </body>
 </html>

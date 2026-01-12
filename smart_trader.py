@@ -276,6 +276,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             should_track_high = (status == "OPEN") or (status == "TARGET_HIT")
             if status == "SL_HIT" and len(targets_hit_indices) > 0: should_track_high = True
             if status == "SL_HIT" and len(targets_hit_indices) == 0: should_track_high = False
+            if status == "COST_EXIT": should_track_high = False 
 
             if status != "PENDING" and should_track_high:
                 if curr_high > made_high: made_high = curr_high
@@ -339,10 +340,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                             if is_final_target or current_qty == 0:
                                 status = "TARGET_HIT"; exit_p = t_price; exit_t = c_time
                                 logs.append(f"[{c_time}] Final Target Hit @ {t_price} | Trade Closed.")
-                                # Don't break immediately if we want to track high?
-                                # But status change handles logic.
-                                # Breaking loop stops simulation, but user wants to "track high" after final target.
-                                # So we continue loop but change status.
                                 pass 
 
         # Keep active if OPEN *OR* PENDING (Limit Order Logic)
@@ -357,8 +354,6 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
             show_high_stats = True
         
         # Final P/L Calculation (Booked + Open if active, but here we simulated history)
-        # If 'active' in simulation sense (end of day not reached?), but we fetched 'day' data.
-        # If status is still OPEN at end of candles, we calculate paper PnL
         final_pnl = booked_pnl
         if status == "OPEN":
              final_pnl += (ltp - entry) * current_qty

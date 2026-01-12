@@ -499,3 +499,46 @@ def update_risk_engine(kite):
     if updated_hist:
         try: db.session.commit()
         except: db.session.rollback()
+
+def square_off_all(kite):
+    """
+    Panic Button Logic: Closes ALL active trades immediately.
+    """
+    trades = load_trades()
+    if not trades: return False
+    
+    # 1. Fetch fresh prices for accurate logging
+    try:
+        symbols = [f"{t['exchange']}:{t['symbol']}" for t in trades]
+        live_data = kite.quote(symbols)
+    except:
+        live_data = {}
+
+    for t in trades:
+        # Determine exit price
+        exit_p = t.get('current_ltp', 0)
+        inst = f"{t['exchange']}:{t['symbol']}"
+        if inst in live_data:
+            exit_p = live_data[inst]['last_price']
+            
+        # Execute Sell Order for LIVE trades
+        if t['mode'] == "LIVE" and t['status'] != "PENDING":
+            try:
+                kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], 
+                                 transaction_type=kite.TRANSACTION_TYPE_SELL, 
+                                 quantity=t['quantity'], 
+                                 order_type=kite.ORDER_TYPE_MARKET, 
+                                 product=kite.PRODUCT_MIS)
+                log_event(t, "⚠️ PANIC EXIT TRIGGERED: Order Placed.")
+            except Exception as e:
+                log_event(t, f"❌ Panic Exit Broker Failed: {e}")
+        
+        # Determine Status
+        final_status = "PANIC_EXIT"
+        if t['status'] == "PENDING": final_status = "PANIC_CANCEL"
+        
+        move_to_history(t, final_status, exit_p)
+    
+    # Clear Active Trades
+    save_trades([])
+    return True

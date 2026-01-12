@@ -25,7 +25,10 @@ function loadClosedTrades() {
                 let calcQty = t.initial_quantity || t.quantity; 
                 
                 // Condition: Show if PNL > 0 OR Booked PNL > 0 OR Targets were Hit (for SL Hit After Target)
+                // Explicitly EXCLUDE 'COST_EXIT'
                 let showPotential = (t.pnl > 0) || (t.booked_pnl && t.booked_pnl > 0) || (t.targets_hit_indices && t.targets_hit_indices.length > 0);
+                
+                if (t.status === 'COST_EXIT') showPotential = false;
 
                 if (showPotential && mh > t.entry_price && calcQty > 0) {
                     let pot = (mh - t.entry_price) * calcQty;

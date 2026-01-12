@@ -7,14 +7,14 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException
+from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import config
 
 def perform_auto_login(kite_instance):
-    print("🔄 Starting Auto-Login Sequence (v3 - Robust)...", flush=True)
+    print("🔄 Starting Auto-Login Sequence (v4 - Super Robust)...", flush=True)
     
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
@@ -65,9 +65,14 @@ def perform_auto_login(kite_instance):
 
         # --- STEP 3: WAIT FOR TOTP PAGE ---
         print("⏳ Waiting for TOTP Screen...", flush=True)
-        time.sleep(3) 
+        # Wait until the password field is GONE, implying page change
+        try:
+            WebDriverWait(driver, 5).until(EC.invisibility_of_element_located((By.ID, "password")))
+        except: pass
+        
+        time.sleep(2) 
 
-        # --- STEP 4: TOTP (With Stale Element Retry) ---
+        # --- STEP 4: TOTP (With Aggressive Retry) ---
         print("➡️ Generating TOTP...", flush=True)
         if not config.TOTP_SECRET:
             return None, "Error: TOTP_SECRET missing."
@@ -75,31 +80,28 @@ def perform_auto_login(kite_instance):
         totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
         print(f"   🔑 Generated TOTP: {totp_now}", flush=True)
         
-        # Retry loop for Stale Element
         totp_success = False
-        for attempt in range(3):
+        
+        # Try 5 times to handle Stale Elements / Loading lag
+        for attempt in range(5):
             try:
-                # 1. Find the Input (Re-find every attempt)
-                totp_input = None
-                inputs = driver.find_elements(By.TAG_NAME, "input")
+                # Explicitly wait for ANY input field to be present and visible
+                # Zerodha TOTP input usually has type=text or number
+                totp_input = wait.until(EC.visibility_of_element_located((By.XPATH, "//input[@type='text' or @type='number' or @type='password']")))
                 
-                for inp in inputs:
-                    if not inp.is_displayed(): continue
-                    t = inp.get_attribute("type")
-                    if t in ["text", "number", "tel", "password"]:
-                        totp_input = inp
-                        break
-                
-                if not totp_input:
+                # Double check it is displayed
+                if not totp_input.is_displayed():
+                    print(f"   ⚠️ Input found but hidden (Attempt {attempt+1})", flush=True)
                     time.sleep(1)
                     continue
 
-                # 2. Enter Code
+                # Clear and Enter Code
+                totp_input.click() # Focus
                 totp_input.clear()
                 totp_input.send_keys(totp_now)
                 time.sleep(0.5)
                 
-                # 3. Submit (Try clicking button first, then Enter key)
+                # Submit
                 try:
                     continue_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
                     driver.execute_script("arguments[0].click();", continue_btn)
@@ -109,17 +111,19 @@ def perform_auto_login(kite_instance):
                     print("   👉 Sent ENTER Key", flush=True)
                 
                 totp_success = True
-                break # Exit retry loop if successful
+                break
 
             except StaleElementReferenceException:
-                print(f"   ⚠️ Stale Element (Attempt {attempt+1}/3). Retrying...", flush=True)
-                time.sleep(1)
+                print(f"   ⚠️ Stale Element (Attempt {attempt+1}). Re-finding...", flush=True)
+                time.sleep(1.5)
+            except TimeoutException:
+                print(f"   ⚠️ Timeout waiting for Input (Attempt {attempt+1}).", flush=True)
             except Exception as e:
-                print(f"   ⚠️ TOTP Attempt Error: {e}", flush=True)
+                print(f"   ⚠️ TOTP Error (Attempt {attempt+1}): {e}", flush=True)
                 time.sleep(1)
 
         if not totp_success:
-            return None, "Failed to enter TOTP after 3 attempts."
+            return None, "Failed to enter TOTP (Element issues)."
 
         # --- STEP 5: VERIFY SUCCESS ---
         print("⏳ Waiting for Success...", flush=True)
@@ -136,11 +140,9 @@ def perform_auto_login(kite_instance):
                         return token, None
                 
                 try:
-                    # Check for Success Text or Token on Page (from main.py callback)
                     page_text = driver.find_element(By.TAG_NAME, "body").text
                     
                     if "System Auto-Login Token Received" in page_text:
-                        # Extract token from the page body if main.py printed it
                         import re
                         match = re.search(r"Token:\s*([a-zA-Z0-9]+)", page_text)
                         if match:
@@ -152,11 +154,10 @@ def perform_auto_login(kite_instance):
                         return "SKIP_SESSION", None
                     
                     if "Invalid TOTP" in page_text: return None, "Invalid TOTP."
-                    if "Session expired" in page_text: return None, "Session Expired."
                 except: pass
                 
             except Exception as e:
-                print(f"   [Warning] Loop Error: {e}", flush=True)
+                pass
             
             time.sleep(1)
 

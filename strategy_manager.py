@@ -177,9 +177,11 @@ def move_to_history(trade, final_status, exit_price):
     was_active = trade['status'] != 'PENDING'
     if was_active: real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
 
-    if not was_active or (trade.get('order_type') == 'SIMULATION' and "SL" in final_status):
+    # UPDATED: Uniform PnL calculation for all modes (including SIMULATION)
+    if not was_active:
         trade['pnl'] = 0
-    else: trade['pnl'] = real_pnl
+    else: 
+        trade['pnl'] = real_pnl
     
     trade['status'] = final_status; trade['exit_price'] = exit_price
     trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
@@ -444,7 +446,13 @@ def inject_simulated_trade(trade_data, is_active):
         
         # If we didn't already calculate PnL in the force-close block above
         if 'pnl' not in trade_data or trade_data['pnl'] == 0:
-             trade_data['pnl'] = 0 if "SL" in trade_data.get('status', '') else round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
+             # UPDATED: Calculate PnL if SL Hit, instead of 0
+             if "SL" in trade_data.get('status', ''):
+                  exit_p = trade_data.get('sl', 0)
+                  trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)
+                  if 'exit_price' not in trade_data: trade_data['exit_price'] = exit_p
+             else:
+                  trade_data['pnl'] = round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         

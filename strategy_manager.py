@@ -8,7 +8,7 @@ import smart_trader
 
 IST = pytz.timezone('Asia/Kolkata')
 
-# --- BROKER SL ORDER HELPERS (Unchanged) ---
+# --- BROKER SL ORDER HELPERS ---
 def _place_sl_order(kite, trade):
     if trade['mode'] != 'LIVE' or 'sl_order_id' in trade: return
     try:
@@ -55,7 +55,7 @@ def _cancel_sl_order(kite, trade):
         del trade['sl_order_id']
     except Exception as e:
         log_event(trade, f"⚠️ SL Cancel Fail: {e}")
-# -------------------------------------------
+# -------------------------------
 
 def load_trades():
     try: return [json.loads(r.data) for r in ActiveTrade.query.all()]
@@ -106,7 +106,6 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
                  _modify_sl_order(kite, t, new_sl=t['sl'])
             # ----------------------
 
-            # Exit Multiplier Logic
             if exit_multiplier > 1:
                 eff_entry = t['entry_price']
                 eff_sl_points = eff_entry - float(sl)
@@ -149,12 +148,10 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
     """
     trades = load_trades()
     target_trade = None
-    trade_index = -1
     
-    for i, t in enumerate(trades):
+    for t in trades:
         if str(t['id']) == str(trade_id):
             target_trade = t
-            trade_index = i
             break
             
     if not target_trade: return False, "Trade Not Found"
@@ -274,9 +271,9 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     
     lot_size = smart_trader.get_lot_size(specific_symbol)
     
-    # Exit Multiplier Logic (Simplified for brevity, same as before)
-    if exit_multiplier > 1:
-        final_goal = max([x for x in custom_targets if x > 0]) if [x for x in custom_targets if x > 0] else entry_price + (sl_points * 2)
+    if exit_multiplayer > 1:
+        valid_targets = [x for x in custom_targets if x > 0]
+        final_goal = max(valid_targets) if valid_targets else entry_price + (sl_points * 2)
         dist = final_goal - entry_price
         targets = []; target_controls = []
         base_lots = (quantity // lot_size) // exit_multiplier
@@ -346,16 +343,12 @@ def close_trade_manual(kite, trade_id):
                 try: 
                     kite.place_order(tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL,
                         quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                    msg = "Closed Successfully on Zerodha"
                 except Exception as e:
-                    # Capture Exit Failure but still close in DB? 
-                    # Usually if exit fails we want to know.
                     log_event(t, f"❌ Manual Exit Failed: {str(e)}")
-                    # We DO NOT return here, we still move to history but mark it?
-                    # User usually wants to remove it from dashboard if they click close.
                     msg = f"Closed in DB but Broker Failed: {str(e)}"
             
             move_to_history(t, "MANUAL_EXIT", exit_p)
-            if msg == "Trade Not Found": msg = "Trade Closed Successfully"
         else: active_list.append(t)
             
     if found: save_trades(active_list)

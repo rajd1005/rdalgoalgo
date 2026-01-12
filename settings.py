@@ -18,8 +18,7 @@ def get_defaults():
         "watchlist": [],
         "modes": {
             "LIVE": default_mode_settings.copy(),
-            "PAPER": default_mode_settings.copy(),
-            "SIMULATOR": default_mode_settings.copy()
+            "PAPER": default_mode_settings.copy()
         }
     }
 
@@ -38,12 +37,11 @@ def load_settings():
                 old_sl = saved.get("symbol_sl", {})
                 saved["modes"] = {
                     "LIVE": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()},
-                    "PAPER": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()},
-                    "SIMULATOR": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
+                    "PAPER": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
                 }
 
             # Ensure all keys exist
-            for m in ["LIVE", "PAPER", "SIMULATOR"]:
+            for m in ["LIVE", "PAPER"]:
                 if m in saved["modes"]:
                     # Default missing keys
                     for key, val in defaults["modes"][m].items():

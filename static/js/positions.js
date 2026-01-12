@@ -1,40 +1,61 @@
+// Global flag to prevent multiple login triggers
+window.isAutoLoggingIn = false;
+
 function updateData() {
     if(!document.getElementById('n_lp')) return;
+    
     $.get('/api/indices', d => { 
-        // 1. Zero Price Auto-Detection & Background Reconnect Logic
+        // 1. Zero Price Detection & Background Logic
         if (d.NIFTY === 0 || d.BANKNIFTY === 0) {
-            // Show Loading Animation in Ticker
-            let spinner = '<span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>';
+            
+            // UI: Update Ticker with Loading Animation
+            let spinner = '<span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true" style="width: 0.8rem; height: 0.8rem; border-width: 0.15em;"></span> <span class="text-warning small blink" style="font-size:0.75rem;">Wait...</span>';
             $('#n_lp').html(spinner); 
             $('#b_lp').html(spinner); 
             $('#s_lp').html(spinner);
-            
-            // Trigger Auto-Login in Background (if not already running)
+
+            // UI: Update Status Badge
+            if ($('#status-badge').text().trim() !== "Manual Login") {
+                $('#status-badge').attr('class', 'badge bg-warning text-dark shadow-sm blink').html('<i class="fas fa-sync fa-spin"></i> Auto-Login...');
+            }
+
+            // Trigger Background Auto-Login (Once)
             if (!window.isAutoLoggingIn) {
                 window.isAutoLoggingIn = true;
-                console.warn("⚠️ Zero Price Detected. Triggering Background Auto-Login...");
+                console.warn("⚠️ Zero Price Detected. Attempting Background Auto-Login...");
                 
-                // Hit the trigger route (redirects to home in backend, starting the thread)
-                $.get('/trigger_autologin', function() {
-                    console.log("Background auto-login signal sent.");
-                    // Reset flag after 20s to allow retry if it fails
-                    setTimeout(() => { window.isAutoLoggingIn = false; }, 20000);
-                }).fail(() => {
-                    window.isAutoLoggingIn = false; // Retry next cycle if request fails
-                });
+                // Hit the trigger route which starts the thread in backend
+                $.get('/trigger_autologin');
             }
-            return; // Stop processing updates while offline
+
+            // Poll Backend Status to Check for Failure
+            $.get('/api/status', statusData => {
+                if (statusData.state === 'FAILED') {
+                     // UI: Show Manual Login Button in Ticker Bar (Replaces Status Badge)
+                     let btnHtml = `<a href="${statusData.login_url}" class="btn btn-sm btn-danger fw-bold shadow-sm py-0" style="font-size: 0.75rem;" target="_blank"><i class="fas fa-key"></i> Manual Login</a>`;
+                     
+                     $('#status-badge').removeClass('bg-warning blink').addClass('bg-transparent p-0').html(btnHtml);
+                     // Note: We keep window.isAutoLoggingIn = true to stop retrying until user action or reload
+                }
+            });
+
+            return; // Stop processing further updates while offline
         }
 
-        // Reset login flag if data is back
+        // 2. Normal Operation (Prices Valid)
         window.isAutoLoggingIn = false;
+
+        // Restore Badge if it was in error state
+        if ($('#status-badge').find('.fa-sync').length > 0 || $('#status-badge').find('.fa-key').length > 0) {
+             $('#status-badge').attr('class', 'badge bg-success shadow-sm').html('<i class="fas fa-wifi"></i> Connected');
+        }
 
         $('#n_lp').text(d.NIFTY); 
         $('#b_lp').text(d.BANKNIFTY); 
         $('#s_lp').text(d.SENSEX); 
     });
     
-    // Only proceed with other updates if we didn't return above (System Online)
+    // Only proceed with other updates if we are online
     let currentSym = $('#sym').val();
     if(currentSym && $('#trade').is(':visible')) {
             let tVal = $('input[name="type"]:checked').val();

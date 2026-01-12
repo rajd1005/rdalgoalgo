@@ -118,8 +118,8 @@ def background_monitor():
         except Exception as e:
             print(f"❌ Monitor Loop Error: {e}")
         
-        # Check every 1 second (Faster polling for Risk Engine)
-        time.sleep(1)
+        # Check every 0.5 second (High Speed Polling)
+        time.sleep(0.5)
 
 @app.route('/')
 def home():
@@ -198,7 +198,6 @@ def api_settings_save():
 @app.route('/api/positions')
 def api_positions():
     # Note: strategy_manager.update_risk_engine(kite) is now handled in background_monitor
-    
     trades = strategy_manager.load_trades()
     for t in trades:
         t['lot_size'] = smart_trader.get_lot_size(t['symbol'])
@@ -222,7 +221,9 @@ def api_delete_trade(trade_id):
 def api_update_trade():
     data = request.json
     try:
+        # Pass kite instance to allow SL modification
         if strategy_manager.update_trade_protection(
+            kite, # ADDED KITE
             data['id'], data['sl'], data['targets'], 
             data.get('trailing_sl', 0), data.get('entry_price'),
             data.get('target_controls'), data.get('sl_to_entry', 0),

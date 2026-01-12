@@ -14,7 +14,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import config
 
 def perform_auto_login(kite_instance):
-    print("🔄 Starting Auto-Login Sequence (v6 - Final Stability)...", flush=True)
+    print("🔄 Starting Auto-Login Sequence (v7 - Active Element)...", flush=True)
     
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
@@ -22,6 +22,7 @@ def perform_auto_login(kite_instance):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
+    # Standard User Agent to avoid detection
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
     driver = None
@@ -57,6 +58,7 @@ def perform_auto_login(kite_instance):
             password_field.send_keys(config.ZERODHA_PASSWORD)
             time.sleep(1) 
             
+            # Click Login
             submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
             driver.execute_script("arguments[0].click();", submit_btn)
             
@@ -64,16 +66,9 @@ def perform_auto_login(kite_instance):
             return None, f"Password Error: {e}"
 
         # --- STEP 3: WAIT FOR TOTP PAGE ---
-        print("⏳ Waiting for TOTP Screen to Load...", flush=True)
-        # Force wait 4 seconds for page animation/reload to finish
-        time.sleep(4) 
-
-        # Check if we are stuck on Password Error
-        try:
-            body_text = driver.find_element(By.TAG_NAME, "body").text
-            if "Incorrect password" in body_text: return None, "Incorrect Password"
-            if "Too many attempts" in body_text: return None, "Blocked: Too many attempts"
-        except: pass
+        print("⏳ Waiting for TOTP Screen...", flush=True)
+        # Wait until URL does NOT contain 'login' or wait for a specific TOTP element
+        time.sleep(5) 
 
         # --- STEP 4: TOTP ---
         print("➡️ Generating TOTP...", flush=True)
@@ -84,57 +79,75 @@ def perform_auto_login(kite_instance):
         
         totp_success = False
         
-        # Try 3 times with pauses
-        for attempt in range(3):
+        # Retry loop with Fallbacks
+        for attempt in range(4):
             try:
-                # Find ALL inputs again fresh
+                print(f"   🔎 Attempt {attempt+1}: Looking for input...", flush=True)
+                
+                # Strategy A: Find Visible Inputs
                 inputs = driver.find_elements(By.TAG_NAME, "input")
-                totp_input = None
+                target_input = None
                 
                 for inp in inputs:
                     try:
-                        # Skip hidden inputs
-                        if not inp.is_displayed(): continue
-                        # Skip buttons/submits
-                        if inp.get_attribute("type") in ['hidden', 'submit', 'button', 'checkbox']: continue
-                        
-                        # Valid candidate found
-                        totp_input = inp
-                        break
+                        # Find the first visible input that isn't a button
+                        if inp.is_displayed() and inp.get_attribute("type") not in ['hidden', 'submit', 'button', 'checkbox']:
+                            target_input = inp
+                            break
                     except: continue 
                 
-                if not totp_input:
-                    print(f"   ⚠️ No visible inputs found (Attempt {attempt+1}). Page Text: {driver.title}", flush=True)
-                    time.sleep(2) # Wait longer before retry
-                    continue
+                # Strategy B: Active Element Fallback
+                if not target_input and attempt > 1:
+                    print("   ⚠️ No inputs found. Trying Active Element (Blind Type)...", flush=True)
+                    try:
+                        driver.switch_to.active_element.send_keys(totp_now)
+                        time.sleep(0.5)
+                        driver.switch_to.active_element.send_keys(Keys.ENTER)
+                        totp_success = True
+                        print("   👉 Sent Keys to Active Element.", flush=True)
+                        break
+                    except Exception as ae:
+                        print(f"   ❌ Active Element Failed: {ae}", flush=True)
 
-                # Found it! Enter Code
-                totp_input.click()
-                totp_input.clear()
-                totp_input.send_keys(totp_now)
-                time.sleep(0.5)
-                
-                # Submit
-                try:
-                    continue_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-                    driver.execute_script("arguments[0].click();", continue_btn)
-                    print("   👉 Clicked Continue (JS)", flush=True)
-                except:
-                    totp_input.send_keys(Keys.ENTER)
-                    print("   👉 Sent ENTER Key", flush=True)
-                
-                totp_success = True
-                break
+                if target_input:
+                    target_input.click()
+                    target_input.clear()
+                    target_input.send_keys(totp_now)
+                    time.sleep(0.5)
+                    
+                    # Submit
+                    try:
+                        # Try finding a 'Continue' button specifically
+                        buttons = driver.find_elements(By.TAG_NAME, "button")
+                        continue_btn = next((b for b in buttons if b.is_displayed() and b.get_attribute("type") == "submit"), None)
+                        
+                        if continue_btn:
+                            continue_btn.click()
+                            print("   👉 Clicked Submit Button.", flush=True)
+                        else:
+                            target_input.send_keys(Keys.ENTER)
+                            print("   👉 Sent ENTER Key.", flush=True)
+                    except:
+                        target_input.send_keys(Keys.ENTER)
+                    
+                    totp_success = True
+                    break
+                else:
+                    # DEBUG LOGGING IF FAILED
+                    print(f"   ⚠️ Input not found. Page Title: '{driver.title}'", flush=True)
+                    if attempt == 2:
+                        print(f"   📜 PAGE SOURCE DUMP (First 500 chars):\n{driver.page_source[:500]}", flush=True)
+                    time.sleep(2)
 
             except StaleElementReferenceException:
-                print(f"   ⚠️ Stale Element (Attempt {attempt+1}). The page refreshed.", flush=True)
-                time.sleep(2) # Important: Wait for refresh to finish
+                print(f"   ⚠️ Stale Element. Page refreshed. Retrying...", flush=True)
+                time.sleep(2)
             except Exception as e:
-                print(f"   ⚠️ TOTP Error (Attempt {attempt+1}): {e}", flush=True)
+                print(f"   ⚠️ Error: {e}", flush=True)
                 time.sleep(1)
 
         if not totp_success:
-            return None, "Failed to enter TOTP (Input field missing or blocked)."
+            return None, f"Failed to enter TOTP. Stuck on: {driver.title}"
 
         # --- STEP 5: VERIFY SUCCESS ---
         print("⏳ Waiting for Dashboard Redirect...", flush=True)
@@ -143,6 +156,7 @@ def perform_auto_login(kite_instance):
             try:
                 current_url = driver.current_url
                 
+                # Check 1: Token in URL
                 if "request_token=" in current_url:
                     parsed = urlparse(current_url)
                     token = parse_qs(parsed.query).get('request_token', [None])[0]
@@ -150,6 +164,7 @@ def perform_auto_login(kite_instance):
                         print(f"✅ Token Captured: {token[:6]}...", flush=True)
                         return token, None
                 
+                # Check 2: Success Text on Page
                 try:
                     page_text = driver.find_element(By.TAG_NAME, "body").text
                     if "System Auto-Login Token Received" in page_text:

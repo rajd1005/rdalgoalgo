@@ -84,8 +84,15 @@ def background_monitor():
     
     while True:
         try:
-            # 1. Health Check if Active
+            # 1. Health Check & Risk Engine if Active
             if bot_active:
+                # A. Run Risk Engine (SL/Targets) Continuously
+                try:
+                    strategy_manager.update_risk_engine(kite)
+                except Exception as re:
+                    print(f"⚠️ Risk Engine Warning: {re}")
+
+                # B. Connection Health Check
                 try:
                     # Lightweight API call to verify token validity
                     kite.quote("NSE:NIFTY 50")
@@ -109,8 +116,8 @@ def background_monitor():
         except Exception as e:
             print(f"❌ Monitor Loop Error: {e}")
         
-        # Check every 5 seconds
-        time.sleep(5)
+        # Check every 1 second (Faster polling for Risk Engine)
+        time.sleep(1)
 
 @app.route('/')
 def home():
@@ -129,7 +136,7 @@ def home():
                            error=login_error_msg,
                            login_url=kite.login_url())
 
-# --- SECURE MANUAL LOGIN ROUTE (NEW) ---
+# --- SECURE MANUAL LOGIN ROUTE ---
 @app.route('/secure', methods=['GET', 'POST'])
 def secure_login_page():
     if request.method == 'POST':
@@ -188,8 +195,7 @@ def api_settings_save():
 # --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
-    if bot_active:
-        strategy_manager.update_risk_engine(kite)
+    # Note: strategy_manager.update_risk_engine(kite) is now handled in background_monitor
     
     trades = strategy_manager.load_trades()
     for t in trades:
@@ -242,6 +248,19 @@ def api_manage_trade():
              return jsonify({"status": "success"})
     
     return jsonify({"status": "error", "message": "Action Failed"})
+
+@app.route('/api/panic_squareoff', methods=['POST'])
+def panic_squareoff():
+    if not bot_active:
+        return jsonify({"status": "error", "message": "System Offline"})
+        
+    try:
+        if strategy_manager.square_off_all(kite):
+            return jsonify({"status": "success"})
+        else:
+            return jsonify({"status": "error", "message": "No active trades to square off"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 # --- MARKET DATA API ---
 @app.route('/api/indices')

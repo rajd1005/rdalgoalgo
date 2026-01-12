@@ -203,10 +203,12 @@ def move_to_history(trade, final_status, exit_price):
         trade['made_high'] = made_high
         
         # Condition: Only show potential if Profitable OR Partial Profit Booked OR Targets Hit
+        # EXCLUDE COST_EXIT
         show_potential = False
-        if trade['pnl'] > 0: show_potential = True
-        if booked_pnl > 0: show_potential = True
-        if trade.get('targets_hit_indices') and len(trade['targets_hit_indices']) > 0: show_potential = True
+        if final_status != "COST_EXIT":
+            if trade['pnl'] > 0: show_potential = True
+            if booked_pnl > 0: show_potential = True
+            if trade.get('targets_hit_indices') and len(trade['targets_hit_indices']) > 0: show_potential = True
         
         if show_potential:
             init_qty = trade.get('initial_quantity', trade.get('quantity', 0))
@@ -368,9 +370,16 @@ def inject_simulated_trade(trade_data, is_active):
     # Calculate using current quantity state if not already done
     current_qty = trade_data['quantity']
     
+    # Check if trade already closed abnormally (Cost Exit / SL Hit) from Upstream
+    is_closed_loss = trade_data.get('status') in ['COST_EXIT', 'SL_HIT']
+
     for i, tgt in enumerate(targets):
         if tgt > 0 and made_high >= tgt:
             if i not in trade_data['targets_hit_indices']:
+                
+                # SKIP if trade was a Loss/Cost Exit (Don't retroactively hit targets)
+                if is_closed_loss: continue 
+
                 trade_data['targets_hit_indices'].append(i)
                 
                 # Check if Final Target
@@ -451,10 +460,12 @@ def inject_simulated_trade(trade_data, is_active):
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
         # --- MODIFIED: Show Potential Profit if Profitable OR if Targets were hit ---
+        # EXCLUDE COST_EXIT
         show_potential = False
-        if trade_data['pnl'] > 0: show_potential = True
-        if trade_data.get('booked_pnl', 0) > 0: show_potential = True
-        if trade_data.get('targets_hit_indices') and len(trade_data['targets_hit_indices']) > 0: show_potential = True
+        if trade_data.get('status') != "COST_EXIT":
+            if trade_data['pnl'] > 0: show_potential = True
+            if trade_data.get('booked_pnl', 0) > 0: show_potential = True
+            if trade_data.get('targets_hit_indices') and len(trade_data['targets_hit_indices']) > 0: show_potential = True
         
         if show_potential:
             made_high = trade_data.get('made_high', trade_data['entry_price'])

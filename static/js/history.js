@@ -19,29 +19,31 @@ function loadClosedTrades() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
-                // Logic for Potential Profit Display
-                // Updated: Show for ALL trades (including SL) if High > Entry
+                // Logic for Potential Profit Display (High/Max)
+                // Condition: Show ONLY if at least Target 1 was hit AND High > Entry
                 let potHtml = '';
                 let mh = t.made_high || 0;
-                let calcQty = t.initial_quantity || t.quantity; // Use initial if avail
+                let calcQty = t.initial_quantity || t.quantity; 
                 
-                if(mh > t.entry_price && calcQty > 0) {
+                // Check if indices array exists and has at least one item (Index 0 = Target 1)
+                let targetsHit = t.targets_hit_indices && t.targets_hit_indices.length > 0;
+
+                if(targetsHit && mh > t.entry_price && calcQty > 0) {
                     let pot = (mh - t.entry_price) * calcQty;
                     totalPotential += pot; // Add to global sum
                     
                     potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
                 }
 
-                // --- Live Status Tag Logic for Closed Trades ---
+                // --- Live Status Tag Logic ---
                 let statusTag = '';
                 if (t.status === 'SL_HIT') {
                      statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
                 } else if (t.status === 'TARGET_HIT') {
-                     let maxHit = 2; // Default to all (Target 3)
+                     let maxHit = 2; 
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          maxHit = Math.max(...t.targets_hit_indices);
                      }
-                     
                      if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 1 Hit</span>';
                      else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
                      else statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 3 Hit</span>';
@@ -51,7 +53,7 @@ function loadClosedTrades() {
                 } else {
                      statusTag = `<span class="badge bg-secondary" style="font-size:0.7rem;">${t.status}</span>`;
                 }
-                // -----------------------------------------------
+                // -----------------------------
 
                 // Action Buttons
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-xs btn-outline-primary" onclick="editSim('${t.id}')">✏️ Edit</button>` : '';
@@ -92,7 +94,6 @@ function loadClosedTrades() {
         $('#total_wins').text("Wins: ₹ " + totalWins.toFixed(2));
         $('#total_losses').text("Loss: ₹ " + totalLosses.toFixed(2));
         
-        // Update New Potential Badge
         $('#total_potential').text("Total Potential Profit: ₹ " + totalPotential.toFixed(2));
     });
 }

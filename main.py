@@ -93,14 +93,19 @@ def background_monitor():
                     print(f"⚠️ Health Check Failed (Connection Lost): {e}")
                     bot_active = False
 
-            # 2. Trigger Auto-Login if Disconnected and IDLE
-            if not bot_active and login_state == "IDLE":
-                print("🔄 Monitor: System Offline. Initiating Auto-Login...")
-                # This call blocks this thread until login attempt finishes, which is desired.
-                # We wrap in app context in case DB access is needed inside login flow
-                with app.app_context():
-                    run_auto_login_process()
+            # 2. Continuous Retry Logic
+            if not bot_active:
+                if login_state == "IDLE":
+                    print("🔄 Monitor: System Offline. Initiating Auto-Login...")
+                    with app.app_context():
+                        run_auto_login_process()
                 
+                elif login_state == "FAILED":
+                    # If failed, wait 30 seconds then reset to IDLE to try again (Infinite Loop)
+                    print("⚠️ Auto-Login previously failed. Retrying in 30s...")
+                    time.sleep(30)
+                    login_state = "IDLE"
+
         except Exception as e:
             print(f"❌ Monitor Loop Error: {e}")
         
@@ -124,7 +129,6 @@ def home():
                            error=login_error_msg,
                            login_url=kite.login_url())
 
-# --- NEW STATUS ENDPOINT FOR FRONTEND POLLING ---
 @app.route('/api/status')
 def api_status():
     return jsonify({
@@ -139,13 +143,6 @@ def reset_connection():
     bot_active = False
     login_state = "IDLE"
     flash("🔄 Connection Reset")
-    return redirect('/')
-
-@app.route('/trigger_autologin')
-def trigger_autologin_route():
-    global login_state
-    # We just reset state to IDLE; the background monitor will pick it up immediately.
-    login_state = "IDLE"
     return redirect('/')
 
 @app.route('/callback')
@@ -311,8 +308,6 @@ def close_trade(trade_id):
     return redirect('/')
 
 # --- START MONITOR FOR GUNICORN & FLASK ---
-# This ensures the monitor thread starts when Gunicorn imports the app.
-# We check !debug to avoid starting it twice if using the Flask reloader during local dev.
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t = threading.Thread(target=background_monitor, daemon=True)
     t.start()

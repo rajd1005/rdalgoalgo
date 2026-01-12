@@ -272,10 +272,18 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                     logs.append(f"[{c_time}] Trade Activated/Entered @ {entry} | P/L ₹ 0.00")
                 else: continue 
             
-            # --- MODIFIED: Only update High if Status is OPEN (Stop updating if SL Hit) ---
-            if status == "OPEN":
+            # --- HIGH TRACKING LOGIC ---
+            # Track high if Open OR if Final Target was hit (monitoring mode)
+            should_track_high = (status == "OPEN") or (status == "TARGET_HIT")
+            # Also track if SL hit BUT we had hit targets previously (partial profit runner context)
+            if status == "SL_HIT" and len(targets_hit_indices) > 0: should_track_high = True
+            # DO NOT track if direct SL hit (bad trade)
+            if status == "SL_HIT" and len(targets_hit_indices) == 0: should_track_high = False
+
+            if status != "PENDING" and should_track_high:
                 if curr_high > made_high: made_high = curr_high
 
+            if status == "OPEN":
                 if curr_low <= sl:
                     loss = (sl - entry) * quantity
                     status = "COST_EXIT" if sl >= entry else "SL_HIT"
@@ -295,7 +303,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         active = (status == "OPEN" or status == "PENDING")
         ltp = candles[-1]['close'] if active else exit_p
         
-        # --- MODIFIED: Log 'Made High' only if Profit or Target Hit (Hide for Direct SL) ---
+        # --- LOGGING POTENTIAL PROFIT ---
         show_high_stats = False
         if status in ["OPEN", "TARGET_HIT", "PROMOTED_LIVE"]:
             show_high_stats = True
@@ -313,7 +321,7 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
                 "exit_time": exit_t, "logs": logs, "quantity": 0, "made_high": made_high,
                 "trigger_dir": trigger_dir,
                 "trailing_sl": trailing_sl, "sl_to_entry": sl_to_entry, "target_controls": target_controls,
-                "targets_hit_indices": targets_hit_indices # Passed for UI tagging
+                "targets_hit_indices": targets_hit_indices
             }
         }
     except Exception as e:

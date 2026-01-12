@@ -349,6 +349,7 @@ def inject_simulated_trade(trade_data, is_active):
         else:
             trade_data['entry_time'] = get_time_str()
 
+    # DATE CHECK: Only convert to Paper Trade style if date is TODAY
     entry_time_str = trade_data['entry_time']
     is_today = False
     try:
@@ -360,7 +361,7 @@ def inject_simulated_trade(trade_data, is_active):
         print(f"Date Parsing Error: {e}")
 
     if is_today:
-        trade_data['order_type'] = "MARKET" 
+        trade_data['order_type'] = "MARKET" # Show as Paper
     else:
         trade_data['order_type'] = "SIMULATION" 
 
@@ -370,14 +371,19 @@ def inject_simulated_trade(trade_data, is_active):
 
     should_be_active_db = is_active and is_today
 
-    # --- TAG FINALIZATION & QUANTITY ADJUSTMENT START ---
+    # --- STATUS RE-CALCULATION & TAG FINALIZATION ---
+    # Even if simulation says 'Active', we must check if Target Logic forces a close.
     if should_be_active_db:
         made_high = trade_data.get('made_high', trade_data['entry_price'])
         targets = trade_data.get('targets', [])
         controls = trade_data.get('target_controls', [])
         lot_size = trade_data.get('lot_size', 1)
+        entry_price = trade_data.get('entry_price', 0)
         
         if 'targets_hit_indices' not in trade_data: trade_data['targets_hit_indices'] = []
+        
+        accumulated_pnl = 0
+        original_qty = trade_data['quantity']
         
         for i, tgt in enumerate(targets):
             if tgt > 0 and made_high >= tgt:
@@ -392,16 +398,26 @@ def inject_simulated_trade(trade_data, is_active):
                              
                              if trade_data['quantity'] > qty_exit:
                                  trade_data['quantity'] -= qty_exit
+                                 pnl_chunk = (tgt - entry_price) * qty_exit
+                                 accumulated_pnl += pnl_chunk
                                  log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Qty Reduced by {qty_exit}.")
                              else:
+                                 # FULL EXIT
+                                 pnl_chunk = (tgt - entry_price) * trade_data['quantity']
+                                 accumulated_pnl += pnl_chunk
+                                 
                                  trade_data['quantity'] = 0
                                  log_event(trade_data, f"Target {i+1} Hit (Simulated) @ {tgt}. Trade Closed.")
                                  trade_data['status'] = "TARGET_HIT"
-                                 should_be_active_db = False 
+                                 trade_data['exit_price'] = tgt
+                                 should_be_active_db = False
+                                 
+                                 # Re-inject PnL for History
+                                 trade_data['pnl'] = accumulated_pnl
                                  break
                         else:
                              log_event(trade_data, f"Target {i+1} Crossed (Simulated) @ {tgt}. No Exit (Disabled).")
-    # --- TAG FINALIZATION END ---
+    # ------------------------------------------------
 
     if should_be_active_db:
         daily_count = get_daily_trade_count()
@@ -420,11 +436,14 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
+        # If it was active but not today (Historical), use current_ltp as exit for PnL
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
              trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)
              trade_data['exit_price'] = exit_p
-        else:
+        
+        # If we didn't already calculate PnL in the force-close block above
+        if 'pnl' not in trade_data or trade_data['pnl'] == 0:
              trade_data['pnl'] = 0 if "SL" in trade_data.get('status', '') else round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()

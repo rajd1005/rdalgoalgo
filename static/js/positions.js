@@ -1,18 +1,40 @@
 function updateData() {
     if(!document.getElementById('n_lp')) return;
     $.get('/api/indices', d => { 
-        // 1. Zero Price Auto-Detection Logic
+        // 1. Zero Price Auto-Detection & Background Reconnect Logic
         if (d.NIFTY === 0 || d.BANKNIFTY === 0) {
-            console.warn("❌ Zero Price Detected! Session likely expired. Reloading for Auto-Login...");
-            location.reload();
-            return;
+            // Show Loading Animation in Ticker
+            let spinner = '<span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>';
+            $('#n_lp').html(spinner); 
+            $('#b_lp').html(spinner); 
+            $('#s_lp').html(spinner);
+            
+            // Trigger Auto-Login in Background (if not already running)
+            if (!window.isAutoLoggingIn) {
+                window.isAutoLoggingIn = true;
+                console.warn("⚠️ Zero Price Detected. Triggering Background Auto-Login...");
+                
+                // Hit the trigger route (redirects to home in backend, starting the thread)
+                $.get('/trigger_autologin', function() {
+                    console.log("Background auto-login signal sent.");
+                    // Reset flag after 20s to allow retry if it fails
+                    setTimeout(() => { window.isAutoLoggingIn = false; }, 20000);
+                }).fail(() => {
+                    window.isAutoLoggingIn = false; // Retry next cycle if request fails
+                });
+            }
+            return; // Stop processing updates while offline
         }
+
+        // Reset login flag if data is back
+        window.isAutoLoggingIn = false;
 
         $('#n_lp').text(d.NIFTY); 
         $('#b_lp').text(d.BANKNIFTY); 
         $('#s_lp').text(d.SENSEX); 
     });
     
+    // Only proceed with other updates if we didn't return above (System Online)
     let currentSym = $('#sym').val();
     if(currentSym && $('#trade').is(':visible')) {
             let tVal = $('input[name="type"]:checked').val();

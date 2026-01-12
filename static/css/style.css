@@ -10,10 +10,18 @@ body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-b
     display: flex; 
     justify-content: space-between; 
     align-items: center; 
-    flex-wrap: wrap; /* Allows content to stack on mobile */
+    /* UPDATED: Non-wrap scrolling behavior */
+    flex-wrap: nowrap; 
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
 }
 
-.ticker-item { margin-right: 15px; font-weight: 600; }
+/* Hide scrollbar for Chrome/Safari */
+.ticker-bar::-webkit-scrollbar { display: none; }
+
+.ticker-item { margin-right: 15px; font-weight: 600; flex-shrink: 0; } /* Added flex-shrink: 0 */
 .auth-btn { font-size: 0.75rem; padding: 4px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; background: #dc3545; color: white; }
 .custom-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); background: #fff; margin-bottom: 15px; }
 .card-head { padding: 12px 15px; font-weight: 700; border-bottom: 1px solid #f0f0f0; background: #fff; color: #333; display: flex; justify-content: space-between; align-items: center; }
@@ -29,7 +37,7 @@ body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-b
 .pos-grid-val { font-weight: 700; font-size: 0.85rem; }
 .log-entry { font-size: 0.75rem; border-left: 2px solid #ddd; padding-left: 8px; margin-bottom: 4px; color: #555; }
 .dashboard-tab { display: none; } .dashboard-tab.active { display: block; }
-.settings-btn { cursor: pointer; color: #0d6efd; text-decoration: underline; font-size: 0.8rem; }
+.settings-btn { cursor: pointer; color: #0d6efd; text-decoration: underline; font-size: 0.8rem; flex-shrink: 0; } /* Added flex-shrink: 0 */
 .sl-table td { vertical-align: middle; }
 .action-btn { cursor: pointer; font-size: 0.9rem; padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; background: #f8f9fa; margin-left: 5px; text-decoration: none; color: #333; }
 .action-btn:hover { background: #e9ecef; }
@@ -53,7 +61,9 @@ body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-b
     .card-body { padding: 12px; }
     .pos-grid-val { font-size: 0.8rem; }
     
-    /* Header Stack on very small screens */
-    .ticker-bar { flex-direction: column; align-items: flex-start; gap: 10px; }
-    .ticker-bar > div { width: 100%; justify-content: space-between; }
+    /* UPDATED: Removed column stacking to allow horizontal scrolling */
+    /* .ticker-bar { flex-direction: column; align-items: flex-start; gap: 10px; } */
+    /* .ticker-bar > div { width: 100%; justify-content: space-between; } */
+    
+    .ticker-bar { gap: 10px; }
 }

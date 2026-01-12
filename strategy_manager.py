@@ -202,8 +202,13 @@ def move_to_history(trade, final_status, exit_price):
         made_high = trade.get('made_high', trade['entry_price'])
         trade['made_high'] = made_high
         
-        # Condition: Only show potential if Profitable OR Partial Profit Booked
-        if trade['pnl'] > 0 or booked_pnl > 0:
+        # --- MODIFIED: Show Potential Profit if Profitable OR if Targets were hit (even if SL Hit later) ---
+        show_potential = False
+        if trade['pnl'] > 0: show_potential = True
+        if booked_pnl > 0: show_potential = True
+        if trade.get('targets_hit_indices') and len(trade['targets_hit_indices']) > 0: show_potential = True
+        
+        if show_potential:
             init_qty = trade.get('initial_quantity', trade.get('quantity', 0))
             total_potential = (made_high - trade['entry_price']) * init_qty
             log_event(trade, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
@@ -475,9 +480,13 @@ def inject_simulated_trade(trade_data, is_active):
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
-        # --- LOG MADE HIGH (POTENTIAL PROFIT) CONDITIONAL ---
-        # Show only if PnL > 0 OR Booked PnL > 0 (meaning targets were hit)
-        if trade_data['pnl'] > 0 or trade_data.get('booked_pnl', 0) > 0:
+        # --- MODIFIED: Show Potential Profit if Profitable OR if Targets were hit (even if SL Hit later) ---
+        show_potential = False
+        if trade_data['pnl'] > 0: show_potential = True
+        if trade_data.get('booked_pnl', 0) > 0: show_potential = True
+        if trade_data.get('targets_hit_indices') and len(trade_data['targets_hit_indices']) > 0: show_potential = True
+        
+        if show_potential:
             made_high = trade_data.get('made_high', trade_data['entry_price'])
             init_qty = trade_data.get('initial_quantity', trade_data.get('quantity', 0))
             total_potential = (made_high - trade_data['entry_price']) * init_qty

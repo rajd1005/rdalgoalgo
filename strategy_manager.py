@@ -339,7 +339,13 @@ def close_trade_manual(kite, trade_id):
     return found
 
 def inject_simulated_trade(trade_data, is_active):
-    trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"; trade_data['order_type'] = "SIMULATION"
+    trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
+    
+    if is_active:
+        trade_data['order_type'] = "MARKET" # Auto-convert to Paper Trade if active
+    else:
+        trade_data['order_type'] = "SIMULATION"
+
     if 'exchange' not in trade_data: trade_data['exchange'] = get_exchange(trade_data['symbol'])
     trade_data['last_notified_high'] = trade_data.get('entry_price', 0)
     trade_data['telegram_msg_ids'] = {}

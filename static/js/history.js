@@ -19,25 +19,34 @@ function loadClosedTrades() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
-                // Logic for Potential Profit Display
-                // Updated: Show for ALL trades (including SL) if High > Entry
+                // --- Logic for Potential Profit Display ---
+                // Rule: Show/Calc IF (Profitable) OR (SL Hit AND Minimum Target 1 Hit)
                 let potHtml = '';
                 let mh = t.made_high || 0;
-                let calcQty = t.initial_quantity || t.quantity; // Use initial if avail
                 
-                if(mh > t.entry_price && calcQty > 0) {
+                // Use Initial Qty for Potential (What if held full size?), fallback to exit qty
+                let calcQty = t.initial_quantity || t.quantity; 
+                
+                // Check if any Target was hit (indices array exists and not empty)
+                let targetsHit = t.targets_hit_indices && t.targets_hit_indices.length > 0;
+                
+                // Condition
+                let showPotential = (t.pnl > 0) || (t.status.includes('SL') && targetsHit);
+
+                if (showPotential && mh > t.entry_price && calcQty > 0) {
                     let pot = (mh - t.entry_price) * calcQty;
                     totalPotential += pot; // Add to global sum
                     
                     potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
                 }
+                // ------------------------------------------
 
                 // --- Live Status Tag Logic for Closed Trades ---
                 let statusTag = '';
                 if (t.status === 'SL_HIT') {
                      statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
                 } else if (t.status === 'TARGET_HIT') {
-                     let maxHit = 2; // Default to all (Target 3)
+                     let maxHit = 2; // Default to all
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          maxHit = Math.max(...t.targets_hit_indices);
                      }

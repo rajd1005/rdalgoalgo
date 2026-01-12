@@ -231,3 +231,27 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
              if not row.empty: exch = row.iloc[0]['exchange']
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
+
+def get_exchange(tradingsymbol):
+    """
+    Returns the exchange (NSE, NFO, MCX, etc.) for a specific trading symbol.
+    """
+    global instrument_dump
+    
+    # Default fallback if instruments aren't loaded or found
+    default_exchange = "NFO" 
+
+    if instrument_dump is None: 
+        return default_exchange
+        
+    try:
+        # Filter for the specific trading symbol
+        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
+        
+        if not row.empty:
+            return row.iloc[0]['exchange']
+            
+    except Exception as e:
+        print(f"Error getting exchange for {tradingsymbol}: {e}")
+        
+    return default_exchange

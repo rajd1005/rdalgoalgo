@@ -21,6 +21,7 @@ def get_time_str(): return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
 
 # --- USER HELPER ---
 def get_user_kite(user):
+    """Reconstructs Kite Object for a specific user"""
     if not user.broker_access_token: return None
     k = KiteConnect(api_key=user.broker_api_key)
     k.set_access_token(user.broker_access_token)
@@ -64,34 +65,34 @@ def run_market_monitor(admin_kite, app):
 def update_risk_engine(admin_kite):
     global MARKET_INDICES
     
-    # 1. Prepare List of Symbols (Indices + Active Trades)
+    # 1. Fetch All Active Trades (All Users)
     trades = ActiveTrade.query.all()
     
-    # Always fetch these two for the Ticker Bar
+    # 2. Prepare List of Symbols (Always fetch Indices)
     instruments_to_fetch = ["NSE:NIFTY 50", "NSE:NIFTY BANK"]
     
     # Add active trade symbols
-    for t in trades:
-        instruments_to_fetch.append(f"{t.exchange}:{t.symbol}")
+    if trades:
+        instruments_to_fetch.extend([f"{t.exchange}:{t.symbol}" for t in trades])
     
     # Remove duplicates
     instruments_to_fetch = list(set(instruments_to_fetch))
 
-    # 2. Fetch Live Quotes
+    # 3. Fetch Live Quotes
     try: 
         live_prices = admin_kite.quote(instruments_to_fetch)
-    except Exception as e: 
-        print(f"⚠️ Quote Error: {e}")
-        return
+    except: return
 
-    # 3. Update Global Indices (For Ticker API)
+    # 4. Update Global Indices (For Ticker API)
     if "NSE:NIFTY 50" in live_prices:
         MARKET_INDICES["NIFTY"] = live_prices["NSE:NIFTY 50"]["last_price"]
     if "NSE:NIFTY BANK" in live_prices:
         MARKET_INDICES["BANKNIFTY"] = live_prices["NSE:NIFTY BANK"]["last_price"]
     MARKET_INDICES["TIMESTAMP"] = get_time_str()
 
-    # 4. Process Trade Logic
+    # 5. Process Trade Logic (Only if trades exist)
+    if not trades: return
+
     with trade_lock:
         updated = False
         for t in trades:
@@ -106,7 +107,7 @@ def update_risk_engine(admin_kite):
             user = User.query.get(t.user_id)
             user_kite = None
             if t.mode == 'LIVE':
-                user_kite = get_user_kite(user)
+                user_kite = get_user_kite(user) # Init only if needed
             
             # PENDING -> OPEN
             if t.status == "PENDING":
@@ -123,11 +124,12 @@ def update_risk_engine(admin_kite):
             if t.status in ['OPEN', 'PROMOTED_LIVE']:
                 t.highest_ltp = max(t.highest_ltp, ltp)
                 
+                # Deserialization
                 targets = json.loads(t.targets_json)
                 controls = json.loads(t.target_controls_json)
                 hit_indices = json.loads(t.targets_hit_indices_json)
 
-                # Trailing SL
+                # Trailing SL Logic
                 if t.trailing_sl > 0:
                     new_sl = ltp - t.trailing_sl
                     limit_mode = t.sl_to_entry
@@ -140,12 +142,13 @@ def update_risk_engine(admin_kite):
                         t.sl = new_sl
                         log_event(t, f"Trailing SL Moved to {t.sl:.2f}")
 
-                # Targets & Exit
+                # Exit Logic
                 exit_triggered = False; exit_reason = ""
                 qty_to_exit = 0
                 
                 if ltp <= t.sl:
-                    exit_triggered = True; exit_reason = "SL_HIT"
+                    exit_triggered = True
+                    exit_reason = "SL_HIT"
                 elif not exit_triggered:
                     for i, tgt in enumerate(targets):
                         if i not in hit_indices and ltp >= tgt:
@@ -175,18 +178,23 @@ def update_risk_engine(admin_kite):
 
         if updated: db.session.commit()
 
-# --- HELPER FUNCTIONS ---
+# --- TRADE ACTIONS ---
 def create_trade_direct(admin_kite, user, mode, symbol, quantity, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplayer):
+    
     exchange = "NFO"
+    
+    # 1. Get Live Price from ADMIN KITE
     try: current_ltp = admin_kite.quote(f"{exchange}:{symbol}")[f"{exchange}:{symbol}"]["last_price"]
     except: return {"status": "error", "message": "Market Data Error"}
 
+    # 2. Setup Data
     status = "OPEN"; entry_price = current_ltp; trigger_dir = "BELOW"
     if order_type == "LIMIT":
         entry_price = float(limit_price)
         status = "PENDING"
         trigger_dir = "ABOVE" if entry_price >= current_ltp else "BELOW"
-
+    
+    # 3. Broker Order (If LIVE) -> Use USER KITE
     if mode == "LIVE" and status == "OPEN":
         user_kite = get_user_kite(user)
         if not user_kite: return {"status": "error", "message": "User Broker Not Connected"}
@@ -194,20 +202,38 @@ def create_trade_direct(admin_kite, user, mode, symbol, quantity, sl_points, cus
             user_kite.place_order(tradingsymbol=symbol, exchange=exchange, transaction_type=user_kite.TRANSACTION_TYPE_BUY, quantity=quantity, order_type=user_kite.ORDER_TYPE_MARKET, product=user_kite.PRODUCT_MIS)
         except Exception as e: return {"status": "error", "message": str(e)}
 
+    # 4. Save to DB
     with trade_lock:
         new_trade = ActiveTrade(
-            user_id=user.id, trade_ref=str(int(time.time())), symbol=symbol, exchange=exchange, mode=mode, status=status, order_type=order_type,
-            entry_price=entry_price, quantity=quantity, current_ltp=current_ltp, sl=entry_price - sl_points, trailing_sl=trailing_sl,
-            sl_to_entry=sl_to_entry, exit_multiplier=exit_multiplayer, targets_json=json.dumps(custom_targets), target_controls_json=json.dumps(target_controls),
-            trigger_dir=trigger_dir, entry_time=get_time_str()
+            user_id=user.id,
+            trade_ref=str(int(time.time())),
+            symbol=symbol,
+            exchange=exchange,
+            mode=mode,
+            status=status,
+            order_type=order_type,
+            entry_price=entry_price,
+            quantity=quantity,
+            current_ltp=current_ltp,
+            sl=entry_price - sl_points,
+            trailing_sl=trailing_sl,
+            sl_to_entry=sl_to_entry,
+            exit_multiplier=exit_multiplayer,
+            targets_json=json.dumps(custom_targets),
+            target_controls_json=json.dumps(target_controls),
+            trigger_dir=trigger_dir,
+            entry_time=get_time_str()
         )
-        db.session.add(new_trade); db.session.commit()
+        db.session.add(new_trade)
+        db.session.commit()
         return {"status": "success"}
 
 def close_trade_manual(admin_kite, user, trade_id):
     with trade_lock:
         trade = ActiveTrade.query.filter_by(id=trade_id, user_id=user.id).first()
         if not trade: return False
+        
+        # Fetch exit price from Admin Kite
         try: exit_p = admin_kite.quote(f"{trade.exchange}:{trade.symbol}")[f"{trade.exchange}:{trade.symbol}"]['last_price']
         except: exit_p = trade.current_ltp
 
@@ -229,6 +255,10 @@ def log_event(trade, msg):
     except: pass
 
 def move_to_history_db(trade_obj, status, exit_price):
-    d = trade_obj.to_dict(); d['status'] = status; d['exit_price'] = exit_price; d['pnl'] = (exit_price - trade_obj.entry_price) * trade_obj.quantity
+    d = trade_obj.to_dict()
+    d['status'] = status
+    d['exit_price'] = exit_price
+    d['pnl'] = (exit_price - trade_obj.entry_price) * trade_obj.quantity
     hist = TradeHistory(user_id=trade_obj.user_id, data=json.dumps(d))
-    db.session.add(hist); db.session.delete(trade_obj)
+    db.session.add(hist)
+    db.session.delete(trade_obj)

@@ -355,6 +355,7 @@ def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
     trade_data['booked_pnl'] = 0.0 
     
+    # Ensure Initial Quantity is tracked
     if 'initial_quantity' not in trade_data:
         trade_data['initial_quantity'] = trade_data.get('quantity', 0)
 

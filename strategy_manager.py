@@ -3,7 +3,8 @@ import time
 from datetime import datetime, timedelta
 import pandas as pd
 import pytz
-from database import db, ActiveTrade, TradeHistory
+# Added TradeNotification to imports
+from database import db, ActiveTrade, TradeHistory, TradeNotification
 import smart_trader 
 
 IST = pytz.timezone('Asia/Kolkata')
@@ -143,9 +144,6 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
     return False
 
 def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
-    """
-    Returns: (bool success, str message)
-    """
     trades = load_trades()
     target_trade = None
     
@@ -211,8 +209,24 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
 def get_time_str(): return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
 
 def log_event(trade, message):
+    # 1. Standard JSON Log (For UI Trade Card)
     if 'logs' not in trade: trade['logs'] = []
     trade['logs'].append(f"[{get_time_str()}] {message}")
+
+    # 2. NEW: Central Database Notification Store (Permanent)
+    try:
+        notif = TradeNotification(
+            timestamp=datetime.now(IST),
+            mode=trade.get('mode', 'UNKNOWN'),
+            symbol=trade.get('symbol', 'UNKNOWN'),
+            message=message,
+            trade_id=str(trade.get('id', ''))
+        )
+        db.session.add(notif)
+        db.session.commit()
+    except Exception as e:
+        print(f"Log DB Error: {e}")
+        db.session.rollback()
 
 def move_to_history(trade, final_status, exit_price):
     real_pnl = 0
@@ -262,7 +276,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
             kite.place_order(tradingsymbol=specific_symbol, exchange=exchange, transaction_type=kite.TRANSACTION_TYPE_BUY,
                 quantity=quantity, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
         except Exception as e:
-            # RETURN ERROR AND STOP. DO NOT CREATE TRADE.
             return {"status": "error", "message": f"Broker Rejected: {str(e)}"}
     # -----------------------------------
 
@@ -296,6 +309,12 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     
     # SL PLACEMENT
     if mode == "LIVE" and status == "OPEN": _place_sl_order(kite, record)
+    
+    # LOG INITIAL EVENT TO DB
+    try:
+        db.session.add(TradeNotification(timestamp=datetime.now(IST), mode=mode, symbol=specific_symbol, message=f"Trade Added: {status}", trade_id=str(record['id'])))
+        db.session.commit()
+    except: db.session.rollback()
 
     trades.append(record)
     save_trades(trades)

@@ -193,21 +193,22 @@ def callback():
     t = request.args.get("request_token")
     if not t: return redirect('/')
     
-    # ADMIN SYSTEM LOGIN
-    if current_user.is_authenticated and current_user.role == 'ADMIN' and not admin_data_active:
-        try:
-            data = admin_kite.generate_session(t, api_secret=config.API_SECRET)
-            admin_kite.set_access_token(data["access_token"])
-            admin_data_active = True
-            admin_connection_error = None
-            smart_trader.fetch_instruments(admin_kite)
-            strategy_manager.start_monitor(admin_kite, app)
-            flash("✅ System Online (Manual)")
-        except Exception as e: flash(f"❌ System Login Failed: {e}")
+    # 1. ADMIN MANUAL LOGIN
+    if current_user.is_authenticated and current_user.role == 'ADMIN':
+        if not admin_data_active:
+            try:
+                data = admin_kite.generate_session(t, api_secret=config.API_SECRET)
+                admin_kite.set_access_token(data["access_token"])
+                admin_data_active = True
+                admin_connection_error = None
+                smart_trader.fetch_instruments(admin_kite)
+                strategy_manager.start_monitor(admin_kite, app)
+                flash("✅ System Online (Manual)")
+            except Exception as e: flash(f"❌ System Login Failed: {e}")
         return redirect('/')
 
-    # USER LOGIN
-    if current_user.is_authenticated:
+    # 2. USER BROKER LOGIN
+    if current_user.is_authenticated and current_user.role == 'USER':
         try:
             ukite = KiteConnect(api_key=current_user.broker_api_key)
             data = ukite.generate_session(t, api_secret=current_user.broker_api_secret)
@@ -216,8 +217,11 @@ def callback():
             db.session.commit()
             flash("✅ Broker Connected!")
         except Exception as e: flash(f"❌ Broker Login Failed: {e}")
+        return redirect('/')
     
-    return redirect('/')
+    # 3. AUTO-LOGIN BOT (Unauthenticated)
+    # This captures the token for the background thread without redirecting to login!
+    return f"<h3>System Auto-Login Token Received</h3><p>Token: {t}</p>"
 
 # --- API & TRADING ROUTES ---
 @app.route('/api/search')
@@ -283,7 +287,6 @@ def close_trade(trade_id):
     return redirect('/')
 
 # --- START BACKGROUND THREAD (GLOBAL SCOPE FOR GUNICORN) ---
-# This ensures the thread runs even when Gunicorn imports the app.
 monitor_thread = threading.Thread(target=maintain_admin_session, daemon=True)
 monitor_thread.start()
 

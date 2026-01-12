@@ -134,7 +134,7 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                 
                 t['quantity'] = new_total_qty
                 t['entry_price'] = new_avg_entry
-                t['initial_quantity'] = t.get('initial_quantity', old_qty) + qty_delta # Update Initial if Adding? Or keep base? Usually average up increases total exposure.
+                t['initial_quantity'] = t.get('initial_quantity', old_qty) + qty_delta 
                 
                 log_event(t, f"Added {qty_delta} Qty ({lots_count} Lots) @ {ltp}. New Avg Entry: {new_avg_entry:.2f}")
                 
@@ -202,7 +202,7 @@ def move_to_history(trade, final_status, exit_price):
         made_high = trade.get('made_high', trade['entry_price'])
         trade['made_high'] = made_high
         
-        # Max P/L = (High - Entry) * Initial Quantity (Show Full Potential)
+        # Max P/L Calculation using Initial Quantity
         init_qty = trade.get('initial_quantity', trade.get('quantity', 0))
         total_potential = (made_high - trade['entry_price']) * init_qty
         
@@ -355,10 +355,11 @@ def inject_simulated_trade(trade_data, is_active):
     trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"
     trade_data['booked_pnl'] = 0.0 
     
-    # Init Quantity Setup
+    # Ensure Initial Quantity is tracked
     if 'initial_quantity' not in trade_data:
         trade_data['initial_quantity'] = trade_data.get('quantity', 0)
 
+    # PRIORITIZE SIMULATOR TIME
     val_from_params = trade_data.get('raw_params', {}).get('time')
     if val_from_params:
         trade_data['entry_time'] = val_from_params.replace("T", " ")
@@ -386,7 +387,7 @@ def inject_simulated_trade(trade_data, is_active):
 
     should_be_active_db = is_active and is_today
 
-    # --- SIMULATE TARGET/PARTIAL EXITS FOR ALL (To get correct Logs/PnL) ---
+    # --- SIMULATE TARGET/PARTIAL EXITS FOR ALL ---
     made_high = trade_data.get('made_high', trade_data['entry_price'])
     targets = trade_data.get('targets', [])
     controls = trade_data.get('target_controls', [])
@@ -465,7 +466,6 @@ def inject_simulated_trade(trade_data, is_active):
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
         # --- LOG MADE HIGH (POTENTIAL PROFIT) ---
-        # Formula: (High - Entry) * Initial Qty
         made_high = trade_data.get('made_high', trade_data['entry_price'])
         init_qty = trade_data.get('initial_quantity', trade_data.get('quantity', 0))
         total_potential = (made_high - trade_data['entry_price']) * init_qty
@@ -495,7 +495,6 @@ def update_risk_engine(kite):
     active_trades = load_trades()
     
     instruments_to_fetch = set([f"{t['exchange']}:{t['symbol']}" for t in active_trades])
-    
     if not instruments_to_fetch: return
     try: live_prices = kite.quote(list(instruments_to_fetch))
     except: return

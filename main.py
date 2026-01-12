@@ -45,22 +45,23 @@ def run_auto_login_process():
         if token == "SKIP_SESSION":
             print("✅ Auto-Login Verified: Session Active.")
             bot_active = True
+            strategy_manager.start_monitor(kite, app) # START BACKGROUND THREAD
             login_state = "IDLE" 
             return
 
-        # CASE 2: Token Captured (Need to generate session manually)
+        # CASE 2: Token Captured
         if token and token != "SKIP_SESSION":
             try:
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
                 kite.set_access_token(data["access_token"])
                 bot_active = True
                 smart_trader.fetch_instruments(kite)
+                strategy_manager.start_monitor(kite, app) # START BACKGROUND THREAD
                 print("✅ Session Generated Successfully")
                 login_state = "IDLE"
             except Exception as e:
-                # If token was used during the process, assume success if bot is active
                 if "Token is invalid" in str(e) and bot_active:
-                    print("⚠️ Token Expired but Bot is Active (Race Condition Solved)")
+                    print("⚠️ Token Expired but Bot is Active")
                     login_state = "IDLE"
                 else:
                     raise e
@@ -74,42 +75,35 @@ def run_auto_login_process():
         login_state = "FAILED"
         login_error_msg = str(e)
 
-# --- SERVER-SIDE CONNECTION MONITOR ---
+# --- CONNECTION MONITOR ---
 def background_monitor():
+    """Checks if Bot is active and retries login if needed"""
     global bot_active, login_state
-    print("🖥️ Background Monitor Started")
-    
-    # Give the server a moment to fully initialize
+    print("🖥️ Connection Monitor Started")
     time.sleep(2)
     
     while True:
         try:
-            # 1. Health Check if Active
             if bot_active:
                 try:
-                    # Lightweight API call to verify token validity
                     kite.quote("NSE:NIFTY 50")
                 except Exception as e:
-                    print(f"⚠️ Health Check Failed (Connection Lost): {e}")
+                    print(f"⚠️ Health Check Failed: {e}")
                     bot_active = False
+                    strategy_manager.stop_monitor() # STOP RISK ENGINE
 
-            # 2. Continuous Retry Logic
             if not bot_active:
                 if login_state == "IDLE":
                     print("🔄 Monitor: System Offline. Initiating Auto-Login...")
                     with app.app_context():
                         run_auto_login_process()
-                
                 elif login_state == "FAILED":
-                    # If failed, wait 30 seconds then reset to IDLE to try again (Infinite Loop)
-                    print("⚠️ Auto-Login previously failed. Retrying in 30s...")
                     time.sleep(30)
                     login_state = "IDLE"
 
         except Exception as e:
             print(f"❌ Monitor Loop Error: {e}")
         
-        # Check every 5 seconds
         time.sleep(5)
 
 @app.route('/')
@@ -129,14 +123,11 @@ def home():
                            error=login_error_msg,
                            login_url=kite.login_url())
 
-# --- SECURE MANUAL LOGIN ROUTE (NEW) ---
 @app.route('/secure', methods=['GET', 'POST'])
 def secure_login_page():
     if request.method == 'POST':
         pwd = request.form.get('password')
-        # Check against the ADMIN_PASSWORD in config.py
         if pwd == config.ADMIN_PASSWORD:
-            print("🔐 Secure Admin Login Successful. Redirecting to Zerodha...")
             return redirect(kite.login_url())
         else:
             return render_template('secure_login.html', error="Invalid Password! Access Denied.")
@@ -155,6 +146,7 @@ def api_status():
 def reset_connection():
     global bot_active, login_state
     bot_active = False
+    strategy_manager.stop_monitor()
     login_state = "IDLE"
     flash("🔄 Connection Reset")
     return redirect('/')
@@ -169,6 +161,7 @@ def callback():
             kite.set_access_token(data["access_token"])
             bot_active = True
             smart_trader.fetch_instruments(kite)
+            strategy_manager.start_monitor(kite, app) # START BACKGROUND THREAD
             flash("✅ System Online")
         except Exception as e:
             flash(f"Login Error: {e}")
@@ -188,12 +181,11 @@ def api_settings_save():
 # --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
-    if bot_active:
-        strategy_manager.update_risk_engine(kite)
+    # REMOVED: strategy_manager.update_risk_engine(kite) 
+    # This prevents Rate Limits. The background thread updates DB now.
     
     trades = strategy_manager.load_trades()
     for t in trades:
-        t['lot_size'] = smart_trader.get_lot_size(t['symbol'])
         t['symbol'] = smart_trader.get_display_name(t['symbol'])
     return jsonify(trades)
 
@@ -233,12 +225,19 @@ def api_manage_trade():
     action = data.get('action') 
     lots = int(data.get('lots', 0))
     
-    trades = strategy_manager.load_trades()
-    t = next((x for x in trades if str(x['id']) == str(trade_id)), None)
+    # Need to fetch lot size if not passed (though JS passes logic, backend should be safe)
+    # Strategy manager now handles DB lookup internally.
+    # We pass lot_size 1 temporarily, strategy manager will use stored lot_size in DB if needed 
+    # OR we fetch it here. Strategy manager manage_trade_position now uses trade.lot_size from DB.
+    # But we need to pass the lot size multiplied by lots.
     
-    if t and lots > 0:
-        lot_size = smart_trader.get_lot_size(t['symbol'])
-        if strategy_manager.manage_trade_position(kite, trade_id, action, lot_size, lots):
+    # Fix: We pass the lot count, the manager handles the multiplication
+    # But wait, original code passed `lot_size` to manager.
+    # Updated manager uses `lot_size` from `ActiveTrade` DB column.
+    
+    if lots > 0:
+         # Note: We pass 0 or 1 as dummy for lot_size because we use DB's stored lot_size inside
+         if strategy_manager.manage_trade_position(kite, trade_id, action, 0, lots):
              return jsonify({"status": "success"})
     
     return jsonify({"status": "error", "message": "Action Failed"})
@@ -288,10 +287,7 @@ def place_trade():
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
         
-        if exit_multiplayer > 1:
-            custom_targets = [t1, t2, t3] 
-        else:
-            custom_targets = [t1, t2, t3] if t1 > 0 else []
+        custom_targets = [t1, t2, t3]
         
         target_controls = []
         for i in range(1, 4):
@@ -321,7 +317,7 @@ def close_trade(trade_id):
     else: flash("❌ Error")
     return redirect('/')
 
-# --- START MONITOR FOR GUNICORN & FLASK ---
+# --- THREADS ---
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     t = threading.Thread(target=background_monitor, daemon=True)
     t.start()

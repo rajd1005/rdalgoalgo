@@ -353,6 +353,9 @@ def simulate_trade(kite, symbol, expiry, strike, type_, time_str, sl_points, cus
         elif status == "SL_HIT" and len(targets_hit_indices) > 0:
             show_high_stats = True
         
+        # EXCLUDE COST_EXIT
+        if status == "COST_EXIT": show_high_stats = False
+        
         # Final P/L Calculation (Booked + Open if active, but here we simulated history)
         final_pnl = booked_pnl
         if status == "OPEN":

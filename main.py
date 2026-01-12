@@ -201,6 +201,7 @@ def api_manage_trade():
 @app.route('/api/indices')
 def api_indices():
     global bot_active, login_state
+    
     if not bot_active:
         return jsonify({"NIFTY":0, "BANKNIFTY":0, "SENSEX":0})
     
@@ -290,6 +291,14 @@ def api_history():
         trade_data = result['trade_data']
         trade_data['quantity'] = qty
         trade_data['targets'] = custom_targets if custom_targets else [entry_price+sl_points*0.5, entry_price+sl_points*1.0, entry_price+sl_points*2.0]
+        
+        # --- FIX: Ensure Form Settings are transferred to Trade Data ---
+        trade_data['trailing_sl'] = trailing_sl
+        trade_data['sl_to_entry'] = sl_to_entry
+        trade_data['exit_multiplier'] = exit_multiplier
+        trade_data['target_controls'] = target_controls
+        # ---------------------------------------------------------------
+        
         trade_data['raw_params'] = {'symbol': data['symbol'], 'expiry': data['expiry'], 'strike': data['strike'], 'type': data['type'], 'time': data['time']}
         strategy_manager.inject_simulated_trade(trade_data, result['is_active'])
         return jsonify({"status": "success", "message": "Simulation Complete", "is_active": result['is_active']})

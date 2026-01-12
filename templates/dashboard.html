@@ -107,12 +107,9 @@
                     badge.className = 'badge bg-success shadow-sm';
                     badge.innerHTML = '<i class="fas fa-wifi"></i> Connected';
                 } else {
-                    badge.className = 'badge bg-danger shadow-sm blink';
-                    badge.innerHTML = '<i class="fas fa-times-circle"></i> Disconnected';
-                    
-                    // Force Reload to Trigger Auto-Login
-                    console.warn("Connection lost. Reloading to auto-login...");
-                    setTimeout(() => location.reload(), 1000); 
+                    // UPDATED: No reload, visual feedback only.
+                    badge.className = 'badge bg-warning text-dark shadow-sm blink';
+                    badge.innerHTML = '<i class="fas fa-sync fa-spin"></i> Reconnecting...';
                 }
             })
             .catch(err => console.error("Status check failed", err));

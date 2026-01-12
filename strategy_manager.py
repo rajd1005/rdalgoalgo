@@ -192,7 +192,7 @@ def move_to_history(trade, final_status, exit_price):
     if was_active:
         real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
 
-    if not was_active or (trade.get('order_type') == 'SIMULATION' and "SL" in final_status):
+    if not was_active:
         trade['pnl'] = 0
     else:
         trade['pnl'] = real_pnl
@@ -355,22 +355,6 @@ def close_trade_manual(kite, trade_id):
             
     if found: save_trades(active_list)
     return found
-
-def inject_simulated_trade(trade_data, is_active):
-    trade_data['id'] = int(time.time()); trade_data['mode'] = "PAPER"; trade_data['order_type'] = "SIMULATION"
-    if 'exchange' not in trade_data: trade_data['exchange'] = get_exchange(trade_data['symbol'])
-    
-    if is_active:
-        trades = load_trades()
-        trades.append(trade_data)
-        save_trades(trades)
-    else:
-        trade_data['pnl'] = 0 if "SL" in trade_data.get('status', '') else round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
-        if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
-        try:
-            db.session.merge(TradeHistory(id=trade_data['id'], data=json.dumps(trade_data)))
-            db.session.commit()
-        except: db.session.rollback()
 
 def update_risk_engine(kite):
     now = datetime.now(IST)

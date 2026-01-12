@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import time
 from datetime import datetime, timedelta
 import pytz
 
@@ -16,15 +17,17 @@ def load_from_cache():
 
     if os.path.exists(INSTRUMENT_FILE):
         try:
-            # Check if file is from today
-            file_time = datetime.fromtimestamp(os.path.getmtime(INSTRUMENT_FILE))
-            if file_time.date() == datetime.now(IST).date():
+            # FIX: Check if file is less than 24 hours old (Timezone Agnostic)
+            file_age = time.time() - os.path.getmtime(INSTRUMENT_FILE)
+            if file_age < 86400: # 24 Hours in seconds
                 instrument_dump = pd.read_csv(INSTRUMENT_FILE)
-                # Convert expiry back to datetime objects for logic
+                # Convert expiry back to datetime objects
                 if 'expiry' in instrument_dump.columns:
                     instrument_dump['expiry'] = pd.to_datetime(instrument_dump['expiry'])
                     instrument_dump['expiry_date'] = instrument_dump['expiry'].dt.date
                 return True
+            else:
+                print("⚠️ Instrument Cache is older than 24 hours. Refreshing...")
         except Exception as e:
             print(f"Cache Load Error: {e}")
     return False
@@ -37,6 +40,8 @@ def fetch_instruments(kite):
         return
 
     # 2. Download if Cache missing or old
+    if not kite: return # Safety check
+    
     print("📥 Downloading Instrument List...")
     try:
         instrument_dump = pd.DataFrame(kite.instruments())
@@ -50,6 +55,7 @@ def fetch_instruments(kite):
         print(f"❌ Failed to fetch instruments: {e}")
 
 def get_indices_ltp(kite):
+    if not kite: return {"NIFTY":0, "BANKNIFTY":0, "SENSEX":0}
     try:
         q = kite.quote(["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"])
         return {
@@ -73,7 +79,7 @@ def get_zerodha_symbol(common_name):
 
 def get_lot_size(tradingsymbol):
     global instrument_dump
-    if instrument_dump is None: load_from_cache() # Try loading from file
+    if instrument_dump is None: load_from_cache()
     if instrument_dump is None: return 1
     
     try:
@@ -88,7 +94,7 @@ def get_display_name(tradingsymbol):
     Formats the trading symbol to: SymbolName Strike CE/PE ExpDate
     """
     global instrument_dump
-    if instrument_dump is None: load_from_cache() # Try loading from file
+    if instrument_dump is None: load_from_cache()
     if instrument_dump is None: return tradingsymbol
         
     try:
@@ -135,7 +141,7 @@ def search_symbols(kite, keyword, allowed_exchanges=None):
     
     quotes = {}
     try:
-        if items_to_quote: quotes = kite.quote(items_to_quote)
+        if kite and items_to_quote: quotes = kite.quote(items_to_quote)
     except Exception as e:
         print(f"Search Quote Error: {e}")
     
@@ -189,8 +195,9 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     
     ltp = 0
     try:
-        q = kite.quote(quote_sym)
-        if quote_sym in q: ltp = q[quote_sym]['last_price']
+        if kite:
+            q = kite.quote(quote_sym)
+            if quote_sym in q: ltp = q[quote_sym]['last_price']
     except: pass
         
     if ltp == 0:
@@ -200,7 +207,7 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
             if not futs_all.empty:
                 near_fut = futs_all.sort_values('expiry_date').iloc[0]
                 fut_sym = f"{near_fut['exchange']}:{near_fut['tradingsymbol']}"
-                ltp = kite.quote(fut_sym)[fut_sym]['last_price']
+                if kite: ltp = kite.quote(fut_sym)[fut_sym]['last_price']
         except: pass
 
     lot = 1
@@ -265,5 +272,8 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         if instrument_dump is not None:
              row = instrument_dump[instrument_dump['tradingsymbol'] == ts]
              if not row.empty: exch = row.iloc[0]['exchange']
-        return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
+        
+        if kite:
+            return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
+        return 0
     except: return 0

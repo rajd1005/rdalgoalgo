@@ -5,6 +5,7 @@ from datetime import datetime
 import pytz
 from kiteconnect import KiteConnect
 from database import db, ActiveTrade, TradeHistory, User
+import smart_trader
 
 IST = pytz.timezone('Asia/Kolkata')
 trade_lock = threading.Lock()
@@ -21,7 +22,6 @@ def get_time_str(): return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
 
 # --- USER HELPER ---
 def get_user_kite(user):
-    """Reconstructs Kite Object for a specific user"""
     if not user.broker_access_token: return None
     k = KiteConnect(api_key=user.broker_api_key)
     k.set_access_token(user.broker_access_token)
@@ -124,12 +124,11 @@ def update_risk_engine(admin_kite):
             if t.status in ['OPEN', 'PROMOTED_LIVE']:
                 t.highest_ltp = max(t.highest_ltp, ltp)
                 
-                # Deserialization
                 targets = json.loads(t.targets_json)
                 controls = json.loads(t.target_controls_json)
                 hit_indices = json.loads(t.targets_hit_indices_json)
 
-                # Trailing SL Logic
+                # Trailing SL
                 if t.trailing_sl > 0:
                     new_sl = ltp - t.trailing_sl
                     limit_mode = t.sl_to_entry
@@ -147,8 +146,7 @@ def update_risk_engine(admin_kite):
                 qty_to_exit = 0
                 
                 if ltp <= t.sl:
-                    exit_triggered = True
-                    exit_reason = "SL_HIT"
+                    exit_triggered = True; exit_reason = "SL_HIT"
                 elif not exit_triggered:
                     for i, tgt in enumerate(targets):
                         if i not in hit_indices and ltp >= tgt:
@@ -181,7 +179,8 @@ def update_risk_engine(admin_kite):
 # --- TRADE ACTIONS ---
 def create_trade_direct(admin_kite, user, mode, symbol, quantity, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplayer):
     
-    exchange = "NFO"
+    # FIX: Get correct exchange from smart_trader
+    exchange = smart_trader.get_exchange(symbol)
     
     # 1. Get Live Price from ADMIN KITE
     try: current_ltp = admin_kite.quote(f"{exchange}:{symbol}")[f"{exchange}:{symbol}"]["last_price"]

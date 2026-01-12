@@ -7,8 +7,8 @@ function loadSettings() {
                 settings.exchanges.forEach(e => $(`#exch_${e}`).prop('checked', true));
             }
             renderWatchlist();
-            ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
-                let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
+            ['PAPER', 'LIVE'].forEach(m => {
+                let k = m.toLowerCase();
                 let s = settings.modes[m];
                 $(`#${k}_qty_mult`).val(s.qty_mult);
                 
@@ -59,8 +59,8 @@ function saveSettings() {
     $('input[name="exch_select"]:checked').each(function() { selectedExchanges.push($(this).val()); });
     settings.exchanges = selectedExchanges;
 
-    ['PAPER', 'LIVE', 'SIMULATOR'].forEach(m => {
-        let k = m === 'SIMULATOR' ? 'sim' : m.toLowerCase();
+    ['PAPER', 'LIVE'].forEach(m => {
+        let k = m.toLowerCase();
         let s = settings.modes[m];
         
         s.qty_mult = parseInt($(`#${k}_qty_mult`).val()) || 1;
@@ -106,7 +106,6 @@ function renderWatchlist() {
     let opts = '<option value="">📺 Select</option>';
     wl.forEach(w => { opts += `<option value="${w}">${w}</option>`; });
     $('#trade_watch').html(opts);
-    $('#sim_watch').html(opts);
 }
 
 function addToWatchlist(inputId) {
@@ -151,7 +150,7 @@ function loadWatchlist(selectId, inputId) {
 }
 
 function applyBulkSL(mode) {
-    let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
+    let k = mode.toLowerCase();
     let text = $(`#${k}_bulk_sl`).val();
     if(!text) { alert("Please enter SYMBOL|SL"); return; }
     let lines = text.split('\n'); let count = 0;
@@ -168,7 +167,7 @@ function applyBulkSL(mode) {
 }
 
 function renderSLTable(mode) {
-    let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
+    let k = mode.toLowerCase();
     let tbody = $(`#${k}_sl_table_body`).empty();
     let slMap = settings.modes[mode].symbol_sl || {};
     Object.keys(slMap).forEach(sym => {
@@ -177,7 +176,7 @@ function renderSLTable(mode) {
 }
 
 function saveSymSL(mode) {
-    let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase();
+    let k = mode.toLowerCase();
     let s = normalizeSymbol($(`#${k}_set_sym`).val());
     let p = parseInt($(`#${k}_set_sl`).val());
     if(s && p) {
@@ -187,5 +186,5 @@ function saveSymSL(mode) {
         $(`#${k}_set_sym`).val(''); $(`#${k}_set_sl`).val('');
     }
 }
-function editSymSL(mode, sym) { let k = mode === 'SIMULATOR' ? 'sim' : mode.toLowerCase(); $(`#${k}_set_sym`).val(sym); $(`#${k}_set_sl`).val(settings.modes[mode].symbol_sl[sym]); }
+function editSymSL(mode, sym) { let k = mode.toLowerCase(); $(`#${k}_set_sym`).val(sym); $(`#${k}_set_sl`).val(settings.modes[mode].symbol_sl[sym]); }
 function deleteSymSL(mode, sym) { delete settings.modes[mode].symbol_sl[sym]; renderSLTable(mode); }

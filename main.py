@@ -8,7 +8,8 @@ import config
 import strategy_manager
 import smart_trader
 import settings
-from database import db, TradeNotification
+# TradeNotification is now safely imported because database.py is fixed
+from database import db, TradeNotification 
 import auto_login 
 
 app = Flask(__name__)
@@ -124,7 +125,6 @@ def api_settings_save():
     if settings.save_settings_file(request.json): return jsonify({"status": "success"})
     return jsonify({"status": "error"})
 
-# --- NEW NOTIFICATION APIs ---
 @app.route('/api/notifications')
 def api_get_notifications():
     # Return last 100 notifications descending
@@ -140,7 +140,6 @@ def api_clear_notifications():
     except:
         db.session.rollback()
         return jsonify({"status": "error", "message": "Failed to clear logs"})
-# -----------------------------
 
 @app.route('/api/positions')
 def api_positions():

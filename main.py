@@ -161,7 +161,6 @@ def api_manage_trade():
     
     if t and lots > 0:
         lot_size = smart_trader.get_lot_size(t['symbol'])
-        # Updated to capture return message
         success, msg = strategy_manager.manage_trade_position(kite, trade_id, action, lot_size, lots)
         if success: return jsonify({"status": "success", "message": msg})
         else: return jsonify({"status": "error", "message": msg})
@@ -219,12 +218,10 @@ def place_trade():
 
         res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplayer)
         
-        # --- NOTIFICATION LOGIC ---
         if res['status'] == 'success': 
             flash(f"✅ {res['message']}")
         else: 
             flash(f"❌ {res['message']}")
-        # --------------------------
 
     except Exception as e: flash(f"Error: {e}")
     return redirect('/')

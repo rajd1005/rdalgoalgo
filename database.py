@@ -3,15 +3,19 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
+class AppSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Text, nullable=False) # Stores JSON string
+
 class ActiveTrade(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    data = db.Column(db.Text, nullable=False) # JSON blob
+    data = db.Column(db.Text, nullable=False) # Stores JSON string
 
 class TradeHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    data = db.Column(db.Text, nullable=False)
+    data = db.Column(db.Text, nullable=False) # Stores JSON string
 
-# --- NEW: NOTIFICATION TABLE ---
+# --- NEW: PERMANENT NOTIFICATION TABLE ---
 class TradeNotification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime)

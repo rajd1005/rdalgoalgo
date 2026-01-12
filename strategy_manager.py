@@ -202,7 +202,7 @@ def move_to_history(trade, final_status, exit_price):
         made_high = trade.get('made_high', trade['entry_price'])
         trade['made_high'] = made_high
         
-        # Max P/L Calculation using Initial Quantity
+        # Max P/L using Initial Qty
         init_qty = trade.get('initial_quantity', trade.get('quantity', 0))
         total_potential = (made_high - trade['entry_price']) * init_qty
         
@@ -387,7 +387,7 @@ def inject_simulated_trade(trade_data, is_active):
 
     should_be_active_db = is_active and is_today
 
-    # --- SIMULATE TARGET/PARTIAL EXITS FOR ALL ---
+    # --- SIMULATE TARGET/PARTIAL EXITS FOR ALL (Active or History) ---
     made_high = trade_data.get('made_high', trade_data['entry_price'])
     targets = trade_data.get('targets', [])
     controls = trade_data.get('target_controls', [])
@@ -443,7 +443,6 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
-        # PnL & Status Logic for History
         exit_p = 0
         if is_active and not is_today:
              exit_p = trade_data.get('current_ltp', 0)
@@ -465,13 +464,13 @@ def inject_simulated_trade(trade_data, is_active):
         
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
         
-        # --- LOG MADE HIGH (POTENTIAL PROFIT) ---
+        # --- LOG MADE HIGH (POTENTIAL PROFIT) using Initial Qty ---
         made_high = trade_data.get('made_high', trade_data['entry_price'])
         init_qty = trade_data.get('initial_quantity', trade_data.get('quantity', 0))
         total_potential = (made_high - trade_data['entry_price']) * init_qty
         
         log_event(trade_data, f"Info: Made High: {made_high} | Max P/L ₹ {total_potential:.2f}")
-        # ----------------------------------------
+        # -----------------------------------------------------------
 
         try:
             db.session.merge(TradeHistory(id=trade_data['id'], data=json.dumps(trade_data)))

@@ -8,8 +8,7 @@ import config
 import strategy_manager
 import smart_trader
 import settings
-# Added TradeNotification to imports
-from database import db, TradeNotification 
+from database import db, TradeNotification
 import auto_login 
 
 app = Flask(__name__)

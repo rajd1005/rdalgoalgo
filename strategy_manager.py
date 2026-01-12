@@ -352,16 +352,31 @@ def inject_simulated_trade(trade_data, is_active):
         else:
             trade_data['entry_time'] = get_time_str()
 
-    if is_active:
-        trade_data['order_type'] = "MARKET" # Auto-convert to Paper Trade if active
+    # DATE CHECK LOGIC: Only convert to Paper Trade if Date is TODAY
+    entry_time_str = trade_data['entry_time']
+    is_today = False
+    try:
+        # Parse YYYY-MM-DD from the entry time string
+        et_date_str = entry_time_str.split(' ')[0]
+        et_date = datetime.strptime(et_date_str, "%Y-%m-%d").date()
+        if et_date == datetime.now(IST).date():
+            is_today = True
+    except Exception as e:
+        print(f"Date Parsing Error: {e}")
+
+    # It goes to Active (Paper) ONLY if it's currently active AND the date is today.
+    should_be_active_paper = is_active and is_today
+
+    if should_be_active_paper:
+        trade_data['order_type'] = "MARKET" # Auto-convert to Paper Trade
     else:
-        trade_data['order_type'] = "SIMULATION"
+        trade_data['order_type'] = "SIMULATION" # Keep as Simulation record
 
     if 'exchange' not in trade_data: trade_data['exchange'] = get_exchange(trade_data['symbol'])
     trade_data['last_notified_high'] = trade_data.get('entry_price', 0)
     trade_data['telegram_msg_ids'] = {}
 
-    if is_active:
+    if should_be_active_paper:
         daily_count = get_daily_trade_count()
         conf = settings.load_settings().get('telegram', {})
         channels = conf.get('channels', [])
@@ -378,8 +393,17 @@ def inject_simulated_trade(trade_data, is_active):
         trades.append(trade_data)
         save_trades(trades)
     else:
-        trade_data['pnl'] = 0 if "SL" in trade_data.get('status', '') else round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
+        # Calculate PnL for history display
+        # If it was "Open" but we are forcing it to history (past date), use current_ltp as exit
+        if is_active and not is_today:
+             exit_p = trade_data.get('current_ltp', 0)
+             trade_data['pnl'] = round((exit_p - trade_data['entry_price']) * trade_data['quantity'], 2)
+             trade_data['exit_price'] = exit_p
+        else:
+             trade_data['pnl'] = 0 if "SL" in trade_data.get('status', '') else round((trade_data.get('made_high', 0) - trade_data['entry_price']) * trade_data['quantity'], 2)
+        
         if not trade_data.get('exit_time'): trade_data['exit_time'] = get_time_str()
+        
         try:
             db.session.merge(TradeHistory(id=trade_data['id'], data=json.dumps(trade_data)))
             db.session.commit()

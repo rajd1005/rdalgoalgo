@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 from datetime import datetime, timedelta
 import pytz
 
@@ -6,17 +7,45 @@ import pytz
 IST = pytz.timezone('Asia/Kolkata')
 
 instrument_dump = None 
+INSTRUMENT_FILE = "instruments.csv"
+
+def load_from_cache():
+    """Attempts to load instruments from disk to memory."""
+    global instrument_dump
+    if instrument_dump is not None: return True
+
+    if os.path.exists(INSTRUMENT_FILE):
+        try:
+            # Check if file is from today
+            file_time = datetime.fromtimestamp(os.path.getmtime(INSTRUMENT_FILE))
+            if file_time.date() == datetime.now(IST).date():
+                instrument_dump = pd.read_csv(INSTRUMENT_FILE)
+                # Convert expiry back to datetime objects for logic
+                if 'expiry' in instrument_dump.columns:
+                    instrument_dump['expiry'] = pd.to_datetime(instrument_dump['expiry'])
+                    instrument_dump['expiry_date'] = instrument_dump['expiry'].dt.date
+                return True
+        except Exception as e:
+            print(f"Cache Load Error: {e}")
+    return False
 
 def fetch_instruments(kite):
     global instrument_dump
-    if instrument_dump is not None: return
+    
+    # 1. Try Memory or Cache first
+    if load_from_cache():
+        return
 
+    # 2. Download if Cache missing or old
     print("📥 Downloading Instrument List...")
     try:
         instrument_dump = pd.DataFrame(kite.instruments())
         instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry']).dt.strftime('%Y-%m-%d')
         instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry']).dt.date
-        print("✅ Instruments Downloaded Successfully.")
+        
+        # Save to Disk for other workers
+        instrument_dump.to_csv(INSTRUMENT_FILE, index=False)
+        print("✅ Instruments Downloaded & Cached.")
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
 
@@ -44,7 +73,9 @@ def get_zerodha_symbol(common_name):
 
 def get_lot_size(tradingsymbol):
     global instrument_dump
+    if instrument_dump is None: load_from_cache() # Try loading from file
     if instrument_dump is None: return 1
+    
     try:
         row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
         if not row.empty:
@@ -55,23 +86,23 @@ def get_lot_size(tradingsymbol):
 def get_display_name(tradingsymbol):
     """
     Formats the trading symbol to: SymbolName Strike CE/PE ExpDate
-    Example: BANKNIFTY 59300 PE 26 JAN
     """
     global instrument_dump
-    if instrument_dump is None:
-        return tradingsymbol
+    if instrument_dump is None: load_from_cache() # Try loading from file
+    if instrument_dump is None: return tradingsymbol
         
     try:
-        # Fast lookup
         row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
         if not row.empty:
             data = row.iloc[0]
             name = data['name']
             inst_type = data['instrument_type']
             
-            # Format expiry to "26 JAN"
-            expiry_dt = data['expiry_date'] 
-            expiry_str = expiry_dt.strftime('%d %b').upper()
+            # Format expiry
+            expiry_str = ""
+            if 'expiry_date' in data and pd.notnull(data['expiry_date']):
+                expiry_dt = data['expiry_date']
+                expiry_str = expiry_dt.strftime('%d %b').upper()
             
             if inst_type in ["CE", "PE"]:
                 strike = int(data['strike'])
@@ -87,9 +118,10 @@ def get_display_name(tradingsymbol):
 
 def search_symbols(kite, keyword, allowed_exchanges=None):
     global instrument_dump
+    if instrument_dump is None: fetch_instruments(kite) # Ensure data exists
     if instrument_dump is None: return []
+
     k = keyword.upper()
-    
     if allowed_exchanges is None:
         allowed_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
@@ -124,7 +156,7 @@ def adjust_cds_lot_size(symbol, lot_size):
 
 def get_symbol_details(kite, symbol, preferred_exchange=None):
     global instrument_dump
-    if instrument_dump is None: fetch_instruments(kite)
+    fetch_instruments(kite) # Ensure data exists
     if instrument_dump is None: return {}
     
     if "(" in symbol and ")" in symbol:
@@ -186,7 +218,9 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
 
 def get_chain_data(symbol, expiry_date, option_type, ltp):
     global instrument_dump
+    if instrument_dump is None: load_from_cache()
     if instrument_dump is None: return []
+
     clean = get_zerodha_symbol(symbol)
     c = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
     if c.empty: return []
@@ -206,7 +240,9 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
 
 def get_exact_symbol(symbol, expiry, strike, option_type):
     global instrument_dump
+    if instrument_dump is None: load_from_cache()
     if instrument_dump is None: return None
+
     if option_type == "EQ": return symbol
     clean = get_zerodha_symbol(symbol)
     

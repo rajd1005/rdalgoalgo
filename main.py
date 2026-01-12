@@ -129,6 +129,20 @@ def home():
                            error=login_error_msg,
                            login_url=kite.login_url())
 
+# --- SECURE MANUAL LOGIN ROUTE (NEW) ---
+@app.route('/secure', methods=['GET', 'POST'])
+def secure_login_page():
+    if request.method == 'POST':
+        pwd = request.form.get('password')
+        # Check against the ADMIN_PASSWORD in config.py
+        if pwd == config.ADMIN_PASSWORD:
+            print("🔐 Secure Admin Login Successful. Redirecting to Zerodha...")
+            return redirect(kite.login_url())
+        else:
+            return render_template('secure_login.html', error="Invalid Password! Access Denied.")
+            
+    return render_template('secure_login.html')
+
 @app.route('/api/status')
 def api_status():
     return jsonify({

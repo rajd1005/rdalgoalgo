@@ -220,10 +220,14 @@ def callback():
         return redirect('/')
     
     # 3. AUTO-LOGIN BOT (Unauthenticated)
-    # This captures the token for the background thread without redirecting to login!
     return f"<h3>System Auto-Login Token Received</h3><p>Token: {t}</p>"
 
-# --- API & TRADING ROUTES ---
+# --- API ROUTES ---
+@app.route('/api/market_status')
+@login_required
+def api_market_status():
+    return jsonify(strategy_manager.MARKET_INDICES)
+
 @app.route('/api/search')
 @login_required
 def api_search(): return jsonify(smart_trader.search_symbols(admin_kite, request.args.get('q', '')))

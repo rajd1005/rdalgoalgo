@@ -1,5 +1,18 @@
 body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-bottom: 100px; }
-.ticker-bar { background: #111; color: #fff; padding: 8px; font-size: 0.85rem; white-space: nowrap; overflow-x: auto; position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; }
+
+/* Header Updated: Mobile Responsive & Not Fixed */
+.ticker-bar { 
+    background: #111; 
+    color: #fff; 
+    padding: 8px; 
+    font-size: 0.85rem; 
+    position: relative; /* Changed from sticky to relative */
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    flex-wrap: wrap; /* Allows content to stack on mobile */
+}
+
 .ticker-item { margin-right: 15px; font-weight: 600; }
 .auth-btn { font-size: 0.75rem; padding: 4px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; background: #dc3545; color: white; }
 .custom-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); background: #fff; margin-bottom: 15px; }
@@ -39,4 +52,8 @@ body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-b
     .card-head { padding: 10px; } 
     .card-body { padding: 12px; }
     .pos-grid-val { font-size: 0.8rem; }
+    
+    /* Header Stack on very small screens */
+    .ticker-bar { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .ticker-bar > div { width: 100%; justify-content: space-between; }
 }

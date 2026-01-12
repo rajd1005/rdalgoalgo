@@ -74,6 +74,34 @@ def run_auto_login_process():
         login_state = "FAILED"
         login_error_msg = str(e)
 
+# --- SERVER-SIDE CONNECTION MONITOR ---
+def background_monitor():
+    global bot_active, login_state
+    print("🖥️ Background Monitor Started")
+    
+    while True:
+        try:
+            # 1. Health Check if Active
+            if bot_active:
+                try:
+                    # Lightweight API call to verify token validity
+                    kite.quote("NSE:NIFTY 50")
+                except Exception as e:
+                    print(f"⚠️ Health Check Failed (Connection Lost): {e}")
+                    bot_active = False
+
+            # 2. Trigger Auto-Login if Disconnected and IDLE
+            if not bot_active and login_state == "IDLE":
+                print("🔄 Monitor: System Offline. Initiating Auto-Login...")
+                # This call blocks this thread until login attempt finishes, which is desired.
+                run_auto_login_process()
+                
+        except Exception as e:
+            print(f"❌ Monitor Loop Error: {e}")
+        
+        # Check every 5 seconds
+        time.sleep(5)
+
 @app.route('/')
 def home():
     global bot_active, login_state
@@ -85,24 +113,16 @@ def home():
         active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
         return render_template('dashboard.html', is_active=True, trades=active)
 
-    if login_state == "IDLE":
-        threading.Thread(target=run_auto_login_process).start()
-        return render_template('dashboard.html', is_active=False, state="WORKING")
-        
-    elif login_state == "WORKING":
-        return render_template('dashboard.html', is_active=False, state="WORKING")
-
-    else:
-        return render_template('dashboard.html', 
-                               is_active=False, 
-                               state=login_state, 
-                               error=login_error_msg,
-                               login_url=kite.login_url())
+    # Note: We no longer spawn a thread here. The background_monitor handles it.
+    return render_template('dashboard.html', 
+                           is_active=False, 
+                           state=login_state, 
+                           error=login_error_msg,
+                           login_url=kite.login_url())
 
 # --- NEW STATUS ENDPOINT FOR FRONTEND POLLING ---
 @app.route('/api/status')
 def api_status():
-    # UPDATED: Added login_url to response for frontend manual login handling
     return jsonify({
         "active": bot_active, 
         "state": login_state,
@@ -120,6 +140,7 @@ def reset_connection():
 @app.route('/trigger_autologin')
 def trigger_autologin_route():
     global login_state
+    # We just reset state to IDLE; the background monitor will pick it up immediately.
     login_state = "IDLE"
     return redirect('/')
 
@@ -286,4 +307,6 @@ def close_trade(trade_id):
     return redirect('/')
 
 if __name__ == "__main__":
+    # Start the background monitor in a daemon thread
+    threading.Thread(target=background_monitor, daemon=True).start()
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)

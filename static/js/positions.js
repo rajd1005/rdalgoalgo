@@ -59,7 +59,7 @@ function updateData() {
         trades.forEach(t => {
             let pnl = (t.status === 'PENDING') ? 0 : (t.current_ltp - t.entry_price) * t.quantity;
             let cat = getTradeCategory(t);
-            if(cat === 'LIVE') sumLive += pnl; else if(cat === 'PAPER') sumPaper += pnl;
+            if(cat === 'LIVE') sumLive += pnl; else if(cat === 'PAPER' && !t.is_replay) sumPaper += pnl;
         });
         $('#sum_live').text("₹ " + sumLive.toFixed(2)).attr('class', sumLive >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
         $('#sum_paper').text("₹ " + sumPaper.toFixed(2)).attr('class', sumPaper >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
@@ -73,7 +73,11 @@ function updateData() {
                 let color = pnl >= 0 ? 'pnl-green' : 'pnl-red';
                 if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
                 let cat = getTradeCategory(t); 
+                
+                // Badge Logic: Replay vs Paper vs Live
                 let badge = getMarkBadge(cat);
+                if(t.is_replay) badge = '<span class="badge bg-info text-dark" style="font-size:0.7rem;">REPLAY</span>';
+
                 let editBtn = `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>`;
                 
                 // --- Active Trade Status Tags (Updated) ---
@@ -89,7 +93,12 @@ function updateData() {
                     else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 3 Hit</span>';
                     else statusTag = '<span class="badge bg-primary" style="font-size:0.7rem;">Active</span>';
                 }
-                // --------------------------------
+                
+                // Replay Time Indicator (Optional but helpful)
+                let timeTag = '';
+                if(t.is_replay && t.last_update_time) {
+                    timeTag = `<br><span class="text-muted" style="font-size:0.65rem;">🕒 ${t.last_update_time.slice(11,19)}</span>`;
+                }
 
                 html += `<div class="trade-row">
                     <div class="trade-info">
@@ -107,6 +116,7 @@ function updateData() {
                         <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
                         <span>LTP: <b class="text-primary">${t.current_ltp.toFixed(2)}</b></span>
                         <span class="text-danger">SL: <b>${t.sl.toFixed(1)}</b></span>
+                        ${timeTag}
                     </div>
                     <div class="trade-actions">
                         ${editBtn}

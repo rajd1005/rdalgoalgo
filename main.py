@@ -62,10 +62,16 @@ def run_auto_login_process():
         try:
             kite.quote("NSE:NIFTY 50")
             print("✅ Existing Token Valid. Skipping Login.")
+            
+            # --- FIX: Restore State & File if valid ---
+            bot_active = True
             login_state = "IDLE"
+            if not os.path.exists(TOKEN_FILE) and kite.access_token:
+                save_access_token(kite.access_token)
+            # ------------------------------------------
             return
-        except:
-            print("⚠️ Existing Token Expired.")
+        except Exception as e:
+            print(f"⚠️ Existing Token Check Failed: {e}")
 
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
         login_state = "FAILED"; login_error_msg = "Missing Credentials"; return

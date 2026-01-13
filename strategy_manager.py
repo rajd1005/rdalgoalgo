@@ -69,24 +69,30 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
             old_sl = t['sl']
             entry_msg = ""
             
-            # [UPDATED] Prevent Entry Price Update if Trade is Active
+            # 1. Entry Price Update Logic (Locked if Active)
             if entry_price is not None:
-                # Only allow updating Entry Price if the order is still PENDING
                 if t['status'] == 'PENDING':
                     new_entry = float(entry_price)
                     if new_entry != t['entry_price']:
                         t['entry_price'] = new_entry
                         entry_msg = f" | Entry Updated to {new_entry}"
                 else:
-                    # Ignore entry update for active trades to prevent P&L corruption
+                    # Ignore entry update for active trades
                     pass
             
+            # 2. Trailing SL Auto-Match Logic
+            # If -1 is passed, calculate trailing points based on (Entry - New SL)
+            final_trailing_sl = float(trailing_sl) if trailing_sl else 0
+            if final_trailing_sl == -1.0:
+                calc_diff = t['entry_price'] - float(sl)
+                final_trailing_sl = max(0.0, calc_diff)
+
             t['sl'] = float(sl)
-            t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
+            t['trailing_sl'] = final_trailing_sl
             t['sl_to_entry'] = int(sl_to_entry)
             t['exit_multiplier'] = int(exit_multiplier) 
             
-            # Update Broker SL Order if SL Price Changed
+            # 3. Update Broker SL Order if SL Price Changed
             if t['mode'] == 'LIVE' and t.get('sl_order_id'):
                 try:
                     kite.modify_order(
@@ -98,7 +104,7 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
                 except Exception as e:
                      entry_msg += f" [Broker SL Fail: {e}]"
 
-            # Re-Calculate Targets if Exit Multiplier Changed
+            # 4. Re-Calculate Targets if Exit Multiplier Changed
             if exit_multiplier > 1:
                 eff_entry = t['entry_price']
                 eff_sl_points = eff_entry - float(sl)
@@ -218,7 +224,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     trades = load_trades()
     
     # [DUPLICATE TRADE PROTECTION]
-    # Rejects trade if identical symbol/qty received within 5 seconds
     current_ts = int(time.time())
     for t in trades:
         if t['symbol'] == specific_symbol and t['quantity'] == quantity and (current_ts - t['id']) < 5:
@@ -253,6 +258,11 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     
     lot_size = smart_trader.get_lot_size(specific_symbol)
     
+    # Trailing SL Auto-Match Logic
+    final_trailing_sl = float(trailing_sl) if trailing_sl else 0
+    if final_trailing_sl == -1.0:
+        final_trailing_sl = float(sl_points)
+
     if exit_multiplayer > 1:
         final_goal = max([x for x in custom_targets if x > 0]) if [x for x in custom_targets if x > 0] else (entry_price + (sl_points * 2))
         dist = final_goal - entry_price; new_targets = []; new_controls = []
@@ -270,7 +280,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "id": int(time.time()), "entry_time": get_time_str(), "symbol": specific_symbol, "exchange": exchange,
         "mode": mode, "order_type": order_type, "status": status, "entry_price": entry_price, "quantity": quantity,
         "sl": entry_price - sl_points, "targets": targets, "target_controls": target_controls,
-        "lot_size": lot_size, "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry),
+        "lot_size": lot_size, "trailing_sl": final_trailing_sl, "sl_to_entry": int(sl_to_entry),
         "exit_multiplier": int(exit_multiplayer), "sl_order_id": sl_order_id,
         "targets_hit_indices": [], "highest_ltp": entry_price, "made_high": entry_price, "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs
     }

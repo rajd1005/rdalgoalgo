@@ -80,20 +80,19 @@ function triggerPanic() {
     }
 }
 
-// --- MISSING FUNCTION RESTORED ---
+// --- RESTORED FUNCTION: Update Data Loop ---
 function updateData() {
-    // 1. Fetch Indices (Nifty/BankNifty/Sensex)
+    // 1. Fetch Indices
     $.get('/api/indices', function(data) {
         $('#n_lp').text(data.NIFTY.toFixed(2));
         $('#b_lp').text(data.BANKNIFTY.toFixed(2));
         $('#s_lp').text(data.SENSEX.toFixed(2));
     });
 
-    // 2. Fetch and Render Active Positions
+    // 2. Fetch and Render Positions
     $.get('/api/positions', function(trades) {
         activeTradesList = trades; // Update global variable
 
-        // Calculate Live & Paper Total P&L
         let liveTotal = 0; 
         let paperTotal = 0;
         
@@ -115,17 +114,16 @@ function updateData() {
         if(paperTotal >= 0) $('#sum_paper').removeClass('text-danger').addClass('text-success');
         else $('#sum_paper').removeClass('text-success').addClass('text-danger');
 
-        // Apply Filter and Render List
+        // Apply Filter and Render
         let filter = $('#active_filter').val();
         let filteredTrades = trades.filter(t => filter === 'ALL' || t.mode === filter);
         
-        // Call the render function from positions.js
         if(typeof renderActiveTrades === 'function') {
             renderActiveTrades(filteredTrades);
         }
     });
 
-    // 3. Check Connection Status
+    // 3. Status Check
     $.get('/api/status', function(res) {
         if (!res.active) {
             console.log("Session expired, reloading...");

@@ -1,5 +1,6 @@
 function renderActiveTrades(trades) {
-    let container = $('#active_trades_list');
+    // FIX: Changed selector to '#pos-container' to match tab_active.html
+    let container = $('#pos-container');
     container.empty();
     
     // Reverse array to show newest first
@@ -72,7 +73,7 @@ function managePosition(id, action) {
                     alert("✅ " + res.message); 
                     updateData();
                 } else {
-                    // Error Notification (with Resin/Reason)
+                    // Error Notification
                     alert("❌ ERROR: " + res.message);
                 }
             },

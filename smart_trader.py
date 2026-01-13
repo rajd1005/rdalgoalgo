@@ -237,8 +237,19 @@ def get_instrument_token(tradingsymbol, exchange):
 
 def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
     try:
+        # Fetch Data
         data = kite.historical_data(token, from_date, to_date, interval)
-        return data
+        
+        # CLEANUP: Convert datetime objects to Strings for JSON serialization
+        # This is critical for the Replay feature to save data in the DB
+        clean_data = []
+        for candle in data:
+            c = candle.copy()
+            if 'date' in c and hasattr(c['date'], 'strftime'):
+                c['date'] = c['date'].strftime('%Y-%m-%d %H:%M:%S')
+            clean_data.append(c)
+            
+        return clean_data
     except Exception as e:
         print(f"History Fetch Error: {e}")
         return []

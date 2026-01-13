@@ -65,3 +65,16 @@ function setMode(el, mode) {
     updateDisplayValues(); 
     loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'); 
 }
+
+function panicExit() {
+    if(confirm("⚠️ URGENT: Are you sure you want to CLOSE ALL POSITIONS (Live & Paper) immediately?")) {
+        $.post('/api/panic_exit', function(res) {
+            if(res.status === 'success') {
+                alert("🚨 Panic Protocol Initiated: All orders cancelled and positions squaring off.");
+                location.reload();
+            } else {
+                alert("Error: " + res.message);
+            }
+        });
+    }
+}

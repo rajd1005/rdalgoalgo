@@ -119,9 +119,9 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
                     t_price = eff_entry + (dist * fraction)
                     new_targets.append(round(t_price, 2))
                     lots_here = base_lots + (remainder if i == exit_multiplier else 0)
-                    new_controls.append({'enabled': True, 'lots': int(lots_here)})
+                    new_controls.append({'enabled': True, 'lots': int(lots_here), 'trail_to_entry': False})
                 
-                while len(new_targets) < 3: new_targets.append(0); new_controls.append({'enabled': False, 'lots': 0})
+                while len(new_targets) < 3: new_targets.append(0); new_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 t['targets'] = new_targets; t['target_controls'] = new_controls
             else:
                 t['targets'] = [float(x) for x in targets]
@@ -322,7 +322,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         except Exception as e: return {"status": "error", "message": f"Broker Rejected: {e}"}
 
     targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
-    if not target_controls: target_controls = [{'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 1000}]
+    if not target_controls: target_controls = [{'enabled': True, 'lots': 0, 'trail_to_entry': False}, {'enabled': True, 'lots': 0, 'trail_to_entry': False}, {'enabled': True, 'lots': 1000, 'trail_to_entry': False}]
     
     lot_size = smart_trader.get_lot_size(specific_symbol)
     final_trailing_sl = float(trailing_sl) if trailing_sl else 0
@@ -336,8 +336,8 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         for i in range(1, exit_multiplayer + 1):
             t_price = entry_price + (dist * (i / exit_multiplayer))
             new_targets.append(round(t_price, 2))
-            new_controls.append({'enabled': True, 'lots': int(base_lots + (rem if i == exit_multiplayer else 0))})
-        while len(new_targets) < 3: new_targets.append(0); new_controls.append({'enabled': False, 'lots': 0})
+            new_controls.append({'enabled': True, 'lots': int(base_lots + (rem if i == exit_multiplayer else 0)), 'trail_to_entry': False})
+        while len(new_targets) < 3: new_targets.append(0); new_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
         targets = new_targets; target_controls = new_controls
 
     logs.insert(0, f"[{get_time_str()}] Trade Added. Status: {status}")
@@ -346,7 +346,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         "mode": mode, "order_type": order_type, "status": status, "entry_price": entry_price, "quantity": quantity,
         "sl": entry_price - sl_points, "targets": targets, "target_controls": target_controls,
         "lot_size": lot_size, "trailing_sl": final_trailing_sl, "sl_to_entry": int(sl_to_entry),
-        "exit_multiplier": int(exit_multiplayer), "sl_order_id": sl_order_id,
+        "exit_multiplier": int(exit_multiplier), "sl_order_id": sl_order_id,
         "targets_hit_indices": [], "highest_ltp": entry_price, "made_high": entry_price, "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs
     }
     trades.append(record)
@@ -484,6 +484,12 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                         if ltp >= tgt:
                             targets_hit_indices.append(i)
                             conf = target_controls[i]
+                            
+                            # NEW: Trail to Entry Logic for Replay
+                            if conf.get('trail_to_entry') and current_sl < entry_price:
+                                current_sl = entry_price
+                                logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit: SL Trailed to Entry ({current_sl})")
+                                
                             if conf['enabled']:
                                 lot_size = smart_trader.get_lot_size(symbol)
                                 exit_qty = conf['lots'] * lot_size
@@ -686,6 +692,15 @@ def update_risk_engine(kite):
                     if i not in t.get('targets_hit_indices', []) and ltp >= tgt:
                         t.setdefault('targets_hit_indices', []).append(i)
                         conf = controls[i]
+                        
+                        # NEW: Trail to Entry Logic
+                        if conf.get('trail_to_entry') and t['sl'] < t['entry_price']:
+                            t['sl'] = t['entry_price']
+                            log_event(t, f"Target {i+1} Hit: SL Trailed to Entry ({t['sl']})")
+                            if t['mode'] == 'LIVE' and t.get('sl_order_id'):
+                                try: kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], trigger_price=t['sl'])
+                                except: pass
+
                         if not conf['enabled']: continue
                         
                         lot_size = t.get('lot_size') or smart_trader.get_lot_size(t['symbol'])

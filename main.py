@@ -283,6 +283,15 @@ def api_chain():
 def api_s_ltp(): 
     return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
+@app.route('/api/panic_exit', methods=['POST'])
+def api_panic_exit():
+    if not bot_active:
+        return jsonify({"status": "error", "message": "Bot not connected"})
+    if strategy_manager.panic_exit_all(kite):
+        flash("🚨 PANIC MODE EXECUTED. ALL TRADES CLOSED.")
+        return jsonify({"status": "success"})
+    return jsonify({"status": "error", "message": "Failed to execute panic mode"})
+
 @app.route('/trade', methods=['POST'])
 def place_trade():
     if not bot_active:
@@ -302,6 +311,13 @@ def place_trade():
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
         
+        # --- NEW: Check Max Daily Loss Limit ---
+        can_trade, reason = strategy_manager.can_place_order(mode)
+        if not can_trade:
+            flash(f"⛔ Trade Blocked: {reason}")
+            return redirect('/')
+        # ---------------------------------------
+
         if exit_multiplayer > 1:
             custom_targets = [t1, t2, t3] 
         else:

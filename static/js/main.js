@@ -89,6 +89,17 @@ function panicExit() {
 
 // --- IMPORT TRADE LOGIC ---
 
+// Helper for Quantity +/- Buttons
+function adjImpQty(dir) {
+    let q = $('#imp_qty');
+    let v = parseInt(q.val()) || 0;
+    // Attempt to use global curLotSize from trade.js, default to 1 if missing
+    let step = (typeof curLotSize !== 'undefined' && curLotSize > 0) ? curLotSize : 1;
+    let n = v + (dir * step);
+    if(n < step) n = step;
+    q.val(n);
+}
+
 // New Helpers for Import SL Calculation
 function calcImpFromPts() {
     let entry = parseFloat($('#imp_price').val()) || 0;

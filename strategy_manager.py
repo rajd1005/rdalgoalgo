@@ -352,14 +352,11 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     save_trades(trades)
     return {"status": "success", "trade": record}
 
-# --- IMPORT PAST TRADE LOGIC ---
-def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets):
-    """
-    Replays market history to determine current status of a past trade.
-    """
+# --- IMPORT PAST TRADE LOGIC (UPDATED) ---
+def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets, trailing_sl, sl_to_entry, exit_multiplier, target_controls):
     try:
         # 1. Parse Input
-        entry_time = datetime.strptime(entry_dt_str, "%Y-%m-%dT%H:%M") # ISO Format from HTML
+        entry_time = datetime.strptime(entry_dt_str, "%Y-%m-%dT%H:%M") 
         now = datetime.now()
         exchange = get_exchange(symbol)
         
@@ -378,43 +375,32 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         highest_ltp = entry_price
         targets_hit_indices = []
         
-        # Convert targets to list of floats
+        # Determine effective targets based on multiplier logic if active
         t_list = [float(x) for x in targets]
         
         for candle in hist_data:
-            # Check High for Targets
-            h = candle['high']
-            l = candle['low']
-            c = candle['close']
+            h = candle['high']; l = candle['low']; c = candle['close']
             highest_ltp = max(highest_ltp, h)
             
-            # Conservative Check: Did Low hit SL?
+            # SL Check
             if l <= sl_price:
-                status = "SL_HIT"
-                exit_price = sl_price
-                exit_reason = "SL_HIT"
-                break
+                status = "SL_HIT"; exit_price = sl_price; exit_reason = "SL_HIT"; break
             
-            # Check Targets
+            # Target Check
             for i, tgt in enumerate(t_list):
                 if i not in targets_hit_indices and h >= tgt:
                     targets_hit_indices.append(i)
-                    # If last target hit, treat as full exit (simplified for import)
+                    # Simple logic: If last target hit, full exit
                     if i == len(t_list) - 1:
-                        status = "TARGET_HIT"
-                        exit_price = tgt
-                        exit_reason = "TARGET_HIT"
-                        break
+                        status = "TARGET_HIT"; exit_price = tgt; exit_reason = "TARGET_HIT"; break
             if status == "TARGET_HIT": break
             
         # 4. Construct Trade Record
-        # If open, fetch live price now
         current_ltp = entry_price
         if status == "OPEN":
             try: current_ltp = kite.quote(f"{exchange}:{symbol}")[f"{exchange}:{symbol}"]['last_price']
             except: current_ltp = hist_data[-1]['close']
-        else:
-            current_ltp = exit_price
+        else: current_ltp = exit_price
 
         logs = [f"[{get_time_str()}] Imported Trade from {entry_dt_str}. Initial Status: {status}"]
         
@@ -422,13 +408,13 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             "id": int(time.time()), 
             "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
             "symbol": symbol, "exchange": exchange,
-            "mode": "PAPER", # Imported trades act as PAPER
+            "mode": "PAPER", 
             "order_type": "MARKET", "status": status, 
             "entry_price": entry_price, "quantity": qty,
             "sl": sl_price, "targets": t_list, 
-            "target_controls": [{'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 1000}],
+            "target_controls": target_controls or [{'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 1000}],
             "lot_size": smart_trader.get_lot_size(symbol), 
-            "trailing_sl": 0, "sl_to_entry": 0, "exit_multiplier": 1, 
+            "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
             "sl_order_id": None,
             "targets_hit_indices": targets_hit_indices, 
             "highest_ltp": highest_ltp, "made_high": highest_ltp, 
@@ -445,8 +431,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             move_to_history(record, exit_reason, exit_price)
             return {"status": "success", "message": f"Trade Imported as Closed ({exit_reason})"}
 
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    except Exception as e: return {"status": "error", "message": str(e)}
 
 def promote_to_live(kite, trade_id):
     trades = load_trades()

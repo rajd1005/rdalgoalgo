@@ -352,7 +352,74 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     save_trades(trades)
     return {"status": "success", "trade": record}
 
-# --- IMPORT PAST TRADE LOGIC (UPDATED) ---
+# --- SIMULATION HELPER ---
+def process_simulation_step(trade, candle_high, candle_low, candle_close, log_time_str):
+    """
+    Simulates risk engine logic for a single candle step.
+    Returns: (is_closed, exit_reason, exit_price, pnl_realized_in_step)
+    """
+    
+    # 1. Update Highs and LTP
+    trade['current_ltp'] = candle_close
+    trade['highest_ltp'] = max(trade.get('highest_ltp', -1), candle_high)
+    trade['made_high'] = trade['highest_ltp']
+    
+    # 2. Check Trailing SL Logic (On High)
+    if trade.get('trailing_sl', 0) > 0:
+        step = trade['trailing_sl']
+        current_sl = trade['sl']
+        # Trailing works on Highest Point reached
+        diff = trade['highest_ltp'] - (current_sl + step)
+        
+        if diff >= step:
+            steps_to_move = int(diff / step)
+            new_sl = current_sl + (steps_to_move * step)
+            
+            # Apply Caps (SL to Entry etc)
+            sl_limit = float('inf')
+            mode = int(trade.get('sl_to_entry', 0))
+            if mode == 1: sl_limit = trade['entry_price']
+            elif mode == 2 and trade['targets']: sl_limit = trade['targets'][0]
+            elif mode == 3 and len(trade['targets']) > 1: sl_limit = trade['targets'][1]
+            
+            if mode > 0: new_sl = min(new_sl, sl_limit)
+            
+            if new_sl > trade['sl']:
+                trade['sl'] = new_sl
+                trade['logs'].append(f"[{log_time_str}] Sim Trail: SL -> {new_sl:.2f} (High {trade['highest_ltp']})")
+
+    # 3. Check Stop Loss (On Low)
+    if candle_low <= trade['sl']:
+        return True, "SL_HIT", trade['sl'], 0
+
+    # 4. Check Targets (On High)
+    controls = trade.get('target_controls', [{'enabled':True, 'lots':0}]*3)
+    # We must iterate carefully. If multiple targets are hit in one candle, process them sequentially.
+    
+    for i, tgt in enumerate(trade['targets']):
+        if i not in trade.get('targets_hit_indices', []) and candle_high >= tgt:
+            trade.setdefault('targets_hit_indices', []).append(i)
+            conf = controls[i]
+            
+            if not conf['enabled']: continue
+            
+            lot_size = trade.get('lot_size') or 1
+            qty_to_exit = conf.get('lots', 0) * lot_size
+            
+            # If "Full Exit" or Qty >= Remaining
+            if qty_to_exit >= trade['quantity']:
+                return True, "TARGET_HIT", tgt, 0
+            
+            # Partial Exit
+            elif qty_to_exit > 0:
+                trade['quantity'] -= qty_to_exit
+                trade['logs'].append(f"[{log_time_str}] Sim Target {i+1} Hit. Exited {qty_to_exit} Qty @ {tgt}")
+                # We don't track realized PnL of partial exits in the main trade record for simplicity in this version,
+                # but the quantity reduction is critical.
+    
+    return False, None, 0, 0
+
+# --- IMPORT PAST TRADE LOGIC (FULL SIMULATION) ---
 def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets, trailing_sl, sl_to_entry, exit_multiplier, target_controls):
     try:
         # 1. Parse Input
@@ -368,68 +435,67 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         hist_data = smart_trader.fetch_historical_data(kite, token, entry_time, now, "minute")
         if not hist_data: return {"status": "error", "message": "No historical data found"}
         
-        # 3. Simulation / Replay
-        status = "OPEN"
-        exit_price = 0.0
-        exit_reason = ""
-        highest_ltp = entry_price
-        targets_hit_indices = []
-        
-        # Determine effective targets based on multiplier logic if active
+        # 3. Initialize Trade Record (Paper Mode)
         t_list = [float(x) for x in targets]
-        
-        for candle in hist_data:
-            h = candle['high']; l = candle['low']; c = candle['close']
-            highest_ltp = max(highest_ltp, h)
-            
-            # SL Check
-            if l <= sl_price:
-                status = "SL_HIT"; exit_price = sl_price; exit_reason = "SL_HIT"; break
-            
-            # Target Check
-            for i, tgt in enumerate(t_list):
-                if i not in targets_hit_indices and h >= tgt:
-                    targets_hit_indices.append(i)
-                    # Simple logic: If last target hit, full exit
-                    if i == len(t_list) - 1:
-                        status = "TARGET_HIT"; exit_price = tgt; exit_reason = "TARGET_HIT"; break
-            if status == "TARGET_HIT": break
-            
-        # 4. Construct Trade Record
-        current_ltp = entry_price
-        if status == "OPEN":
-            try: current_ltp = kite.quote(f"{exchange}:{symbol}")[f"{exchange}:{symbol}"]['last_price']
-            except: current_ltp = hist_data[-1]['close']
-        else: current_ltp = exit_price
-
-        logs = [f"[{get_time_str()}] Imported Trade from {entry_dt_str}. Initial Status: {status}"]
+        logs = [f"[{get_time_str()}] Imported Trade from {entry_dt_str}."]
         
         record = {
             "id": int(time.time()), 
             "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
             "symbol": symbol, "exchange": exchange,
             "mode": "PAPER", 
-            "order_type": "MARKET", "status": status, 
+            "order_type": "MARKET", "status": "OPEN", 
             "entry_price": entry_price, "quantity": qty,
             "sl": sl_price, "targets": t_list, 
             "target_controls": target_controls or [{'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 1000}],
             "lot_size": smart_trader.get_lot_size(symbol), 
             "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
             "sl_order_id": None,
-            "targets_hit_indices": targets_hit_indices, 
-            "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-            "current_ltp": current_ltp, "trigger_dir": "BELOW", 
+            "targets_hit_indices": [], 
+            "highest_ltp": entry_price, "made_high": entry_price, 
+            "current_ltp": entry_price, "trigger_dir": "BELOW", 
             "logs": logs
         }
-
-        if status == "OPEN":
+        
+        # 4. Run Simulation Loop
+        final_status = "OPEN"
+        exit_reason = ""
+        exit_price = 0.0
+        
+        for candle in hist_data:
+            c_time = candle['date'].strftime("%H:%M") # Simplify for logs
+            is_closed, reason, price, _ = process_simulation_step(
+                record, candle['high'], candle['low'], candle['close'], c_time
+            )
+            
+            if is_closed:
+                final_status = reason # SL_HIT or TARGET_HIT
+                exit_reason = reason
+                exit_price = price
+                break
+        
+        # 5. Finalize Logic
+        # Update current LTP to latest known if still open
+        if final_status == "OPEN":
+            try: 
+                # Try getting live data if market is open, else use last candle close
+                q = kite.quote(f"{exchange}:{symbol}")
+                record['current_ltp'] = q[f"{exchange}:{symbol}"]['last_price']
+            except: 
+                if hist_data: record['current_ltp'] = hist_data[-1]['close']
+            
+            record['status'] = "OPEN"
             trades = load_trades()
             trades.append(record)
             save_trades(trades)
-            return {"status": "success", "message": "Trade Imported as Active (Paper)"}
+            return {"status": "success", "message": "Trade Imported as Active (Paper). Sim Result: OPEN"}
+        
         else:
+            # Trade Closed in history
+            record['status'] = final_status
+            record['current_ltp'] = exit_price # For display purposes
             move_to_history(record, exit_reason, exit_price)
-            return {"status": "success", "message": f"Trade Imported as Closed ({exit_reason})"}
+            return {"status": "success", "message": f"Trade Imported as Closed. Sim Result: {exit_reason} @ {exit_price}"}
 
     except Exception as e: return {"status": "error", "message": str(e)}
 

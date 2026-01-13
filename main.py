@@ -193,7 +193,7 @@ def api_panic_exit():
         return jsonify({"status": "success"})
     return jsonify({"status": "error", "message": "Failed to execute panic mode"})
 
-# --- NEW: IMPORT TRADE ROUTE ---
+# --- NEW: IMPORT TRADE ROUTE (UPDATED) ---
 @app.route('/api/import_trade', methods=['POST'])
 def api_import_trade():
     if not bot_active: return jsonify({"status": "error", "message": "Bot not connected"})
@@ -205,7 +205,9 @@ def api_import_trade():
         result = strategy_manager.import_past_trade(
             kite, final_sym, data['entry_time'], 
             int(data['qty']), float(data['price']), 
-            float(data['sl']), [float(t) for t in data['targets']]
+            float(data['sl']), [float(t) for t in data['targets']],
+            data.get('trailing_sl', 0), data.get('sl_to_entry', 0),
+            data.get('exit_multiplier', 1), data.get('target_controls')
         )
         return jsonify(result)
     except Exception as e:

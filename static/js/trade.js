@@ -64,6 +64,17 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
 
     $.get('/api/details?symbol='+s, d => { 
         symLTP[symId] = d.ltp; 
+        
+        // Update Import Modal LTP (Underlying) & Auto-fill Price
+        if(symId === '#imp_sym') {
+            $('#imp_ltp').text("LTP: " + d.ltp);
+            if($('#imp_price').val() == "") {
+                $('#imp_price').val(d.ltp);
+                // Trigger auto-calc of SL price if SL points exist
+                if($('#imp_sl_pts').val() > 0) $('#imp_sl_pts').trigger('input');
+            }
+        }
+
         if(d.lot_size > 0) {
             curLotSize = d.lot_size;
             if(symId !== '#imp_sym') $('#lot').text(curLotSize); 
@@ -107,16 +118,34 @@ function fillChain(sym, exp, typeSelector, str) {
     $.get(`/api/chain?symbol=${sVal}&expiry=${$(exp).val()}&type=${$(typeSelector).val()}&ltp=${spot}`, d => {
         let $s = $(str).empty(); 
         d.forEach(r => { let mark = r.label.includes('ATM') ? '🔴' : ''; let style = r.label.includes('ATM') ? 'style="color:red; font-weight:bold;"' : ''; let selected = r.label.includes('ATM') ? 'selected' : ''; $s.append(`<option value="${r.strike}" ${selected} ${style}>${mark} ${r.strike} ${r.label}</option>`); });
-        // For import modal, we might want to trigger a price fetch or risk calc here
+        // Trigger fetchLTP to update prices in modals immediately after chain fill
+        if(sym === '#imp_sym') fetchLTP();
     });
 }
 
 function fetchLTP() {
     let sVal = $('#sym').val(); if(sVal.includes(':')) sVal = sVal.split(':')[0].trim();
+    // Use main tab args for global LTP fetch, but handle import modal context below
     $.get(`/api/specific_ltp?symbol=${sVal}&expiry=${$('#exp').val()}&strike=${$('#str').val()}&type=${$('input[name="type"]:checked').val()}`, d => {
-        curLTP=d.ltp; $('#inst_ltp').text("LTP: "+curLTP); if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
+        curLTP=d.ltp; 
+        $('#inst_ltp').text("LTP: "+curLTP); 
+        if ($('#ord').val() === 'LIMIT' && $('#lim_pr').val() == "") $('#lim_pr').val(curLTP);
         calcRisk();
     });
+
+    // Special Check: If Import Modal is Open, fetch specifically for it
+    if($('#importModal').is(':visible')) {
+        let iSym = $('#imp_sym').val();
+        // Only fetch Option price if Expiry and Strike are populated (i.e., not null/empty)
+        if(iSym && $('#imp_exp').val() && $('#imp_str').val()) {
+            $.get(`/api/specific_ltp?symbol=${iSym}&expiry=${$('#imp_exp').val()}&strike=${$('#imp_str').val()}&type=${$('input[name="imp_type"]:checked').val()}`, d => {
+                if(d.ltp > 0) {
+                    $('#imp_ltp').text("LTP: "+d.ltp);
+                    if($('#imp_price').val() == "" || $('#imp_price').val() == 0) $('#imp_price').val(d.ltp);
+                }
+            });
+        }
+    }
 }
 
 function calcSLPriceFromPts(ptsId, priceId) {

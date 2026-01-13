@@ -177,30 +177,23 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
     return True
     return False
 
-def get_time_str(custom_dt=None): 
-    if custom_dt: return custom_dt.strftime("%Y-%m-%d %H:%M:%S")
-    return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+def get_time_str(): return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
 
-def log_event(trade, message, timestamp=None):
+def log_event(trade, message):
     if 'logs' not in trade: trade['logs'] = []
-    ts = timestamp if timestamp else get_time_str()
-    trade['logs'].append(f"[{ts}] {message}")
+    trade['logs'].append(f"[{get_time_str()}] {message}")
 
-def move_to_history(trade, final_status, exit_price, exit_time_str=None):
+def move_to_history(trade, final_status, exit_price):
     real_pnl = 0
     was_active = trade['status'] != 'PENDING'
     if was_active:
         real_pnl = round((exit_price - trade['entry_price']) * trade['quantity'], 2)
     trade['pnl'] = real_pnl if was_active else 0
     trade['status'] = final_status; trade['exit_price'] = exit_price
-    trade['exit_time'] = exit_time_str if exit_time_str else get_time_str()
-    trade['exit_type'] = final_status
+    trade['exit_time'] = get_time_str(); trade['exit_type'] = final_status
     
-    # Remove heavy replay data before saving to history
-    if 'replay_data' in trade: del trade['replay_data']
-
     if "Closed:" not in str(trade['logs']):
-         log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}", timestamp=trade.get('last_update_time'))
+         log_event(trade, f"Closed: {final_status} @ {exit_price} | P/L ₹ {real_pnl:.2f}")
     
     try:
         db.session.merge(TradeHistory(id=trade['id'], data=json.dumps(trade)))
@@ -248,7 +241,7 @@ def check_global_exit_conditions(kite, mode, mode_settings):
         exit_dt = IST.localize(exit_dt.replace(tzinfo=None))
         if now >= exit_dt and (now - exit_dt).seconds < 120:
              trades = load_trades()
-             active_mode = [t for t in trades if t['mode'] == mode and not t.get('is_replay')]
+             active_mode = [t for t in trades if t['mode'] == mode]
              if active_mode:
                  for t in active_mode:
                      if t['mode'] == "LIVE" and t['status'] != 'PENDING':
@@ -256,12 +249,11 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                         try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                      move_to_history(t, "TIME_EXIT", t.get('current_ltp', 0))
-                 remaining = [t for t in trades if t['mode'] != mode or t.get('is_replay')]
+                 remaining = [t for t in trades if t['mode'] != mode]
                  save_trades(remaining)
                  return
     except Exception as e: print(f"Time Check Error: {e}")
 
-    # Profit Lock (Global) - Skipped for Replay
     pnl_start = float(mode_settings.get('profit_lock', 0))
     if pnl_start > 0:
         current_total_pnl = get_day_pnl(mode)
@@ -278,14 +270,14 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                      state['high_pnl'] = current_total_pnl
             if current_total_pnl <= state['global_sl']:
                 trades = load_trades()
-                active_mode = [t for t in trades if t['mode'] == mode and not t.get('is_replay')]
+                active_mode = [t for t in trades if t['mode'] == mode]
                 for t in active_mode:
                      if t['mode'] == "LIVE" and t['status'] != 'PENDING':
                         manage_broker_sl(kite, t, cancel_completely=True)
                         try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                      move_to_history(t, "PROFIT_LOCK", t.get('current_ltp', 0))
-                remaining = [t for t in trades if t['mode'] != mode or t.get('is_replay')]
+                remaining = [t for t in trades if t['mode'] != mode]
                 save_trades(remaining)
                 state['active'] = False
 
@@ -360,160 +352,195 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     save_trades(trades)
     return {"status": "success", "trade": record}
 
-# --- NEW: IMPORT REPLAY ENGINE (Streaming) ---
+# --- IMPORT PAST TRADE LOGIC (INSTANT INTERNAL REPLAY) ---
 def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets, trailing_sl, sl_to_entry, exit_multiplier, target_controls):
     try:
+        # 1. Parse Input & Initialize Data
         entry_time = datetime.strptime(entry_dt_str, "%Y-%m-%dT%H:%M") 
-        now = datetime.now()
+        # Localize if using IST to match data consistency
+        try: entry_time = IST.localize(entry_time)
+        except: pass
+
+        now = datetime.now(IST)
         exchange = get_exchange(symbol)
         
         token = smart_trader.get_instrument_token(symbol, exchange)
         if not token: return {"status": "error", "message": "Symbol Token not found"}
         
         hist_data = smart_trader.fetch_historical_data(kite, token, entry_time, now, "minute")
-        if not hist_data or len(hist_data) == 0: 
-            return {"status": "error", "message": "No historical data found"}
+        if not hist_data: return {"status": "error", "message": "No historical data found"}
         
-        # Initialize Replay State
-        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎬 Replay Started. Waiting for Trigger: {entry_price}"]
+        # 2. Simulation State Initialization
+        status = "PENDING"
+        current_sl = float(sl_price)
+        current_qty = int(qty)
+        highest_ltp = float(entry_price)
+        targets_hit_indices = []
+        t_list = [float(x) for x in targets]
         
-        # We start with the first candle price as LTP
-        initial_ltp = hist_data[0]['open']
+        # LOG 1: Trade Added with User Input Time
+        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Replay Import Started. Entry: {entry_price}"]
+        
+        final_status = "PENDING"
+        exit_reason = ""
+        final_exit_price = 0.0
+        
+        # 3. Candle-by-Candle Simulation (INSTANT LOOP)
+        is_first_candle = True
+        
+        for candle in hist_data:
+            c_time_obj = candle['date']
+            if hasattr(c_time_obj, 'strftime'):
+                c_time = c_time_obj.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                c_time = str(c_time_obj)
 
-        record = {
-            "id": int(time.time()), 
-            "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
-            "last_update_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "symbol": symbol, "exchange": exchange,
-            "mode": "PAPER", 
-            "is_replay": True,  # Flag to identify replay trades
-            "replay_data": hist_data, # Store the full candle series
-            "replay_index": 0,        # Pointer to current candle
+            high = candle['high']
+            low = candle['low']
+            close = candle['close']
+            open_p = candle['open']
             
-            "order_type": "MARKET", "status": "PENDING", 
-            "entry_price": entry_price, 
-            "quantity": qty,
-            "sl": float(sl_price), 
-            "targets": [float(x) for x in targets], 
-            "target_controls": target_controls,
-            "lot_size": smart_trader.get_lot_size(symbol), 
-            "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
-            "sl_order_id": None,
-            "targets_hit_indices": [], 
-            "highest_ltp": entry_price, "made_high": entry_price, 
-            "current_ltp": initial_ltp, "trigger_dir": "BELOW", 
-            "logs": logs
-        }
+            # --- PHASE 1: ACTIVATION ---
+            if status == "PENDING":
+                activated = False
+                
+                # Condition 1: Strict Hit
+                if low <= entry_price <= high:
+                    status = "OPEN"
+                    activated = True
+                    logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
+                    highest_ltp = max(entry_price, high)
+                
+                # Condition 2: Force Activate on First Candle (Gap Logic)
+                elif is_first_candle:
+                    status = "OPEN"
+                    activated = True
+                    logs.append(f"[{c_time}] 🚀 Order ACTIVATED (Gap/First) @ {open_p}")
+                    highest_ltp = max(open_p, high)
+                
+                is_first_candle = False
+                if not activated: continue
+
+            # --- PHASE 2: SIMULATION (Risk Engine) ---
+            if status == "OPEN":
+                t_sl = float(trailing_sl) if trailing_sl else 0
+                
+                # A. Trailing Logic
+                if high > highest_ltp: 
+                    highest_ltp = high
+                    if t_sl > 0:
+                        step = t_sl
+                        diff = highest_ltp - (current_sl + step)
+                        if diff >= step:
+                            steps_to_move = int(diff / step)
+                            new_sl = current_sl + (steps_to_move * step)
+                            
+                            limit_val = float('inf')
+                            mode = int(sl_to_entry)
+                            if mode == 1: limit_val = entry_price
+                            elif mode == 2 and len(t_list)>0: limit_val = t_list[0]
+                            elif mode == 3 and len(t_list)>1: limit_val = t_list[1]
+                            elif mode == 4 and len(t_list)>2: limit_val = t_list[2]
+                            
+                            if mode > 0: new_sl = min(new_sl, limit_val)
+                            
+                            if new_sl > current_sl:
+                                logs.append(f"[{c_time}] 📈 Trailing SL Moved: {current_sl:.2f} -> {new_sl:.2f} (High: {high})")
+                                current_sl = new_sl
+
+                # B. Check SL
+                if low <= current_sl:
+                    final_status = "SL_HIT"
+                    exit_reason = "SL_HIT"
+                    final_exit_price = current_sl
+                    logs.append(f"[{c_time}] 🛑 SL Hit at {current_sl}. Exited remaining {current_qty} Qty.")
+                    current_qty = 0
+                    break 
+
+                # C. Check Targets
+                for i, tgt in enumerate(t_list):
+                    if i in targets_hit_indices: continue 
+                    if high >= tgt:
+                        targets_hit_indices.append(i)
+                        conf = target_controls[i]
+                        if conf['enabled']:
+                            lot_size = smart_trader.get_lot_size(symbol)
+                            exit_qty = conf['lots'] * lot_size
+                            if exit_qty >= current_qty:
+                                final_status = "TARGET_HIT"
+                                exit_reason = f"TARGET_{i+1}_HIT"
+                                final_exit_price = tgt
+                                logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Full Exit {current_qty} Qty.")
+                                current_qty = 0
+                                break 
+                            else:
+                                current_qty -= exit_qty
+                                logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Remaining: {current_qty}")
+                
+                if current_qty == 0: break 
+
+        # 4. Finalize & Save
+        current_ltp = entry_price
         
-        trades = load_trades()
-        trades.append(record)
-        save_trades(trades)
-        
-        return {"status": "success", "message": f"Simulation Started. Watching {len(hist_data)} candles."}
+        # If still running after history check
+        if final_status in ["OPEN", "PENDING"]:
+            try: 
+                q = kite.quote(f"{exchange}:{symbol}")
+                current_ltp = q[f"{exchange}:{symbol}"]['last_price']
+            except: 
+                if hist_data: current_ltp = hist_data[-1]['close']
+            
+            record = {
+                "id": int(time.time()), 
+                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                "symbol": symbol, "exchange": exchange,
+                "mode": "PAPER", 
+                "order_type": "MARKET", "status": final_status, 
+                "entry_price": entry_price, 
+                "quantity": current_qty if final_status == "OPEN" else qty,
+                "sl": current_sl, "targets": t_list, 
+                "target_controls": target_controls,
+                "lot_size": smart_trader.get_lot_size(symbol), 
+                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                "sl_order_id": None,
+                "targets_hit_indices": targets_hit_indices, 
+                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                "current_ltp": current_ltp, "trigger_dir": "BELOW", 
+                "logs": logs
+            }
+            trades = load_trades()
+            trades.append(record)
+            save_trades(trades)
+            return {"status": "success", "message": f"Simulation Complete. Trade Still Active as {final_status}."}
+            
+        else:
+            # CLOSED - Append final log
+            last_time = logs[-1].split(']')[0].replace('[', '')
+            pnl_calc = (final_exit_price - entry_price) * qty
+            if "Closed:" not in logs[-1]:
+                logs.append(f"[{last_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {pnl_calc:.2f}")
+
+            record = {
+                "id": int(time.time()), 
+                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                "symbol": symbol, "exchange": exchange,
+                "mode": "PAPER", 
+                "order_type": "MARKET", "status": final_status, 
+                "entry_price": entry_price, "quantity": qty,
+                "sl": current_sl, "targets": t_list, 
+                "target_controls": target_controls,
+                "lot_size": smart_trader.get_lot_size(symbol), 
+                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                "sl_order_id": None,
+                "targets_hit_indices": targets_hit_indices, 
+                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                "current_ltp": final_exit_price, "trigger_dir": "BELOW", 
+                "logs": logs
+            }
+            move_to_history(record, exit_reason, final_exit_price)
+            return {"status": "success", "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}"}
 
     except Exception as e: return {"status": "error", "message": str(e)}
-
-def process_replay_step(t):
-    """ Advances the replay trade by one historical candle """
-    data = t.get('replay_data', [])
-    idx = t.get('replay_index', 0)
-    
-    if idx >= len(data):
-        move_to_history(t, "TIME_EXIT", t.get('current_ltp', 0), t.get('last_update_time'))
-        return True # Finished
-
-    candle = data[idx]
-    # Candle format: {'date': 'YYYY-MM-DD HH:MM:SS', 'open': ..., 'high': ..., 'low': ..., 'close': ...}
-    
-    c_time = candle['date']
-    t['last_update_time'] = c_time
-    
-    open_p = candle['open']
-    high = candle['high']
-    low = candle['low']
-    close = candle['close']
-    
-    # Update LTP for display (Use Close to represent end of this minute)
-    t['current_ltp'] = close
-    
-    exit_triggered = False
-    exit_reason = ""
-    exit_price = close
-
-    # 1. PENDING -> OPEN Logic
-    if t['status'] == "PENDING":
-        # Check if price touched entry within this candle
-        if low <= t['entry_price'] <= high:
-            t['status'] = "OPEN"
-            t['highest_ltp'] = max(t['entry_price'], high)
-            log_event(t, f"🚀 Triggered @ {t['entry_price']}", timestamp=c_time)
-        elif idx == 0: # Force open on first candle if gap logic applies? (Optional, kept strict for now)
-            pass
-
-    # 2. OPEN Trade Logic (Risk Engine)
-    elif t['status'] == "OPEN":
-        t['highest_ltp'] = max(t.get('highest_ltp', 0), high)
-        t['made_high'] = t['highest_ltp']
-
-        # A. Trailing Logic (Step)
-        if t.get('trailing_sl', 0) > 0:
-            step = t['trailing_sl']
-            current_sl = t['sl']
-            # Trail based on High made in this candle
-            diff = high - (current_sl + step)
-            
-            if diff >= step:
-                steps_to_move = int(diff / step)
-                new_sl = current_sl + (steps_to_move * step)
-                
-                # Apply Caps
-                limit_val = float('inf')
-                mode = int(t.get('sl_to_entry', 0))
-                if mode == 1: limit_val = t['entry_price']
-                elif mode == 2 and len(t['targets'])>0: limit_val = t['targets'][0]
-                elif mode == 3 and len(t['targets'])>1: limit_val = t['targets'][1]
-                
-                if mode > 0: new_sl = min(new_sl, limit_val)
-                
-                if new_sl > current_sl:
-                    t['sl'] = new_sl
-                    log_event(t, f"📈 Trailing SL Moved: {current_sl:.2f} -> {new_sl:.2f} (High: {high})", timestamp=c_time)
-
-        # B. Check SL (Low of candle)
-        if low <= t['sl']:
-            exit_triggered = True
-            exit_reason = "SL_HIT"
-            exit_price = t['sl']
-        
-        # C. Check Targets (High of candle)
-        elif not exit_triggered:
-            controls = t.get('target_controls', [{'enabled':True, 'lots':0}]*3)
-            for i, tgt in enumerate(t['targets']):
-                if i not in t.get('targets_hit_indices', []) and high >= tgt:
-                    t.setdefault('targets_hit_indices', []).append(i)
-                    conf = controls[i]
-                    if not conf['enabled']: continue
-                    
-                    lot_size = t.get('lot_size') or 1
-                    qty_to_exit = conf.get('lots', 0) * lot_size
-                    
-                    if qty_to_exit >= t['quantity']:
-                        exit_triggered = True
-                        exit_reason = "TARGET_HIT"
-                        exit_price = tgt
-                        break
-                    elif qty_to_exit > 0:
-                        t['quantity'] -= qty_to_exit
-                        log_event(t, f"Target {i+1} Hit ({tgt}). Partial Exit {qty_to_exit}", timestamp=c_time)
-
-    # Increment Index for next loop
-    t['replay_index'] = idx + 1
-    
-    if exit_triggered:
-        move_to_history(t, exit_reason, exit_price, c_time)
-        return True # Trade Ended
-        
-    return False # Trade Continues
 
 def promote_to_live(kite, trade_id):
     trades = load_trades()
@@ -538,60 +565,38 @@ def close_trade_manual(kite, trade_id):
         if t['id'] == int(trade_id):
             found = True
             exit_p = t.get('current_ltp', 0)
-            if not t.get('is_replay'):
-                try: exit_p = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]['last_price']
-                except: pass
+            try: exit_p = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]['last_price']
+            except: pass
             
             if t['mode'] == "LIVE" and t['status'] != "PENDING":
                 manage_broker_sl(kite, t, cancel_completely=True)
                 try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                 except: pass
-            move_to_history(t, "MANUAL_EXIT", exit_p, t.get('last_update_time'))
+            move_to_history(t, "MANUAL_EXIT", exit_p)
         else: active_list.append(t)
     if found: save_trades(active_list)
     return found
 
 def update_risk_engine(kite):
     current_settings = settings.load_settings()
-    
-    # 1. Process Replay Trades (Simulated Step)
-    active_trades = load_trades()
-    if not active_trades: return
-    
-    replay_dirty = False
-    active_replay = [t for t in active_trades if t.get('is_replay')]
-    for t in active_replay:
-        if process_replay_step(t):
-            # Trade finished inside process_replay_step and moved to history
-            # Remove from active_trades list for saving
-            active_trades = [x for x in active_trades if x['id'] != t['id']]
-        replay_dirty = True
-        
-    if replay_dirty: save_trades(active_trades)
-
-    # 2. Process Live/Paper Trades (Realtime)
-    active_real = [t for t in active_trades if not t.get('is_replay')]
-    if not active_real: return
-
     check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
     check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
 
-    instruments = list(set([f"{t['exchange']}:{t['symbol']}" for t in active_real]))
+    active_trades = load_trades()
+    if not active_trades: return 
+
+    instruments = list(set([f"{t['exchange']}:{t['symbol']}" for t in active_trades]))
     try: live_prices = kite.quote(instruments)
     except: return
 
     active_list = []; updated = False
-    
-    # Reload in case Replay logic modified the list (though we separated them)
-    # But safe to iterate active_real which is a subset
-    for t in active_real:
+    for t in active_trades:
         inst_key = f"{t['exchange']}:{t['symbol']}"
         if inst_key not in live_prices:
              active_list.append(t); continue
              
         ltp = live_prices[inst_key]['last_price']
         t['current_ltp'] = ltp; updated = True
-        t['last_update_time'] = get_time_str()
         
         if t['status'] == "PENDING":
             if (t.get('trigger_dir') == 'BELOW' and ltp <= t['entry_price']) or (t.get('trigger_dir') == 'ABOVE' and ltp >= t['entry_price']):
@@ -669,7 +674,266 @@ def update_risk_engine(kite):
             else:
                 active_list.append(t)
     
-    if updated: 
-        # Re-merge Replay trades that are still active (since we only processed Active Real here)
-        final_list = active_list + [x for x in load_trades() if x.get('is_replay')]
-        save_trades(final_list)
+    if updated: save_trades(active_list)
+
+}
+
+{
+type: uploaded file
+fileName: rajd1005/rdalgoalgo/rdalgoalgo-ee567e52278237e68be30a2685af379d258217a3/smart_trader.py
+fullContent:
+import pandas as pd
+from datetime import datetime, timedelta
+import pytz
+
+# Global IST Timezone
+IST = pytz.timezone('Asia/Kolkata')
+
+instrument_dump = None 
+
+def fetch_instruments(kite):
+    global instrument_dump
+    if instrument_dump is not None: return
+
+    print("📥 Downloading Instrument List...")
+    try:
+        instrument_dump = pd.DataFrame(kite.instruments())
+        instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry']).dt.strftime('%Y-%m-%d')
+        instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry']).dt.date
+        print("✅ Instruments Downloaded Successfully.")
+    except Exception as e:
+        print(f"❌ Failed to fetch instruments: {e}")
+
+def get_indices_ltp(kite):
+    try:
+        q = kite.quote(["NSE:NIFTY 50", "NSE:NIFTY BANK", "BSE:SENSEX"])
+        return {
+            "NIFTY": q.get("NSE:NIFTY 50", {}).get('last_price', 0),
+            "BANKNIFTY": q.get("NSE:NIFTY BANK", {}).get('last_price', 0),
+            "SENSEX": q.get("BSE:SENSEX", {}).get('last_price', 0)
+        }
+    except:
+        return {"NIFTY":0, "BANKNIFTY":0, "SENSEX":0}
+
+def get_zerodha_symbol(common_name):
+    if not common_name: return ""
+    cleaned = common_name
+    if "(" in cleaned: cleaned = cleaned.split("(")[0]
+    u = cleaned.upper().strip()
+    if u in ["BANKNIFTY", "NIFTY BANK", "BANK NIFTY"]: return "BANKNIFTY"
+    if u in ["NIFTY", "NIFTY 50", "NIFTY50"]: return "NIFTY"
+    if u == "SENSEX": return "SENSEX"
+    if u == "FINNIFTY": return "FINNIFTY"
+    return u
+
+def get_lot_size(tradingsymbol):
+    global instrument_dump
+    if instrument_dump is None: return 1
+    try:
+        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
+        if not row.empty:
+            return int(row.iloc[0]['lot_size'])
+    except: pass
+    return 1
+
+def get_display_name(tradingsymbol):
+    global instrument_dump
+    if instrument_dump is None:
+        return tradingsymbol
+        
+    try:
+        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
+        if not row.empty:
+            data = row.iloc[0]
+            name = data['name']
+            inst_type = data['instrument_type']
+            expiry_dt = data['expiry_date'] 
+            expiry_str = expiry_dt.strftime('%d %b').upper()
+            
+            if inst_type in ["CE", "PE"]:
+                strike = int(data['strike'])
+                return f"{name} {strike} {inst_type} {expiry_str}"
+            elif inst_type == "FUT":
+                 return f"{name} FUT {expiry_str}"
+            else:
+                 return f"{name} {inst_type}"
+        return tradingsymbol
+    except:
+        return tradingsymbol
+
+def search_symbols(kite, keyword, allowed_exchanges=None):
+    global instrument_dump
+    if instrument_dump is None: return []
+    k = keyword.upper()
+    
+    if allowed_exchanges is None:
+        allowed_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
+    
+    mask = (instrument_dump['exchange'].isin(allowed_exchanges)) & (instrument_dump['name'].str.startswith(k))
+    matches = instrument_dump[mask]
+    
+    if matches.empty: return []
+        
+    unique_matches = matches.drop_duplicates(subset=['name', 'exchange']).head(10)
+    items_to_quote = [f"{row['exchange']}:{row['tradingsymbol']}" for _, row in unique_matches.iterrows()]
+    
+    quotes = {}
+    try:
+        if items_to_quote: quotes = kite.quote(items_to_quote)
+    except Exception as e:
+        print(f"Search Quote Error: {e}")
+    
+    results = []
+    for _, row in unique_matches.iterrows():
+        key = f"{row['exchange']}:{row['tradingsymbol']}"
+        ltp = quotes.get(key, {}).get('last_price', 0)
+        results.append(f"{row['name']} ({row['exchange']}) : {ltp}")
+        
+    return results
+
+def adjust_cds_lot_size(symbol, lot_size):
+    s = symbol.upper()
+    if lot_size == 1:
+        if "JPYINR" in s: return 100000
+        if any(x in s for x in ["USDINR", "EURINR", "GBPINR", "USDJPY", "EURUSD", "GBPUSD"]): return 1000
+    return lot_size
+
+def get_symbol_details(kite, symbol, preferred_exchange=None):
+    global instrument_dump
+    if instrument_dump is None: fetch_instruments(kite)
+    if instrument_dump is None: return {}
+    
+    if "(" in symbol and ")" in symbol:
+        try:
+            parts = symbol.split('(')
+            if len(parts) > 1: preferred_exchange = parts[1].split(')')[0].strip()
+        except: pass
+
+    clean = get_zerodha_symbol(symbol)
+    today = datetime.now(IST).date()
+    
+    rows = instrument_dump[instrument_dump['name'] == clean]
+    if rows.empty: return {}
+
+    exchanges = rows['exchange'].unique().tolist()
+    exchange_to_use = "NSE"
+    
+    if preferred_exchange and preferred_exchange in exchanges:
+        exchange_to_use = preferred_exchange
+    else:
+        for p in ['MCX', 'CDS', 'BSE', 'NSE']:
+             if p in exchanges: 
+                 exchange_to_use = p
+                 break
+    
+    quote_sym = f"{exchange_to_use}:{clean}"
+    if clean == "NIFTY": quote_sym = "NSE:NIFTY 50"
+    if clean == "BANKNIFTY": quote_sym = "NSE:NIFTY BANK"
+    if clean == "SENSEX": quote_sym = "BSE:SENSEX"
+    
+    ltp = 0
+    try:
+        q = kite.quote(quote_sym)
+        if quote_sym in q: ltp = q[quote_sym]['last_price']
+    except: pass
+        
+    if ltp == 0:
+        try:
+            fut_exch = 'NFO' if exchange_to_use == 'NSE' else ('BFO' if exchange_to_use == 'BSE' else exchange_to_use)
+            futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today) & (rows['exchange'] == fut_exch)]
+            if not futs_all.empty:
+                near_fut = futs_all.sort_values('expiry_date').iloc[0]
+                fut_sym = f"{near_fut['exchange']}:{near_fut['tradingsymbol']}"
+                ltp = kite.quote(fut_sym)[fut_sym]['last_price']
+        except: pass
+
+    lot = 1
+    for ex in ['MCX', 'CDS', 'BFO', 'NFO']:
+        futs = rows[(rows['exchange'] == ex) & (rows['instrument_type'] == 'FUT')]
+        if not futs.empty:
+            lot = int(futs.iloc[0]['lot_size'])
+            if ex == 'CDS': lot = adjust_cds_lot_size(clean, lot)
+            break
+            
+    f_exp = sorted(rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
+    o_exp = sorted(rows[(rows['instrument_type'].isin(['CE', 'PE'])) & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
+    
+    return {"symbol": clean, "ltp": ltp, "lot_size": lot, "fut_expiries": f_exp, "opt_expiries": o_exp}
+
+def get_chain_data(symbol, expiry_date, option_type, ltp):
+    global instrument_dump
+    if instrument_dump is None: return []
+    clean = get_zerodha_symbol(symbol)
+    c = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
+    if c.empty: return []
+    
+    strikes = sorted(c['strike'].unique().tolist())
+    if not strikes: return []
+    atm = min(strikes, key=lambda x: abs(x - ltp))
+    
+    res = []
+    for s in strikes:
+        lbl = "OTM"
+        if s == atm: lbl = "ATM"
+        elif option_type == "CE": lbl = "ITM" if ltp > s else "OTM"
+        elif option_type == "PE": lbl = "ITM" if ltp < s else "OTM"
+        res.append({"strike": s, "label": lbl})
+    return res
+
+def get_exact_symbol(symbol, expiry, strike, option_type):
+    global instrument_dump
+    if instrument_dump is None: return None
+    if option_type == "EQ": return symbol
+    clean = get_zerodha_symbol(symbol)
+    
+    if option_type == "FUT":
+        mask = (instrument_dump['name'] == clean) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
+    else:
+        try: strike_price = float(strike)
+        except: return None
+        mask = (instrument_dump['name'] == clean) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['strike'] == strike_price) & (instrument_dump['instrument_type'] == option_type)
+        
+    if not mask.any(): return None
+    return instrument_dump[mask].iloc[0]['tradingsymbol']
+
+def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
+    ts = get_exact_symbol(symbol, expiry, strike, inst_type)
+    if not ts: return 0
+    try:
+        global instrument_dump
+        exch = "NFO"
+        if instrument_dump is not None:
+             row = instrument_dump[instrument_dump['tradingsymbol'] == ts]
+             if not row.empty: exch = row.iloc[0]['exchange']
+        return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
+    except: return 0
+
+# --- NEW FUNCTIONS FOR IMPORT/BACKTEST ---
+def get_instrument_token(tradingsymbol, exchange):
+    global instrument_dump
+    if instrument_dump is None: return None
+    try:
+        row = instrument_dump[(instrument_dump['tradingsymbol'] == tradingsymbol) & (instrument_dump['exchange'] == exchange)]
+        if not row.empty:
+            return int(row.iloc[0]['instrument_token'])
+    except: pass
+    return None
+
+def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
+    try:
+        # Fetch Data
+        data = kite.historical_data(token, from_date, to_date, interval)
+        
+        # CLEANUP: Convert datetime objects to Strings for JSON serialization
+        # This is critical for the Replay feature to save data in the DB
+        clean_data = []
+        for candle in data:
+            c = candle.copy()
+            if 'date' in c and hasattr(c['date'], 'strftime'):
+                c['date'] = c['date'].strftime('%Y-%m-%d %H:%M:%S')
+            clean_data.append(c)
+            
+        return clean_data
+    except Exception as e:
+        print(f"History Fetch Error: {e}")
+        return []

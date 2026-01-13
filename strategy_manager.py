@@ -385,7 +385,12 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         is_first_candle = True
         
         for candle in hist_data:
-            c_time = candle['date'].strftime('%Y-%m-%d %H:%M:%S') # Chart time
+            c_time_obj = candle['date']
+            if hasattr(c_time_obj, 'strftime'):
+                c_time = c_time_obj.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                c_time = str(c_time_obj)
+
             high = candle['high']
             low = candle['low']
             close = candle['close']
@@ -402,29 +407,24 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                     logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
                     highest_ltp = max(entry_price, high)
                 
-                # Condition 2: Force Activate on First Candle if Gap/Reasonable
-                # This fixes "Stuck in Pending" if data granularity missed exact tick or Gap happened.
+                # Condition 2: Force Activate on First Candle (Market/Gap Logic)
                 elif is_first_candle:
                     status = "OPEN"
                     activated = True
                     logs.append(f"[{c_time}] 🚀 Order ACTIVATED (Market/Gap) @ {open_p}")
                     highest_ltp = max(open_p, high)
-                    # We continue to use user's entry_price for PnL reference, 
-                    # but logic assumes we are IN now.
                 
                 is_first_candle = False
                 if not activated: continue
 
             # --- PHASE 2: SIMULATION (Risk Engine) ---
             if status == "OPEN":
-                # A. Trailing Logic (Update Highest Point)
+                # A. Trailing Logic
                 if high > highest_ltp: 
                     highest_ltp = high
-                    
                     if trailing_sl > 0:
                         step = float(trailing_sl)
                         diff = highest_ltp - (current_sl + step)
-                        
                         if diff >= step:
                             steps_to_move = int(diff / step)
                             new_sl = current_sl + (steps_to_move * step)
@@ -442,7 +442,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                                 logs.append(f"[{c_time}] 📈 Trailing SL Moved: {current_sl:.2f} -> {new_sl:.2f} (High: {high})")
                                 current_sl = new_sl
 
-                # B. Check SL Hit (Priority: Low Trigger - Conservative)
+                # B. Check SL
                 if low <= current_sl:
                     final_status = "SL_HIT"
                     exit_reason = "SL_HIT"
@@ -451,18 +451,15 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                     current_qty = 0
                     break 
 
-                # C. Check Targets (Priority: High Trigger)
+                # C. Check Targets
                 for i, tgt in enumerate(t_list):
                     if i in targets_hit_indices: continue 
-                    
                     if high >= tgt:
                         targets_hit_indices.append(i)
                         conf = target_controls[i]
-                        
                         if conf['enabled']:
                             lot_size = smart_trader.get_lot_size(symbol)
                             exit_qty = conf['lots'] * lot_size
-                            
                             if exit_qty >= current_qty:
                                 final_status = "TARGET_HIT"
                                 exit_reason = f"TARGET_{i+1}_HIT"
@@ -476,7 +473,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 
                 if current_qty == 0: break 
 
-        # 4. Finalize & Save
+        # 4. Finalize
         current_ltp = entry_price
         if final_status in ["OPEN", "PENDING"]:
             try: 
@@ -485,15 +482,14 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             except: 
                 if hist_data: current_ltp = hist_data[-1]['close']
             
-            record_status = final_status
             record = {
                 "id": int(time.time()), 
                 "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
                 "symbol": symbol, "exchange": exchange,
                 "mode": "PAPER", 
-                "order_type": "MARKET", "status": record_status, 
+                "order_type": "MARKET", "status": final_status, 
                 "entry_price": entry_price, 
-                "quantity": current_qty if record_status == "OPEN" else qty,
+                "quantity": current_qty if final_status == "OPEN" else qty,
                 "sl": current_sl, "targets": t_list, 
                 "target_controls": target_controls,
                 "lot_size": smart_trader.get_lot_size(symbol), 
@@ -507,10 +503,10 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             trades = load_trades()
             trades.append(record)
             save_trades(trades)
-            return {"status": "success", "message": f"Trade Imported as {record_status} (Paper)."}
+            return {"status": "success", "message": f"Trade Imported as {final_status} (Paper)."}
             
         else:
-            # CLOSED
+            # CLOSED - Append final log
             last_time = logs[-1].split(']')[0].replace('[', '')
             pnl_calc = (final_exit_price - entry_price) * qty
             if "Closed:" not in logs[-1]:
@@ -537,3 +533,137 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             return {"status": "success", "message": f"Trade Imported as Closed. Result: {exit_reason} @ {final_exit_price}"}
 
     except Exception as e: return {"status": "error", "message": str(e)}
+
+def promote_to_live(kite, trade_id):
+    trades = load_trades()
+    for t in trades:
+        if t['id'] == int(trade_id) and t['mode'] == "PAPER":
+            try:
+                kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                try:
+                    sl_id = kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_SL_M, product=kite.PRODUCT_MIS, trigger_price=t['sl'])
+                    t['sl_order_id'] = sl_id
+                except: log_event(t, "Promote: Broker SL Failed")
+                t['mode'] = "LIVE"; t['status'] = "PROMOTED_LIVE"
+                save_trades(trades)
+                return True
+            except: return False
+    return False
+
+def close_trade_manual(kite, trade_id):
+    trades = load_trades()
+    active_list = []; found = False
+    for t in trades:
+        if t['id'] == int(trade_id):
+            found = True
+            exit_p = t.get('current_ltp', 0)
+            try: exit_p = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]['last_price']
+            except: pass
+            
+            if t['mode'] == "LIVE" and t['status'] != "PENDING":
+                manage_broker_sl(kite, t, cancel_completely=True)
+                try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                except: pass
+            move_to_history(t, "MANUAL_EXIT", exit_p)
+        else: active_list.append(t)
+    if found: save_trades(active_list)
+    return found
+
+def update_risk_engine(kite):
+    current_settings = settings.load_settings()
+    check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
+    check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
+
+    active_trades = load_trades()
+    if not active_trades: return 
+
+    instruments = list(set([f"{t['exchange']}:{t['symbol']}" for t in active_trades]))
+    try: live_prices = kite.quote(instruments)
+    except: return
+
+    active_list = []; updated = False
+    for t in active_trades:
+        inst_key = f"{t['exchange']}:{t['symbol']}"
+        if inst_key not in live_prices:
+             active_list.append(t); continue
+             
+        ltp = live_prices[inst_key]['last_price']
+        t['current_ltp'] = ltp; updated = True
+        
+        if t['status'] == "PENDING":
+            if (t.get('trigger_dir') == 'BELOW' and ltp <= t['entry_price']) or (t.get('trigger_dir') == 'ABOVE' and ltp >= t['entry_price']):
+                t['status'] = "OPEN"; t['highest_ltp'] = t['entry_price']
+                log_event(t, f"Order ACTIVATED @ {ltp}")
+                if t['mode'] == 'LIVE':
+                    try: 
+                        kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                        try:
+                            sl_id = kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_SL_M, product=kite.PRODUCT_MIS, trigger_price=t['sl'])
+                            t['sl_order_id'] = sl_id
+                        except: log_event(t, "Broker SL Fail")
+                    except Exception as e: log_event(t, f"Broker Fail: {e}")
+                active_list.append(t)
+            else: active_list.append(t)
+            continue
+
+        if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
+            t['highest_ltp'] = max(t.get('highest_ltp', 0), ltp); t['made_high'] = t['highest_ltp']
+            
+            if t.get('trailing_sl', 0) > 0:
+                step = t['trailing_sl']
+                current_sl = t['sl']
+                diff = ltp - (current_sl + step)
+                
+                if diff >= step:
+                    steps_to_move = int(diff / step)
+                    new_sl = current_sl + (steps_to_move * step)
+                    
+                    sl_limit = float('inf')
+                    mode = int(t.get('sl_to_entry', 0))
+                    if mode == 1: sl_limit = t['entry_price']
+                    elif mode == 2 and t['targets']: sl_limit = t['targets'][0]
+                    elif mode == 3 and len(t['targets']) > 1: sl_limit = t['targets'][1]
+                    
+                    if mode > 0: new_sl = min(new_sl, sl_limit)
+                    
+                    if new_sl > t['sl']:
+                        t['sl'] = new_sl
+                        if t['mode'] == 'LIVE' and t.get('sl_order_id'):
+                            try: kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], trigger_price=new_sl)
+                            except: pass
+                        log_event(t, f"Step Trailing: SL Moved to {t['sl']:.2f} (LTP {ltp})")
+
+            exit_triggered = False; exit_reason = ""
+            if ltp <= t['sl']:
+                exit_triggered = True; exit_reason = "SL_HIT"
+            elif not exit_triggered:
+                controls = t.get('target_controls', [{'enabled':True, 'lots':0}]*3)
+                for i, tgt in enumerate(t['targets']):
+                    if i not in t.get('targets_hit_indices', []) and ltp >= tgt:
+                        t.setdefault('targets_hit_indices', []).append(i)
+                        conf = controls[i]
+                        if not conf['enabled']: continue
+                        
+                        lot_size = t.get('lot_size') or smart_trader.get_lot_size(t['symbol'])
+                        qty_to_exit = conf.get('lots', 0) * lot_size
+                        
+                        if qty_to_exit >= t['quantity']:
+                             exit_triggered = True; exit_reason = "TARGET_HIT"; break
+                        elif qty_to_exit > 0:
+                             if t['mode'] == 'LIVE': manage_broker_sl(kite, t, qty_to_exit)
+                             t['quantity'] -= qty_to_exit
+                             log_event(t, f"Target {i+1} Hit. Exited {qty_to_exit} Qty")
+                             if t['mode'] == 'LIVE':
+                                try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                                except: pass
+
+            if exit_triggered:
+                if t['mode'] == "LIVE":
+                    manage_broker_sl(kite, t, cancel_completely=True)
+                    try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                    except: pass
+                move_to_history(t, exit_reason, (t['sl'] if exit_reason=="SL_HIT" else t['targets'][-1] if exit_reason=="TARGET_HIT" else ltp))
+            else:
+                active_list.append(t)
+    
+    if updated: save_trades(active_list)

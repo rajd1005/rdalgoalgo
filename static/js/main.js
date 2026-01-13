@@ -79,3 +79,57 @@ function triggerPanic() {
         });
     }
 }
+
+// --- MISSING FUNCTION RESTORED ---
+function updateData() {
+    // 1. Fetch Indices (Nifty/BankNifty/Sensex)
+    $.get('/api/indices', function(data) {
+        $('#n_lp').text(data.NIFTY.toFixed(2));
+        $('#b_lp').text(data.BANKNIFTY.toFixed(2));
+        $('#s_lp').text(data.SENSEX.toFixed(2));
+    });
+
+    // 2. Fetch and Render Active Positions
+    $.get('/api/positions', function(trades) {
+        activeTradesList = trades; // Update global variable
+
+        // Calculate Live & Paper Total P&L
+        let liveTotal = 0; 
+        let paperTotal = 0;
+        
+        trades.forEach(t => {
+            let pnl = 0;
+            if(t.current_ltp > 0) {
+                 pnl = (t.current_ltp - t.entry_price) * t.quantity;
+            }
+            if(t.mode === 'LIVE') liveTotal += pnl;
+            else paperTotal += pnl;
+        });
+
+        // Update P&L Cards
+        $('#sum_live').text("₹ " + liveTotal.toFixed(2));
+        if(liveTotal >= 0) $('#sum_live').removeClass('text-danger').addClass('text-success');
+        else $('#sum_live').removeClass('text-success').addClass('text-danger');
+
+        $('#sum_paper').text("₹ " + paperTotal.toFixed(2));
+        if(paperTotal >= 0) $('#sum_paper').removeClass('text-danger').addClass('text-success');
+        else $('#sum_paper').removeClass('text-success').addClass('text-danger');
+
+        // Apply Filter and Render List
+        let filter = $('#active_filter').val();
+        let filteredTrades = trades.filter(t => filter === 'ALL' || t.mode === filter);
+        
+        // Call the render function from positions.js
+        if(typeof renderActiveTrades === 'function') {
+            renderActiveTrades(filteredTrades);
+        }
+    });
+
+    // 3. Check Connection Status
+    $.get('/api/status', function(res) {
+        if (!res.active) {
+            console.log("Session expired, reloading...");
+            location.reload(); 
+        }
+    });
+}

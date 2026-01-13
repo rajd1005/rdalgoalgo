@@ -48,3 +48,62 @@
     <label class="pos-grid-label">Bulk Update (SYMBOL|SL)</label> <textarea id="live_bulk_sl" class="form-control mb-2" rows="2" placeholder="ACC|8&#10;RELIANCE|20"></textarea> <button class="btn btn-sm btn-outline-secondary mb-3 w-100" onclick="applyBulkSL('LIVE')">Apply Bulk SL</button> <div class="input-group mb-2"><input type="text" id="live_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="live_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('LIVE')">Add</button></div> <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;"> <table class="table table-bordered table-sm mt-2 sl-table"><thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead><tbody id="live_sl_table_body"></tbody></table> </div> 
 </div> 
 </div> </div> <div class="modal-footer"><button type="button" class="btn btn-primary w-100" onclick="saveSettings()">Save Changes</button></div> </div> </div> </div>
+
+<div class="modal fade" id="importModal" tabindex="-1"> 
+    <div class="modal-dialog"> 
+        <div class="modal-content"> 
+            <div class="modal-header">
+                <h5 class="modal-title">📤 Import Past Trade</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div> 
+            <div class="modal-body">
+                <label class="pos-grid-label">Symbol</label>
+                <div class="input-group mb-2">
+                    <input type="text" id="imp_sym" class="form-control fw-bold" placeholder="e.g. NIFTY 22000 CE">
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="pos-grid-label">Expiry</label>
+                        <select id="imp_exp" class="form-select"></select>
+                    </div>
+                    <div class="col-6">
+                        <label class="pos-grid-label">Strike</label>
+                        <select id="imp_str" class="form-select"></select>
+                    </div>
+                </div>
+                
+                <div class="btn-group w-100 btn-group-check mb-2" role="group">
+                    <input type="radio" class="btn-check" name="imp_type" id="it_ce" value="CE" checked autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="it_ce">CE</label>
+                    <input type="radio" class="btn-check" name="imp_type" id="it_pe" value="PE" autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="it_pe">PE</label>
+                    <input type="radio" class="btn-check" name="imp_type" id="it_fut" value="FUT" autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="it_fut">FUT</label>
+                </div>
+
+                <label class="pos-grid-label">Entry Time (Past)</label>
+                <input type="datetime-local" id="imp_time" class="form-control mb-2">
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6"><label class="pos-grid-label">Quantity</label><input type="number" id="imp_qty" class="form-control fw-bold"></div>
+                    <div class="col-6"><label class="pos-grid-label">Entry Price</label><input type="number" step="0.05" id="imp_price" class="form-control fw-bold text-primary"></div>
+                </div>
+
+                <label class="pos-grid-label text-danger">Stop Loss Price</label>
+                <input type="number" step="0.05" id="imp_sl" class="form-control mb-2 text-danger fw-bold">
+
+                <label class="pos-grid-label text-success">Targets (T1 / T2 / T3)</label>
+                <div class="input-group mb-3">
+                    <input type="number" step="0.05" id="imp_t1" class="form-control text-success" placeholder="T1">
+                    <input type="number" step="0.05" id="imp_t2" class="form-control text-success" placeholder="T2">
+                    <input type="number" step="0.05" id="imp_t3" class="form-control text-success" placeholder="T3">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="calculateImportRisk()">Calc Risk</button>
+                <button type="button" class="btn btn-primary w-100" onclick="submitImport()">📥 Check & Import</button>
+            </div> 
+        </div> 
+    </div> 
+</div>

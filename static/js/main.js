@@ -18,7 +18,7 @@ $(document).ready(function() {
     
     // Bind Search Logic
     bindSearch('#sym', '#sym_list'); 
-    bindSearch('#imp_sym', '#sym_list'); // Bind for Import Modal too
+    bindSearch('#imp_sym', '#sym_list'); 
 
     // Chain & input Bindings
     $('#sym').change(() => loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'));
@@ -26,10 +26,11 @@ $(document).ready(function() {
     $('#ord').change(function() { if($(this).val() === 'LIMIT') $('#lim_box').show(); else $('#lim_box').hide(); });
     $('#str').change(fetchLTP);
 
-    // Import Modal Bindings
-    $('#imp_sym').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', ''));
+    // Import Modal Bindings (Watchlist & Fields)
+    $('#imp_sym').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl')); // Added #imp_sl here
     $('#imp_exp').change(() => fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str'));
-    $('input[name="imp_type"]').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', ''));
+    $('input[name="imp_type"]').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl'));
+    $('#imp_price, #imp_sl').on('input', calculateImportRisk);
 
     // Auto-Remove Floating Notifications
     setTimeout(function() {
@@ -85,12 +86,22 @@ function panicExit() {
 // --- IMPORT TRADE LOGIC ---
 function calculateImportRisk() {
     let p = parseFloat($('#imp_price').val());
-    if(!p) return;
-    // Simple 20 points SL default
-    $('#imp_sl').val((p - 20).toFixed(2));
-    $('#imp_t1').val((p + 10).toFixed(2));
-    $('#imp_t2').val((p + 20).toFixed(2));
-    $('#imp_t3').val((p + 40).toFixed(2));
+    let sl = parseFloat($('#imp_sl').val());
+    if(!p || !sl) return;
+    
+    let sl_pts = p - sl;
+    if(sl_pts <= 0) sl_pts = 20; // fallback
+
+    // Use PAPER ratios for target calc
+    let ratios = settings.modes.PAPER.ratios || [0.5, 1.0, 1.5];
+    $('#imp_t1').val((p + (sl_pts * ratios[0])).toFixed(2));
+    $('#imp_t2').val((p + (sl_pts * ratios[1])).toFixed(2));
+    $('#imp_t3').val((p + (sl_pts * ratios[2])).toFixed(2));
+    
+    // Check Full Logic for visual update
+    ['t1', 't2', 't3'].forEach(k => {
+        if ($(`#imp_${k}_full`).is(':checked')) $(`#imp_${k}_lots`).val(1000);
+    });
 }
 
 function submitImport() {
@@ -103,10 +114,31 @@ function submitImport() {
         qty: parseInt($('#imp_qty').val()),
         price: parseFloat($('#imp_price').val()),
         sl: parseFloat($('#imp_sl').val()),
+        
+        // New Settings
+        trailing_sl: parseFloat($('#imp_trail_sl').val()) || 0,
+        sl_to_entry: parseInt($('#imp_trail_limit').val()) || 0,
+        exit_multiplier: parseInt($('#imp_exit_mult').val()) || 1,
+        
         targets: [
             parseFloat($('#imp_t1').val())||0,
             parseFloat($('#imp_t2').val())||0,
             parseFloat($('#imp_t3').val())||0
+        ],
+        
+        target_controls: [
+            { 
+                enabled: $('#imp_t1_active').is(':checked'), 
+                lots: $('#imp_t1_full').is(':checked') ? 1000 : (parseInt($('#imp_t1_lots').val()) || 0)
+            },
+            { 
+                enabled: $('#imp_t2_active').is(':checked'), 
+                lots: $('#imp_t2_full').is(':checked') ? 1000 : (parseInt($('#imp_t2_lots').val()) || 0)
+            },
+            { 
+                enabled: $('#imp_t3_active').is(':checked'), 
+                lots: $('#imp_t3_full').is(':checked') ? 1000 : (parseInt($('#imp_t3_lots').val()) || 0)
+            }
         ]
     };
     
@@ -119,10 +151,20 @@ function submitImport() {
             if(r.status === 'success') {
                 alert(r.message);
                 $('#importModal').modal('hide');
-                updateData(); // Refresh Active/Closed Lists
+                updateData(); 
             } else {
                 alert("Error: " + r.message);
             }
         }
     });
+}
+
+// Updated Watchlist Renderer to bind to Import Dropdown too
+function renderWatchlist() {
+    if (typeof settings === 'undefined' || !settings.watchlist) return;
+    let wl = settings.watchlist || [];
+    let opts = '<option value="">📺 Select</option>';
+    wl.forEach(w => { opts += `<option value="${w}">${w}</option>`; });
+    $('#trade_watch').html(opts);
+    $('#imp_watch').html(opts); // Populates Import Modal Dropdown
 }

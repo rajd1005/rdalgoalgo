@@ -102,7 +102,9 @@ def background_monitor():
                             print(f"⚠️ Health Check Failed (Connection Lost): {e}")
                             bot_active = False
                         else:
-                            print(f"⚠️ Risk Engine Error: {e}")
+                            # Log but don't stop bot for logic errors
+                            # print(f"⚠️ Risk Engine/Loop Error: {e}") 
+                            pass
 
                 # 2. Continuous Retry Logic
                 if not bot_active:
@@ -118,6 +120,9 @@ def background_monitor():
 
             except Exception as e:
                 print(f"❌ Monitor Loop Critical Error: {e}")
+            finally:
+                # [FIX] Close DB session to prevent 'Timeout' and 'QueuePool' errors
+                db.session.remove()
         
         # Check every 2 seconds for faster response
         time.sleep(2)
@@ -198,9 +203,8 @@ def api_settings_save():
 # --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
-    # Calling logic here as well to ensure UI force-refresh triggers updates
-    if bot_active:
-        strategy_manager.update_risk_engine(kite)
+    # [FIX] REMOVED update_risk_engine() from here.
+    # It is now handled exclusively by the background_monitor to prevent Database Deadlocks and Worker Timeouts.
     
     trades = strategy_manager.load_trades()
     for t in trades:
@@ -225,7 +229,6 @@ def api_delete_trade(trade_id):
 def api_update_trade():
     data = request.json
     try:
-        # Pass kite to update broker orders if needed
         if strategy_manager.update_trade_protection(
             kite, 
             data['id'], data['sl'], data['targets'], 

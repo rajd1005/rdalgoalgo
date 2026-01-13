@@ -180,15 +180,18 @@ function submitImport() {
         target_controls: [
             { 
                 enabled: $('#imp_t1_active').is(':checked'), 
-                lots: $('#imp_t1_full').is(':checked') ? 1000 : (parseInt($('#imp_t1_lots').val()) || 0)
+                lots: $('#imp_t1_full').is(':checked') ? 1000 : (parseInt($('#imp_t1_lots').val()) || 0),
+                trail_to_entry: $('#imp_t1_cost').is(':checked')
             },
             { 
                 enabled: $('#imp_t2_active').is(':checked'), 
-                lots: $('#imp_t2_full').is(':checked') ? 1000 : (parseInt($('#imp_t2_lots').val()) || 0)
+                lots: $('#imp_t2_full').is(':checked') ? 1000 : (parseInt($('#imp_t2_lots').val()) || 0),
+                trail_to_entry: $('#imp_t2_cost').is(':checked')
             },
             { 
                 enabled: $('#imp_t3_active').is(':checked'), 
-                lots: $('#imp_t3_full').is(':checked') ? 1000 : (parseInt($('#imp_t3_lots').val()) || 0)
+                lots: $('#imp_t3_full').is(':checked') ? 1000 : (parseInt($('#imp_t3_lots').val()) || 0),
+                trail_to_entry: $('#imp_t3_cost').is(':checked')
             }
         ]
     };

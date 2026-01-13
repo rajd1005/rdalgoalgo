@@ -10,7 +10,13 @@ def get_defaults():
         "trailing_sl": 0,
         "sl_to_entry": 0,
         "order_type": "MARKET",
-        "exit_multiplier": 1
+        "exit_multiplier": 1,
+        # --- NEW FEATURES ---
+        "universal_exit_time": "15:25", # HH:MM (24h)
+        "max_loss": 0,       # 0 = Disabled. Positive value converted to negative limit.
+        "profit_lock": 0,    # 0 = Disabled. Profit amount to start monitoring.
+        "profit_min": 0,     # Amount to lock once profit_lock is reached.
+        "profit_trail": 0    # Trailing step for global profit.
     }
     
     return {

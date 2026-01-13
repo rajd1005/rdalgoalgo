@@ -21,9 +21,14 @@ function loadSettings() {
                 $(`#${k}_def_trail`).val(s.trailing_sl || 0);
                 $(`#${k}_order_type`).val(s.order_type || 'MARKET');
                 $(`#${k}_trail_limit`).val(s.sl_to_entry || 0);
-                
-                // Exit Multiplier
                 $(`#${k}_exit_mult`).val(s.exit_multiplier || 1);
+                
+                // --- NEW RISK SETTINGS ---
+                $(`#${k}_time`).val(s.universal_exit_time || "15:25");
+                $(`#${k}_max_loss`).val(s.max_loss || 0);
+                $(`#${k}_pl_start`).val(s.profit_lock || 0);
+                $(`#${k}_pl_min`).val(s.profit_min || 0);
+                $(`#${k}_pl_trail`).val(s.profit_trail || 0);
 
                 // Target Config
                 let tgts = s.targets || [
@@ -71,6 +76,13 @@ function saveSettings() {
         s.order_type = $(`#${k}_order_type`).val();
         s.sl_to_entry = parseInt($(`#${k}_trail_limit`).val()) || 0;
         s.exit_multiplier = parseInt($(`#${k}_exit_mult`).val()) || 1;
+        
+        // --- SAVE NEW RISK SETTINGS ---
+        s.universal_exit_time = $(`#${k}_time`).val();
+        s.max_loss = parseFloat($(`#${k}_max_loss`).val()) || 0;
+        s.profit_lock = parseFloat($(`#${k}_pl_start`).val()) || 0;
+        s.profit_min = parseFloat($(`#${k}_pl_min`).val()) || 0;
+        s.profit_trail = parseFloat($(`#${k}_pl_trail`).val()) || 0;
         
         // Save Target Configs
         s.targets = [

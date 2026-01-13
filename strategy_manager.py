@@ -386,7 +386,6 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         final_exit_price = 0.0
         
         # 3. Candle-by-Candle Simulation (INSTANT LOOP)
-        is_first_candle = True
         
         for candle in hist_data:
             c_time_obj = candle['date']
@@ -402,24 +401,13 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             
             # --- PHASE 1: ACTIVATION ---
             if status == "PENDING":
-                activated = False
-                
-                # Condition 1: Strict Hit
+                # STRICT TRIGGER: Price must touch Entry
                 if low <= entry_price <= high:
                     status = "OPEN"
-                    activated = True
                     logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
                     highest_ltp = max(entry_price, high)
-                
-                # Condition 2: Force Activate on First Candle (Gap Logic)
-                elif is_first_candle:
-                    status = "OPEN"
-                    activated = True
-                    logs.append(f"[{c_time}] 🚀 Order ACTIVATED (Gap/First) @ {open_p}")
-                    highest_ltp = max(open_p, high)
-                
-                is_first_candle = False
-                if not activated: continue
+                else:
+                    continue # Wait for next candle if not triggered
 
             # --- PHASE 2: SIMULATION (Risk Engine) ---
             if status == "OPEN":

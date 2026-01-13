@@ -1,3 +1,4 @@
+# strategy_manager.py
 import json
 import time
 from datetime import datetime, timedelta
@@ -352,7 +353,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     save_trades(trades)
     return {"status": "success", "trade": record}
 
-# --- IMPORT PAST TRADE LOGIC (INSTANT INTERNAL REPLAY) ---
+# --- IMPORT PAST TRADE LOGIC (TICK-BY-TICK SIMULATION) ---
 def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets, trailing_sl, sl_to_entry, exit_multiplier, target_controls):
     try:
         # 1. Parse Input & Initialize Data
@@ -360,16 +361,25 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         try: entry_time = IST.localize(entry_time)
         except: pass
 
+        # Get Universal Exit Time from Settings (default to PAPER setting)
+        try:
+            s_cfg = settings.load_settings()
+            exit_time_conf = s_cfg['modes']['PAPER'].get('universal_exit_time', "15:25")
+            exit_H, exit_M = map(int, exit_time_conf.split(':'))
+        except:
+            exit_H, exit_M = 15, 25
+
         now = datetime.now(IST)
         exchange = get_exchange(symbol)
         
         token = smart_trader.get_instrument_token(symbol, exchange)
         if not token: return {"status": "error", "message": "Symbol Token not found"}
         
+        # Fetch Data (Up to 'Now')
         hist_data = smart_trader.fetch_historical_data(kite, token, entry_time, now, "minute")
         if not hist_data: return {"status": "error", "message": "No historical data found"}
         
-        # 2. Determine Trigger Direction (Critical fix for Replay)
+        # Determine Trigger Direction
         first_open = hist_data[0]['open']
         trigger_dir = "ABOVE" if first_open < entry_price else "BELOW"
 
@@ -386,107 +396,116 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         exit_reason = ""
         final_exit_price = 0.0
         
-        # 3. Candle-by-Candle Simulation (INSTANT LOOP)
+        # 3. Candle-by-Candle Simulation (Interpolated Ticks)
+        # We break down each candle into 4 ticks: Open -> Low -> High -> Close (Order depends on candle color)
         for candle in hist_data:
-            c_time_obj = candle['date']
-            if hasattr(c_time_obj, 'strftime'):
-                c_time = c_time_obj.strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                c_time = str(c_time_obj)
-
-            high = candle['high']
-            low = candle['low']
-            close = candle['close']
-            open_p = candle['open']
+            c_date_str = candle['date'] # "YYYY-MM-DD HH:MM:SS"
             
-            # --- PHASE 1: ACTIVATION ---
-            if status == "PENDING":
-                activated = False
-                fill_price = entry_price
-                
-                # Logic: Check for CROSS (Trigger) or GAP (Jump)
-                if trigger_dir == "ABOVE":
-                    # Buy Stop Logic: Trigger if price goes ABOVE Entry
-                    if high >= entry_price:
-                        activated = True
-                        if low > entry_price: # Gap Up (Entire candle above entry)
-                             fill_price = open_p # Fill at Open (Slippage)
-                        else:
-                             fill_price = entry_price # Fill at Exact Entry
+            # --- Check Universal Time Exit ---
+            try:
+                c_dt = datetime.strptime(c_date_str, "%Y-%m-%d %H:%M:%S")
+                if c_dt.hour > exit_H or (c_dt.hour == exit_H and c_dt.minute >= exit_M):
+                    if status == "OPEN":
+                        final_status = "TIME_EXIT"
+                        exit_reason = "TIME_EXIT"
+                        final_exit_price = candle['open']
+                        logs.append(f"[{c_date_str}] ⏰ Universal Time Exit @ {final_exit_price}")
+                        current_qty = 0
+                        break
+            except: pass
 
-                elif trigger_dir == "BELOW":
-                    # Buy Limit/Dip Logic: Trigger if price goes BELOW Entry
-                    if low <= entry_price:
-                        activated = True
-                        if high < entry_price: # Gap Down (Entire candle below entry)
-                            fill_price = open_p # Fill at Open (Better Price)
-                        else:
-                            fill_price = entry_price # Fill at Exact Entry
-                
-                if activated:
-                    status = "OPEN"
-                    logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {fill_price}")
-                    highest_ltp = max(fill_price, high)
-                else:
-                    continue # Skip Phase 2 if not activated in this candle
+            O, H, L, C = candle['open'], candle['high'], candle['low'], candle['close']
+            
+            # Construct Tick Sequence
+            # Green Candle: Open -> Low -> High -> Close
+            # Red Candle:   Open -> High -> Low -> Close
+            if C >= O:
+                ticks = [O, L, H, C]
+            else:
+                ticks = [O, H, L, C]
 
-            # --- PHASE 2: SIMULATION (Risk Engine) ---
-            if status == "OPEN":
-                t_sl = float(trailing_sl) if trailing_sl else 0
+            # Process Each Tick
+            for ltp in ticks:
                 
-                # A. Trailing Logic
-                if high > highest_ltp: 
-                    highest_ltp = high
-                    if t_sl > 0:
-                        step = t_sl
-                        diff = highest_ltp - (current_sl + step)
-                        if diff >= step:
-                            steps_to_move = int(diff / step)
-                            new_sl = current_sl + (steps_to_move * step)
-                            
-                            limit_val = float('inf')
-                            mode = int(sl_to_entry)
-                            if mode == 1: limit_val = entry_price
-                            elif mode == 2 and len(t_list)>0: limit_val = t_list[0]
-                            elif mode == 3 and len(t_list)>1: limit_val = t_list[1]
-                            elif mode == 4 and len(t_list)>2: limit_val = t_list[2]
-                            
-                            if mode > 0: new_sl = min(new_sl, limit_val)
-                            
-                            if new_sl > current_sl:
-                                logs.append(f"[{c_time}] 📈 Trailing SL Moved: {current_sl:.2f} -> {new_sl:.2f} (High: {high})")
-                                current_sl = new_sl
+                # --- PHASE 1: ACTIVATION ---
+                if status == "PENDING":
+                    activated = False
+                    if trigger_dir == "ABOVE" and ltp >= entry_price: activated = True
+                    elif trigger_dir == "BELOW" and ltp <= entry_price: activated = True
+                    
+                    if activated:
+                        status = "OPEN"
+                        # NO GAP HANDLING: Always fill at Entry Price
+                        fill_price = entry_price 
+                        
+                        highest_ltp = max(fill_price, ltp) 
+                        logs.append(f"[{c_date_str}] 🚀 Order ACTIVATED @ {fill_price}")
+                        continue # Continue to next tick as OPEN trade
 
-                # B. Check SL
-                if low <= current_sl:
-                    final_status = "SL_HIT"
-                    exit_reason = "SL_HIT"
-                    final_exit_price = current_sl
-                    logs.append(f"[{c_time}] 🛑 SL Hit at {current_sl}. Exited remaining {current_qty} Qty.")
-                    current_qty = 0
-                    break 
+                # --- PHASE 2: SIMULATION (Risk Engine) ---
+                if status == "OPEN":
+                    # A. Trailing Logic (Update SL based on Peak)
+                    if ltp > highest_ltp:
+                        highest_ltp = ltp
+                        t_sl = float(trailing_sl) if trailing_sl else 0
+                        if t_sl > 0:
+                            step = t_sl
+                            diff = highest_ltp - (current_sl + step)
+                            if diff >= step:
+                                steps_to_move = int(diff / step)
+                                new_sl = current_sl + (steps_to_move * step)
+                                
+                                # Trailing Limits
+                                limit_val = float('inf')
+                                mode = int(sl_to_entry)
+                                if mode == 1: limit_val = entry_price
+                                elif mode == 2 and len(t_list)>0: limit_val = t_list[0]
+                                elif mode == 3 and len(t_list)>1: limit_val = t_list[1]
+                                elif mode == 4 and len(t_list)>2: limit_val = t_list[2]
+                                
+                                if mode > 0: new_sl = min(new_sl, limit_val)
+                                
+                                if new_sl > current_sl:
+                                    current_sl = new_sl
+                                    logs.append(f"[{c_date_str}] 📈 Trailing SL Moved: {current_sl:.2f} (LTP: {ltp})")
 
-                # C. Check Targets
-                for i, tgt in enumerate(t_list):
-                    if i in targets_hit_indices: continue 
-                    if high >= tgt:
-                        targets_hit_indices.append(i)
-                        conf = target_controls[i]
-                        if conf['enabled']:
-                            lot_size = smart_trader.get_lot_size(symbol)
-                            exit_qty = conf['lots'] * lot_size
-                            if exit_qty >= current_qty:
-                                final_status = "TARGET_HIT"
-                                exit_reason = f"TARGET_{i+1}_HIT"
-                                final_exit_price = tgt
-                                logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Full Exit {current_qty} Qty.")
-                                current_qty = 0
-                                break 
-                            else:
-                                current_qty -= exit_qty
-                                logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Remaining: {current_qty}")
-                
-                if current_qty == 0: break 
+                    # B. Check SL
+                    if ltp <= current_sl:
+                        final_status = "SL_HIT"
+                        exit_reason = "SL_HIT"
+                        final_exit_price = current_sl
+                        logs.append(f"[{c_date_str}] 🛑 SL Hit @ {current_sl}. Exited {current_qty} Qty.")
+                        current_qty = 0
+                        break # Break Tick Loop
+
+                    # C. Check Targets
+                    for i, tgt in enumerate(t_list):
+                        if i in targets_hit_indices: continue 
+                        if ltp >= tgt:
+                            targets_hit_indices.append(i)
+                            conf = target_controls[i]
+                            if conf['enabled']:
+                                lot_size = smart_trader.get_lot_size(symbol)
+                                exit_qty = conf['lots'] * lot_size
+                                
+                                if exit_qty >= current_qty or exit_qty >= 1000: # 1000 is "Full Exit" flag
+                                    final_status = "TARGET_HIT"
+                                    exit_reason = f"TARGET_{i+1}_HIT"
+                                    final_exit_price = tgt
+                                    logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit ({tgt}). Full Exit.")
+                                    current_qty = 0
+                                    break 
+                                else:
+                                    current_qty -= exit_qty
+                                    logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Rem: {current_qty}")
+                    
+                    if current_qty == 0:
+                         if final_status == "PENDING": final_status = "TARGET_HIT"
+                         if not exit_reason: exit_reason = "TARGET_HIT"
+                         final_exit_price = ltp
+                         break # Break Tick Loop
+
+            if current_qty == 0: break # Break Candle Loop
 
         # 4. Finalize & Save
         current_ltp = entry_price
@@ -515,7 +534,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 "targets_hit_indices": targets_hit_indices, 
                 "highest_ltp": highest_ltp, "made_high": highest_ltp, 
                 "current_ltp": current_ltp, 
-                "trigger_dir": trigger_dir,  # Correctly calculated direction
+                "trigger_dir": trigger_dir,
                 "logs": logs
             }
             trades = load_trades()
@@ -524,7 +543,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             return {"status": "success", "message": f"Simulation Complete. Trade Still Active as {final_status}."}
             
         else:
-            # CLOSED - Append final log
+            # CLOSED - Append final log if missing
             last_time = logs[-1].split(']')[0].replace('[', '')
             pnl_calc = (final_exit_price - entry_price) * qty
             if "Closed:" not in logs[-1]:

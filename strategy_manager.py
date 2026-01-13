@@ -5,8 +5,16 @@ import pandas as pd
 import pytz
 from database import db, ActiveTrade, TradeHistory
 import smart_trader 
+import settings
 
 IST = pytz.timezone('Asia/Kolkata')
+
+# Global State for Profit Trailing
+# Format: {'LIVE': {'high': -inf, 'sl': -inf}, 'PAPER': ...}
+GLOBAL_RISK_STATE = {
+    'LIVE': {'high_pnl': float('-inf'), 'global_sl': float('-inf'), 'active': False},
+    'PAPER': {'high_pnl': float('-inf'), 'global_sl': float('-inf'), 'active': False}
+}
 
 def load_trades():
     try:
@@ -220,6 +228,135 @@ def get_exchange(symbol):
     if symbol.endswith("CE") or symbol.endswith("PE") or "FUT" in symbol: return "NFO"
     return "NSE"
 
+def get_day_pnl(mode):
+    """Calculates Total P&L (Active + Closed) for today"""
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    total = 0.0
+    
+    # 1. Closed Trades
+    history = load_history()
+    for t in history:
+        if t['exit_time'].startswith(today_str) and t['mode'] == mode:
+            total += t.get('pnl', 0)
+            
+    # 2. Active Trades (Unrealized)
+    active = load_trades()
+    for t in active:
+        if t['mode'] == mode and t['status'] != 'PENDING':
+            qty = t['quantity']
+            ent = t['entry_price']
+            cur = t.get('current_ltp', ent)
+            total += (cur - ent) * qty
+            
+    return total
+
+def panic_exit_all(kite):
+    """Closes ALL positions immediately (Paper & Live)"""
+    trades = load_trades()
+    if not trades: return True
+    
+    print(f"🚨 PANIC MODE TRIGGERED: Closing {len(trades)} positions.")
+    for t in trades:
+        if t['mode'] == "LIVE" and t['status'] != 'PENDING':
+            manage_broker_sl(kite, t, cancel_completely=True)
+            try: 
+                kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+            except Exception as e:
+                print(f"Panic Broker Fail {t['symbol']}: {e}")
+        
+        move_to_history(t, "PANIC_EXIT", t.get('current_ltp', t['entry_price']))
+    
+    save_trades([]) # Clear Active DB
+    return True
+
+def check_global_exit_conditions(kite, mode, mode_settings):
+    """Checks Universal Time and Global Profit Lock Logic"""
+    now = datetime.now(IST)
+    
+    # 1. Universal Square Off Time
+    exit_time_str = mode_settings.get('universal_exit_time', "15:25")
+    try:
+        exit_dt = datetime.strptime(exit_time_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+        exit_dt = IST.localize(exit_dt.replace(tzinfo=None)) # Adjust TZ
+        
+        # If time passed within last minute, trigger exit
+        if now >= exit_dt and (now - exit_dt).seconds < 120:
+             # Check if we have active trades for this mode
+             trades = load_trades()
+             active_mode = [t for t in trades if t['mode'] == mode]
+             if active_mode:
+                 print(f"⏰ Universal Square Off Triggered for {mode} at {now}")
+                 for t in active_mode:
+                     if t['mode'] == "LIVE" and t['status'] != 'PENDING':
+                        manage_broker_sl(kite, t, cancel_completely=True)
+                        try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                        except: pass
+                     move_to_history(t, "TIME_EXIT", t.get('current_ltp', 0))
+                 
+                 # Save remaining (non-mode) trades back
+                 remaining = [t for t in trades if t['mode'] != mode]
+                 save_trades(remaining)
+                 return
+    except Exception as e:
+        print(f"Time Check Error: {e}")
+
+    # 2. Global Profit Locking & Trailing
+    pnl_start = float(mode_settings.get('profit_lock', 0))
+    if pnl_start > 0:
+        current_total_pnl = get_day_pnl(mode)
+        state = GLOBAL_RISK_STATE[mode]
+        
+        # Initialize or Reset if new day (logic simplified for runtime)
+        if not state['active'] and current_total_pnl >= pnl_start:
+            state['active'] = True
+            state['high_pnl'] = current_total_pnl
+            state['global_sl'] = float(mode_settings.get('profit_min', 0))
+            print(f"🔒 Global Profit Lock Activated for {mode}. PnL: {current_total_pnl}, Locked at: {state['global_sl']}")
+        
+        if state['active']:
+            # Trail Logic
+            if current_total_pnl > state['high_pnl']:
+                diff = current_total_pnl - state['high_pnl']
+                trail_step = float(mode_settings.get('profit_trail', 0))
+                
+                if trail_step > 0 and diff >= trail_step:
+                     steps = int(diff / trail_step)
+                     state['global_sl'] += (steps * trail_step)
+                     state['high_pnl'] = current_total_pnl
+                     print(f"📈 Global Profit Trailed for {mode}. New Lock: {state['global_sl']}")
+            
+            # Hit Logic
+            if current_total_pnl <= state['global_sl']:
+                print(f"📉 Global Profit Lock HIT for {mode}. Exiting All.")
+                trades = load_trades()
+                active_mode = [t for t in trades if t['mode'] == mode]
+                for t in active_mode:
+                     if t['mode'] == "LIVE" and t['status'] != 'PENDING':
+                        manage_broker_sl(kite, t, cancel_completely=True)
+                        try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                        except: pass
+                     move_to_history(t, "PROFIT_LOCK", t.get('current_ltp', 0))
+                
+                remaining = [t for t in trades if t['mode'] != mode]
+                save_trades(remaining)
+                state['active'] = False # Reset
+
+def can_place_order(mode):
+    """Checks Max Daily Loss Limit"""
+    current_settings = settings.load_settings()
+    mode_conf = current_settings['modes'][mode]
+    max_loss_limit = float(mode_conf.get('max_loss', 0))
+    
+    if max_loss_limit > 0:
+        # Convert positive input to negative limit
+        limit = -abs(max_loss_limit)
+        current_pnl = get_day_pnl(mode)
+        
+        if current_pnl <= limit:
+            return False, f"Max Daily Loss Reached ({current_pnl:.2f} <= {limit})"
+            
+    return True, "OK"
+
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1):
     trades = load_trades()
     
@@ -325,19 +462,10 @@ def close_trade_manual(kite, trade_id):
     return found
 
 def update_risk_engine(kite):
-    now = datetime.now(IST)
-    # Auto Squareoff Time
-    if now.hour == 15 and now.minute >= 25: 
-        trades = load_trades()
-        if trades:
-            for t in trades:
-                if t['mode'] == "LIVE" and t['status'] != 'PENDING':
-                    manage_broker_sl(kite, t, cancel_completely=True)
-                    try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
-                    except: pass
-                move_to_history(t, "AUTO_SQUAREOFF", t.get('current_ltp', 0))
-            save_trades([])
-        return
+    # --- GLOBAL CHECKS (TIME, PROFIT LOCK) ---
+    current_settings = settings.load_settings()
+    check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
+    check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
 
     active_trades = load_trades()
     if not active_trades: return # Save resources if no trades

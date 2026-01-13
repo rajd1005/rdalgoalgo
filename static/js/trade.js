@@ -2,44 +2,72 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
     let s = $(symId).val(); if(!s) return;
     
     let settingsKey = normalizeSymbol(s);
-    let mode = 'PAPER';
+    let mode = 'PAPER'; // Default
+    
+    // Determine context
     if (symId === '#h_sym' || $('#history').is(':visible')) mode = 'SIMULATOR'; 
+    else if (symId === '#imp_sym') mode = 'PAPER'; // FORCE PAPER FOR IMPORT
     else mode = $('#mode_input').val();
     
     let modeSettings = settings.modes[mode] || settings.modes.PAPER;
-    let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
-    $(slId).val(savedSL);
     
-    // Apply Defaults (Targets, Trailing, Order Type, Trail Limit)
+    // Auto-fill SL if field exists
+    if(slId) {
+        let savedSL = (modeSettings.symbol_sl && modeSettings.symbol_sl[settingsKey]) || 20;
+        $(slId).val(savedSL);
+    }
+    
+    // Auto-fill Settings (Trailing, Order Type, Exit Mult)
     if(mode === 'SIMULATOR') {
-        // Handled in simulator.js or separate function
+        // Simulator specific logic if any
     } else {
-        $('#trail_sl').val(modeSettings.trailing_sl || '');
+        let prefix = (symId === '#imp_sym') ? '#imp_' : '#'; // Detect import modal prefix
+        let trailVal = modeSettings.trailing_sl || '';
         
-        // New: Apply Order Type and Trail Limit Defaults
-        $('#ord').val(modeSettings.order_type || 'MARKET').trigger('change');
-        $('select[name="sl_to_entry"]').val(modeSettings.sl_to_entry || 0);
-        $('#exit_mult').val(modeSettings.exit_multiplier || 1);
-        
-        if(modeSettings.targets) {
-            ['t1', 't2', 't3'].forEach((k, i) => {
-                let conf = modeSettings.targets[i];
-                $(`#${k}_active`).prop('checked', conf.active);
-                $(`#${k}_full`).prop('checked', conf.full);
-                if(conf.full) $(`#${k}_lots`).val(1000);
-                else $(`#${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
-            });
+        // Handle Prefixing for shared IDs or unique Import IDs
+        if(prefix === '#imp_') {
+             $('#imp_trail_sl').val(trailVal);
+             $('#imp_trail_limit').val(modeSettings.sl_to_entry || 0);
+             $('#imp_exit_mult').val(modeSettings.exit_multiplier || 1);
+             
+             // Populate Import Target Controls (Active/Full/Lots)
+             if(modeSettings.targets) {
+                ['t1', 't2', 't3'].forEach((k, i) => {
+                    let conf = modeSettings.targets[i];
+                    $(`#imp_${k}_active`).prop('checked', conf.active);
+                    $(`#imp_${k}_full`).prop('checked', conf.full);
+                    if(conf.full) $(`#imp_${k}_lots`).val(1000);
+                    else $(`#imp_${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
+                });
+             }
+        } else {
+             // Standard Trade Tab
+             $('#trail_sl').val(trailVal);
+             $('#ord').val(modeSettings.order_type || 'MARKET').trigger('change');
+             $('select[name="sl_to_entry"]').val(modeSettings.sl_to_entry || 0);
+             $('#exit_mult').val(modeSettings.exit_multiplier || 1);
+             
+             if(modeSettings.targets) {
+                ['t1', 't2', 't3'].forEach((k, i) => {
+                    let conf = modeSettings.targets[i];
+                    $(`#${k}_active`).prop('checked', conf.active);
+                    $(`#${k}_full`).prop('checked', conf.full);
+                    if(conf.full) $(`#${k}_lots`).val(1000);
+                    else $(`#${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
+                });
+             }
         }
     }
     
     if(mode === 'SIMULATOR') calcSimSL('pts'); 
-    else calcRisk();
+    else if (symId !== '#imp_sym') calcRisk(); // Only calc risk on main tab immediately
 
     $.get('/api/details?symbol='+s, d => { 
         symLTP[symId] = d.ltp; 
         if(d.lot_size > 0) {
             curLotSize = d.lot_size;
-            $('#lot').text(curLotSize); 
+            if(symId !== '#imp_sym') $('#lot').text(curLotSize); 
+            
             let mult = parseInt(modeSettings.qty_mult) || 1;
             $(qtyId).val(curLotSize * mult).attr('step', curLotSize).attr('min', curLotSize);
         }
@@ -50,7 +78,7 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
             fillExp(expId, typeSelector, symId);
         } else {
             $(expId).empty();
-            let strId = (expId === '#exp') ? '#str' : '#h_str';
+            let strId = (expId === '#exp') ? '#str' : (expId === '#imp_exp' ? '#imp_str' : '#h_str');
             $(strId).empty().append('<option>Select Type First</option>');
         }
     });
@@ -71,6 +99,7 @@ function fillExp(expId, typeSelector, symId) {
     let $e = $(expId).empty(); if(l) l.forEach(d => $e.append(`<option value="${d}">${d}</option>`)); 
     if(expId === '#exp') fillChain('#sym', '#exp', 'input[name="type"]:checked', '#str');
     if(expId === '#h_exp') fillChain('#h_sym', '#h_exp', 'input[name="h_type"]:checked', '#h_str');
+    if(expId === '#imp_exp') fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str');
 }
 
 function fillChain(sym, exp, typeSelector, str) {
@@ -78,7 +107,7 @@ function fillChain(sym, exp, typeSelector, str) {
     $.get(`/api/chain?symbol=${sVal}&expiry=${$(exp).val()}&type=${$(typeSelector).val()}&ltp=${spot}`, d => {
         let $s = $(str).empty(); 
         d.forEach(r => { let mark = r.label.includes('ATM') ? '🔴' : ''; let style = r.label.includes('ATM') ? 'style="color:red; font-weight:bold;"' : ''; let selected = r.label.includes('ATM') ? 'selected' : ''; $s.append(`<option value="${r.strike}" ${selected} ${style}>${mark} ${r.strike} ${r.label}</option>`); });
-        if(str === '#str') fetchLTP();
+        // For import modal, we might want to trigger a price fetch or risk calc here
     });
 }
 
@@ -136,10 +165,9 @@ function calcRisk() {
     }
     $('#pnl_sl').text(`₹ ${((sl-basePrice)*qty).toFixed(0)}`);
 
-    // Handle Full Checkbox Logic (Auto-set 1000 lots)
     ['t1', 't2', 't3'].forEach(k => {
         if ($(`#${k}_full`).is(':checked')) {
-            $(`#${k}_lots`).val(1000).prop('readonly', true); // Visual feedback
+            $(`#${k}_lots`).val(1000).prop('readonly', true);
         } else {
             $(`#${k}_lots`).prop('readonly', false);
         }

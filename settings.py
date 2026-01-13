@@ -11,12 +11,11 @@ def get_defaults():
         "sl_to_entry": 0,
         "order_type": "MARKET",
         "exit_multiplier": 1,
-        # --- NEW FEATURES ---
-        "universal_exit_time": "15:25", # HH:MM (24h)
-        "max_loss": 0,       # 0 = Disabled. Positive value converted to negative limit.
-        "profit_lock": 0,    # 0 = Disabled. Profit amount to start monitoring.
-        "profit_min": 0,     # Amount to lock once profit_lock is reached.
-        "profit_trail": 0    # Trailing step for global profit.
+        "universal_exit_time": "15:25", 
+        "max_loss": 0,       
+        "profit_lock": 0,    
+        "profit_min": 0,     
+        "profit_trail": 0    
     }
     
     return {
@@ -25,6 +24,11 @@ def get_defaults():
         "modes": {
             "LIVE": default_mode_settings.copy(),
             "PAPER": default_mode_settings.copy()
+        },
+        # --- NEW IMPORT CONFIG ---
+        "import_config": {
+            "enable_history_check": True,
+            "default_interval": "minute"
         }
     }
 
@@ -35,9 +39,8 @@ def load_settings():
         if setting:
             saved = json.loads(setting.data)
             
-            # Integrity Check & Migration
+            # Integrity Check
             if "modes" not in saved:
-                # Migrate old format
                 old_mult = saved.get("qty_mult", 1)
                 old_ratios = saved.get("ratios", [0.5, 1.0, 1.5])
                 old_sl = saved.get("symbol_sl", {})
@@ -46,27 +49,22 @@ def load_settings():
                     "PAPER": {"qty_mult": old_mult, "ratios": old_ratios, "symbol_sl": old_sl.copy()}
                 }
 
-            # Ensure all keys exist
+            # Merge Defaults
             for m in ["LIVE", "PAPER"]:
                 if m in saved["modes"]:
-                    # Default missing keys
                     for key, val in defaults["modes"][m].items():
-                        if key not in saved["modes"][m]:
-                            saved["modes"][m][key] = val
-                            
-                    # Preserve sub-dictionaries if they exist
-                    if "symbol_sl" not in saved["modes"][m]:
-                         saved["modes"][m]["symbol_sl"] = {}
-                else:
-                    saved["modes"][m] = defaults["modes"][m].copy()
+                        if key not in saved["modes"][m]: saved["modes"][m][key] = val
+                    if "symbol_sl" not in saved["modes"][m]: saved["modes"][m]["symbol_sl"] = {}
+                else: saved["modes"][m] = defaults["modes"][m].copy()
 
             if "exchanges" not in saved: saved["exchanges"] = defaults["exchanges"]
             if "watchlist" not in saved: saved["watchlist"] = []
+            
+            # Merge Import Config
+            if "import_config" not in saved: saved["import_config"] = defaults["import_config"]
 
             return saved
-    except Exception as e:
-        print(f"Error loading settings: {e}")
-    
+    except Exception as e: print(f"Error loading settings: {e}")
     return defaults
 
 def save_settings_file(data):
@@ -75,8 +73,7 @@ def save_settings_file(data):
         if not setting:
             setting = AppSetting(data=json.dumps(data))
             db.session.add(setting)
-        else:
-            setting.data = json.dumps(data)
+        else: setting.data = json.dumps(data)
         db.session.commit()
         return True
     except Exception as e:

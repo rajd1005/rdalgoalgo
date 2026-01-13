@@ -352,7 +352,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     save_trades(trades)
     return {"status": "success", "trade": record}
 
-# --- IMPORT PAST TRADE LOGIC (FULL SIMULATION) ---
+# --- IMPORT PAST TRADE LOGIC (FINAL SIMULATION ENGINE) ---
 def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets, trailing_sl, sl_to_entry, exit_multiplier, target_controls):
     try:
         # 1. Parse Input & Initialize Data
@@ -383,7 +383,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         
         # 3. Candle-by-Candle Simulation
         for candle in hist_data:
-            c_time = candle['date'].strftime('%Y-%m-%d %H:%M:00') # Ensure Clean Seconds
+            c_time = candle['date'].strftime('%Y-%m-%d %H:%M:%S') # Exact chart timestamp
             high = candle['high']
             low = candle['low']
             close = candle['close']
@@ -396,18 +396,43 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                     final_status = "OPEN"
                     # LOG 2: Order Activated with CHART Time
                     logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
-                    # Initialize highest_ltp
+                    # Initialize highest_ltp tracking
                     highest_ltp = max(entry_price, high)
-                    # Continue to process this SAME candle for risks
+                    # Proceed to risk check in same candle? Yes, technically if we activated at open, low could hit SL.
+                    # But if we assume activation happens "during" the candle, extreme values might trigger instantly.
+                    # For safety, we allow it.
                 else:
-                    continue # Skip risk checks if not active yet
+                    continue 
 
             # --- PHASE 2: SIMULATION (Risk Engine) ---
             if status == "OPEN":
-                # Update Highest LTP for Trailing
-                if high > highest_ltp: highest_ltp = high
+                # A. Trailing Logic (Update Highest Point)
+                if high > highest_ltp: 
+                    highest_ltp = high
+                    
+                    if trailing_sl > 0:
+                        step = float(trailing_sl)
+                        diff = highest_ltp - (current_sl + step)
+                        
+                        if diff >= step:
+                            steps_to_move = int(diff / step)
+                            new_sl = current_sl + (steps_to_move * step)
+                            
+                            # Limit Logic (sl_to_entry)
+                            limit_val = float('inf')
+                            mode = int(sl_to_entry)
+                            if mode == 1: limit_val = entry_price
+                            elif mode == 2 and len(t_list)>0: limit_val = t_list[0]
+                            elif mode == 3 and len(t_list)>1: limit_val = t_list[1]
+                            elif mode == 4 and len(t_list)>2: limit_val = t_list[2]
+                            
+                            if mode > 0: new_sl = min(new_sl, limit_val)
+                            
+                            if new_sl > current_sl:
+                                logs.append(f"[{c_time}] 📈 Trailing SL Moved: {current_sl:.2f} -> {new_sl:.2f} (High: {high})")
+                                current_sl = new_sl
 
-                # A. Check SL Hit (Priority: Low Trigger)
+                # B. Check SL Hit (Priority: Low Trigger - Conservative)
                 if low <= current_sl:
                     final_status = "SL_HIT"
                     exit_reason = "SL_HIT"
@@ -416,7 +441,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                     current_qty = 0
                     break 
 
-                # B. Check Targets (Priority: High Trigger)
+                # C. Check Targets (Priority: High Trigger)
                 for i, tgt in enumerate(t_list):
                     if i in targets_hit_indices: continue 
                     
@@ -442,33 +467,9 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 
                 if current_qty == 0: break 
 
-                # C. Trailing SL Logic (Using High)
-                if trailing_sl > 0:
-                    step = float(trailing_sl)
-                    diff = highest_ltp - (current_sl + step)
-                    
-                    if diff >= step:
-                        steps_to_move = int(diff / step)
-                        new_sl = current_sl + (steps_to_move * step)
-                        
-                        # Apply Limit Logic
-                        limit_val = float('inf')
-                        mode = int(sl_to_entry)
-                        if mode == 1: limit_val = entry_price
-                        elif mode == 2 and len(t_list)>0: limit_val = t_list[0]
-                        elif mode == 3 and len(t_list)>1: limit_val = t_list[1]
-                        elif mode == 4 and len(t_list)>2: limit_val = t_list[2]
-                        
-                        if mode > 0: new_sl = min(new_sl, limit_val)
-                        
-                        if new_sl > current_sl:
-                            logs.append(f"[{c_time}] 📈 Trailing SL Moved: {current_sl:.2f} -> {new_sl:.2f} (High: {high})")
-                            current_sl = new_sl
-
         # 4. Finalize & Save
         current_ltp = entry_price
         if final_status in ["OPEN", "PENDING"]:
-            # If still open or pending, use last known close or live
             try: 
                 q = kite.quote(f"{exchange}:{symbol}")
                 current_ltp = q[f"{exchange}:{symbol}"]['last_price']
@@ -476,7 +477,6 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 if hist_data: current_ltp = hist_data[-1]['close']
             
             record_status = final_status
-            
             record = {
                 "id": int(time.time()), 
                 "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
@@ -495,17 +495,18 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 "current_ltp": current_ltp, "trigger_dir": "BELOW", 
                 "logs": logs
             }
-
             trades = load_trades()
             trades.append(record)
             save_trades(trades)
             return {"status": "success", "message": f"Trade Imported as {record_status} (Paper)."}
             
         else:
-            # Trade Closed in history - append final closed log with CHART time
-            last_log_time = logs[-1].split(']')[0].replace('[', '') # Get last log time
+            # CLOSED - Append final log
+            last_time = logs[-1].split(']')[0].replace('[', '')
             pnl_calc = (final_exit_price - entry_price) * qty
-            logs.append(f"[{last_log_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {pnl_calc:.2f}")
+            # Avoid duplicate log if simulation loop just added it
+            if "Closed:" not in logs[-1]:
+                logs.append(f"[{last_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {pnl_calc:.2f}")
 
             record = {
                 "id": int(time.time()), 
@@ -513,7 +514,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 "symbol": symbol, "exchange": exchange,
                 "mode": "PAPER", 
                 "order_type": "MARKET", "status": final_status, 
-                "entry_price": entry_price, "quantity": qty,
+                "entry_price": entry_price, "quantity": qty, # Initial qty for history
                 "sl": current_sl, "targets": t_list, 
                 "target_controls": target_controls,
                 "lot_size": smart_trader.get_lot_size(symbol), 

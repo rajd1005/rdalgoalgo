@@ -370,8 +370,6 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         if not hist_data: return {"status": "error", "message": "No historical data found"}
         
         # 2. Determine Trigger Direction (Critical fix for Replay)
-        # If First Candle is BELOW Entry, we expect breakout UP (ABOVE)
-        # If First Candle is ABOVE Entry, we expect breakout DOWN (BELOW)
         first_open = hist_data[0]['open']
         trigger_dir = "ABOVE" if first_open < entry_price else "BELOW"
 
@@ -399,16 +397,38 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             high = candle['high']
             low = candle['low']
             close = candle['close']
+            open_p = candle['open']
             
             # --- PHASE 1: ACTIVATION ---
             if status == "PENDING":
-                # Strict Price Touch Condition
-                if low <= entry_price <= high:
+                activated = False
+                fill_price = entry_price
+                
+                # Logic: Check for CROSS (Trigger) or GAP (Jump)
+                if trigger_dir == "ABOVE":
+                    # Buy Stop Logic: Trigger if price goes ABOVE Entry
+                    if high >= entry_price:
+                        activated = True
+                        if low > entry_price: # Gap Up (Entire candle above entry)
+                             fill_price = open_p # Fill at Open (Slippage)
+                        else:
+                             fill_price = entry_price # Fill at Exact Entry
+
+                elif trigger_dir == "BELOW":
+                    # Buy Limit/Dip Logic: Trigger if price goes BELOW Entry
+                    if low <= entry_price:
+                        activated = True
+                        if high < entry_price: # Gap Down (Entire candle below entry)
+                            fill_price = open_p # Fill at Open (Better Price)
+                        else:
+                            fill_price = entry_price # Fill at Exact Entry
+                
+                if activated:
                     status = "OPEN"
-                    logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
-                    highest_ltp = max(entry_price, high)
+                    logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {fill_price}")
+                    highest_ltp = max(fill_price, high)
                 else:
-                    continue 
+                    continue # Skip Phase 2 if not activated in this candle
 
             # --- PHASE 2: SIMULATION (Risk Engine) ---
             if status == "OPEN":

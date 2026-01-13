@@ -69,18 +69,24 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
             old_sl = t['sl']
             entry_msg = ""
             
+            # [UPDATED] Prevent Entry Price Update if Trade is Active
             if entry_price is not None:
-                new_entry = float(entry_price)
-                if new_entry != t['entry_price']:
-                    t['entry_price'] = new_entry
-                    entry_msg = f" | Entry Updated"
+                # Only allow updating Entry Price if the order is still PENDING
+                if t['status'] == 'PENDING':
+                    new_entry = float(entry_price)
+                    if new_entry != t['entry_price']:
+                        t['entry_price'] = new_entry
+                        entry_msg = f" | Entry Updated to {new_entry}"
+                else:
+                    # Ignore entry update for active trades to prevent P&L corruption
+                    pass
             
             t['sl'] = float(sl)
             t['trailing_sl'] = float(trailing_sl) if trailing_sl else 0
             t['sl_to_entry'] = int(sl_to_entry)
             t['exit_multiplier'] = int(exit_multiplier) 
             
-            # Update Broker SL
+            # Update Broker SL Order if SL Price Changed
             if t['mode'] == 'LIVE' and t.get('sl_order_id'):
                 try:
                     kite.modify_order(
@@ -123,7 +129,7 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
                 t['targets'] = [float(x) for x in targets]
                 if target_controls: t['target_controls'] = target_controls
             
-            log_event(t, f"Manual Update: SL {t['sl']}{entry_msg}. Multiplier: {exit_multiplier}x")
+            log_event(t, f"Manual Update: SL {t['sl']}{entry_msg}. Trailing: {t['trailing_sl']} pts. Multiplier: {exit_multiplier}x")
             updated = True
             break
             

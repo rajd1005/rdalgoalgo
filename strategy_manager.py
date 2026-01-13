@@ -374,7 +374,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         targets_hit_indices = []
         t_list = [float(x) for x in targets]
         
-        # LOG 1: Trade Added (User specified time)
+        # LOG 1: Trade Added with CHART/INPUT time (User-provided)
         logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Trade Added (Pending). Waiting for Entry: {entry_price}"]
         
         final_status = "PENDING"
@@ -383,7 +383,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         
         # 3. Candle-by-Candle Simulation
         for candle in hist_data:
-            c_time = candle['date'].strftime('%Y-%m-%d %H:%M')
+            c_time = candle['date'].strftime('%Y-%m-%d %H:%M:%S')
             high = candle['high']
             low = candle['low']
             close = candle['close']
@@ -394,8 +394,10 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 if low <= entry_price <= high:
                     status = "OPEN"
                     final_status = "OPEN"
-                    # LOG 2: Order Activated (Chart Time)
+                    # LOG 2: Order Activated with CHART time
                     logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
+                    # Initialize highest_ltp tracking from entry or this candle's high
+                    highest_ltp = max(entry_price, high)
                     # Continue to process this SAME candle for risks (Intraday volatility)
                 else:
                     continue # Skip risk checks if not active yet
@@ -500,14 +502,17 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             return {"status": "success", "message": f"Trade Imported as {record_status} (Paper)."}
             
         else:
-            # Trade Closed in history
+            # Manually Add "Closed" Log with CHART time to avoid system time overwrite
+            pnl_val = (final_exit_price - entry_price) * qty
+            logs.append(f"[{c_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {pnl_val:.2f}")
+            
             record = {
                 "id": int(time.time()), 
                 "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
                 "symbol": symbol, "exchange": exchange,
                 "mode": "PAPER", 
                 "order_type": "MARKET", "status": final_status, 
-                "entry_price": entry_price, "quantity": qty, # Original qty for history log
+                "entry_price": entry_price, "quantity": qty, # Restore original qty for history list logic
                 "sl": current_sl, "targets": t_list, 
                 "target_controls": target_controls,
                 "lot_size": smart_trader.get_lot_size(symbol), 
@@ -518,7 +523,13 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 "current_ltp": final_exit_price, "trigger_dir": "BELOW", 
                 "logs": logs
             }
-            move_to_history(record, exit_reason, final_exit_price)
+            
+            # Save directly to history to preserve logs
+            try:
+                db.session.merge(TradeHistory(id=record['id'], data=json.dumps(record)))
+                db.session.commit()
+            except: db.session.rollback()
+            
             return {"status": "success", "message": f"Trade Imported as Closed. Result: {exit_reason} @ {final_exit_price}"}
 
     except Exception as e: return {"status": "error", "message": str(e)}

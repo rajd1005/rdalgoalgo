@@ -230,8 +230,9 @@ def place_trade():
         for i in range(1, 4):
             enabled = request.form.get(f't{i}_active') == 'on'
             lots = int(request.form.get(f't{i}_lots') or 0)
+            trail_cost = request.form.get(f't{i}_cost') == 'on' # NEW
             if i == 3 and lots == 0: lots = 1000
-            target_controls.append({'enabled': enabled, 'lots': lots})
+            target_controls.append({'enabled': enabled, 'lots': lots, 'trail_to_entry': trail_cost})
         
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
         if not final_sym: return redirect('/')

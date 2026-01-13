@@ -376,24 +376,37 @@ def update_risk_engine(kite):
         if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
             t['highest_ltp'] = max(t.get('highest_ltp', 0), ltp); t['made_high'] = t['highest_ltp']
             
-            # TRAILING SL
+            # --- STEP TRAILING SL LOGIC ---
             if t.get('trailing_sl', 0) > 0:
-                new_sl = ltp - t['trailing_sl']
-                # SL limit checks
-                sl_limit = float('inf')
-                mode = int(t.get('sl_to_entry', 0))
-                if mode == 1: sl_limit = t['entry_price']
-                elif mode == 2 and t['targets']: sl_limit = t['targets'][0]
-                elif mode == 3 and len(t['targets']) > 1: sl_limit = t['targets'][1]
+                step = t['trailing_sl']
+                current_sl = t['sl']
                 
-                if mode > 0: new_sl = min(new_sl, sl_limit)
+                # Logic: We maintain a buffer of 'step'.
+                # To move SL up by 'step', Price must be at least (current_sl + step) + step
+                # Check how far price has moved beyond the 'buffer' zone
+                # Buffer Zone End = current_sl + step
+                diff = ltp - (current_sl + step)
                 
-                if new_sl > t['sl']:
-                    t['sl'] = new_sl
-                    if t['mode'] == 'LIVE' and t.get('sl_order_id'):
-                        try: kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], trigger_price=new_sl)
-                        except: pass
-                    log_event(t, f"Trailing SL Moved to {t['sl']:.2f}")
+                if diff >= step:
+                    # Calculate how many full steps we can jump
+                    steps_to_move = int(diff / step)
+                    new_sl = current_sl + (steps_to_move * step)
+                    
+                    # Apply Limits (e.g., Trailing to Entry, T1, T2)
+                    sl_limit = float('inf')
+                    mode = int(t.get('sl_to_entry', 0))
+                    if mode == 1: sl_limit = t['entry_price']
+                    elif mode == 2 and t['targets']: sl_limit = t['targets'][0]
+                    elif mode == 3 and len(t['targets']) > 1: sl_limit = t['targets'][1]
+                    
+                    if mode > 0: new_sl = min(new_sl, sl_limit)
+                    
+                    if new_sl > t['sl']:
+                        t['sl'] = new_sl
+                        if t['mode'] == 'LIVE' and t.get('sl_order_id'):
+                            try: kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], trigger_price=new_sl)
+                            except: pass
+                        log_event(t, f"Step Trailing: SL Moved to {t['sl']:.2f} (LTP {ltp})")
 
             # EXIT CHECKS
             exit_triggered = False; exit_reason = ""

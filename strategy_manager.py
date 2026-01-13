@@ -373,7 +373,9 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         targets_hit_indices = []
         t_list = [float(x) for x in targets]
         
-        logs = [f"[{entry_dt_str}] 🔵 Simulation Started. Entry: {entry_price}, Qty: {qty}, SL: {current_sl}"]
+        # LOGS: Initialization and Activation
+        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 🔵 Simulation Initialized. Entry: {entry_price}, Qty: {qty}, SL: {current_sl}"]
+        logs.append(f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] Order ACTIVATED @ {entry_price}")
         
         final_status = "OPEN"
         exit_reason = ""
@@ -405,8 +407,6 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                     
                     if conf['enabled']:
                         lot_size = smart_trader.get_lot_size(symbol)
-                        # 'lots' from UI controls is usually just the number of lots (e.g. 1, 2)
-                        # BUT if full exit is checked, logic sets it high.
                         exit_qty = conf['lots'] * lot_size
                         
                         # Handle Full Exit logic
@@ -467,16 +467,8 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             "symbol": symbol, "exchange": exchange,
             "mode": "PAPER", 
             "order_type": "MARKET", "status": final_status, 
-            "entry_price": entry_price, "quantity": qty if final_status == "OPEN" else 0, # Stored as 0 if closed, else initial?
-            # Actually for history, we want initial qty, but if partial exits happened, 'quantity' field in DB usually implies 'current active qty'.
-            # However, for 'TradeHistory', we usually keep the original or the logic varies.
-            # Let's keep 'quantity' as the *remaining* qty for ActiveTrade.
-            # If Closed, we need to pass something valid to move_to_history.
-            # Let's restore original qty for the record so history calculation works on PnL? 
-            # No, Partial exits complicate PnL. Simplified:
-            
-            "quantity": current_qty if final_status == "OPEN" else qty, # If closed, restore full for history log visual, else remaining
-            
+            "entry_price": entry_price, 
+            "quantity": current_qty if final_status == "OPEN" else qty,
             "sl": current_sl, "targets": t_list, 
             "target_controls": target_controls,
             "lot_size": smart_trader.get_lot_size(symbol), 

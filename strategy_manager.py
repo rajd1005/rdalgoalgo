@@ -367,17 +367,17 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         if not hist_data: return {"status": "error", "message": "No historical data found"}
         
         # 2. Simulation State Initialization
+        status = "PENDING" # Start as Pending per requirement
         current_sl = float(sl_price)
         current_qty = int(qty)
         highest_ltp = float(entry_price)
         targets_hit_indices = []
         t_list = [float(x) for x in targets]
         
-        # LOGS: Initialization and Activation
-        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 🔵 Simulation Initialized. Entry: {entry_price}, Qty: {qty}, SL: {current_sl}"]
-        logs.append(f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] Order ACTIVATED @ {entry_price}")
+        # 1st Log: Trade Added
+        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Trade Added (Pending). Waiting for Entry Price: {entry_price}"]
         
-        final_status = "OPEN"
+        final_status = "PENDING"
         exit_reason = ""
         final_exit_price = 0.0
         
@@ -388,45 +388,59 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             low = candle['low']
             close = candle['close']
             
-            # A. Check SL Hit (Priority: Low Trigger)
-            if low <= current_sl:
-                final_status = "SL_HIT"
-                exit_reason = "SL_HIT"
-                final_exit_price = current_sl
-                logs.append(f"[{c_time}] 🛑 SL Hit at {current_sl}. Exited remaining {current_qty} Qty.")
-                current_qty = 0
-                break 
+            # --- PHASE 1: ACTIVATION ---
+            if status == "PENDING":
+                # Check if price intersected Entry Price
+                if low <= entry_price <= high:
+                    status = "OPEN"
+                    final_status = "OPEN"
+                    # 2nd Log: Trade Active
+                    logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
+                    # Continue to process this SAME candle for risks (Intraday volatility)
+                else:
+                    continue # Skip risk checks if not active yet
 
-            # B. Check Targets (Priority: High Trigger)
-            for i, tgt in enumerate(t_list):
-                if i in targets_hit_indices: continue 
-                
-                if high >= tgt:
-                    targets_hit_indices.append(i)
-                    conf = target_controls[i]
+            # --- PHASE 2: SIMULATION (Risk Engine) ---
+            if status == "OPEN":
+                # Update Highest LTP for Trailing
+                if high > highest_ltp: highest_ltp = high
+
+                # A. Check SL Hit (Priority: Low Trigger)
+                if low <= current_sl:
+                    final_status = "SL_HIT"
+                    exit_reason = "SL_HIT"
+                    final_exit_price = current_sl
+                    logs.append(f"[{c_time}] 🛑 SL Hit at {current_sl}. Exited remaining {current_qty} Qty.")
+                    current_qty = 0
+                    break 
+
+                # B. Check Targets (Priority: High Trigger)
+                for i, tgt in enumerate(t_list):
+                    if i in targets_hit_indices: continue 
                     
-                    if conf['enabled']:
-                        lot_size = smart_trader.get_lot_size(symbol)
-                        exit_qty = conf['lots'] * lot_size
+                    if high >= tgt:
+                        targets_hit_indices.append(i)
+                        conf = target_controls[i]
                         
-                        # Handle Full Exit logic
-                        if exit_qty >= current_qty:
-                            final_status = "TARGET_HIT"
-                            exit_reason = f"TARGET_{i+1}_HIT"
-                            final_exit_price = tgt
-                            logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Full Exit {current_qty} Qty.")
-                            current_qty = 0
-                            break 
-                        else:
-                            current_qty -= exit_qty
-                            logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Remaining: {current_qty}")
-            
-            if current_qty == 0: break 
-
-            # C. Trailing SL Logic (Using High to calculate potential trail)
-            if high > highest_ltp:
-                highest_ltp = high
+                        if conf['enabled']:
+                            lot_size = smart_trader.get_lot_size(symbol)
+                            exit_qty = conf['lots'] * lot_size
+                            
+                            # Handle Full Exit logic
+                            if exit_qty >= current_qty:
+                                final_status = "TARGET_HIT"
+                                exit_reason = f"TARGET_{i+1}_HIT"
+                                final_exit_price = tgt
+                                logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Full Exit {current_qty} Qty.")
+                                current_qty = 0
+                                break 
+                            else:
+                                current_qty -= exit_qty
+                                logs.append(f"[{c_time}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Remaining: {current_qty}")
                 
+                if current_qty == 0: break 
+
+                # C. Trailing SL Logic (Using High)
                 if trailing_sl > 0:
                     step = float(trailing_sl)
                     diff = highest_ltp - (current_sl + step)
@@ -451,41 +465,60 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
 
         # 4. Finalize & Save
         current_ltp = entry_price
-        if final_status == "OPEN":
-            # If market is closed or trade still running, use last known price
+        if final_status in ["OPEN", "PENDING"]:
+            # If still open or pending, use last known close or live
             try: 
                 q = kite.quote(f"{exchange}:{symbol}")
                 current_ltp = q[f"{exchange}:{symbol}"]['last_price']
             except: 
                 if hist_data: current_ltp = hist_data[-1]['close']
-        else:
-            current_ltp = final_exit_price
+            
+            # If it never activated, we still save it as PENDING
+            record_status = final_status
+            
+            record = {
+                "id": int(time.time()), 
+                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                "symbol": symbol, "exchange": exchange,
+                "mode": "PAPER", 
+                "order_type": "MARKET", "status": record_status, 
+                "entry_price": entry_price, 
+                "quantity": current_qty if record_status == "OPEN" else qty,
+                "sl": current_sl, "targets": t_list, 
+                "target_controls": target_controls,
+                "lot_size": smart_trader.get_lot_size(symbol), 
+                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                "sl_order_id": None,
+                "targets_hit_indices": targets_hit_indices, 
+                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                "current_ltp": current_ltp, "trigger_dir": "BELOW", 
+                "logs": logs
+            }
 
-        record = {
-            "id": int(time.time()), 
-            "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
-            "symbol": symbol, "exchange": exchange,
-            "mode": "PAPER", 
-            "order_type": "MARKET", "status": final_status, 
-            "entry_price": entry_price, 
-            "quantity": current_qty if final_status == "OPEN" else qty,
-            "sl": current_sl, "targets": t_list, 
-            "target_controls": target_controls,
-            "lot_size": smart_trader.get_lot_size(symbol), 
-            "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
-            "sl_order_id": None,
-            "targets_hit_indices": targets_hit_indices, 
-            "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-            "current_ltp": current_ltp, "trigger_dir": "BELOW", 
-            "logs": logs
-        }
-
-        if final_status == "OPEN":
             trades = load_trades()
             trades.append(record)
             save_trades(trades)
-            return {"status": "success", "message": "Trade Imported as Active (Paper). Sim Result: OPEN"}
+            return {"status": "success", "message": f"Trade Imported as {record_status} (Paper)."}
+            
         else:
+            # Trade Closed in history
+            record = {
+                "id": int(time.time()), 
+                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                "symbol": symbol, "exchange": exchange,
+                "mode": "PAPER", 
+                "order_type": "MARKET", "status": final_status, 
+                "entry_price": entry_price, "quantity": qty, # For history record
+                "sl": current_sl, "targets": t_list, 
+                "target_controls": target_controls,
+                "lot_size": smart_trader.get_lot_size(symbol), 
+                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                "sl_order_id": None,
+                "targets_hit_indices": targets_hit_indices, 
+                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                "current_ltp": final_exit_price, "trigger_dir": "BELOW", 
+                "logs": logs
+            }
             move_to_history(record, exit_reason, final_exit_price)
             return {"status": "success", "message": f"Trade Imported as Closed. Result: {exit_reason} @ {final_exit_price}"}
 

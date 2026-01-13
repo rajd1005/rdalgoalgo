@@ -84,14 +84,21 @@ def background_monitor():
     
     while True:
         try:
-            # 1. Health Check if Active
+            # 1. Health Check & Risk Engine
             if bot_active:
                 try:
                     # Lightweight API call to verify token validity
                     kite.quote("NSE:NIFTY 50")
+                    
+                    # [UPDATED] Background Worker: Risk Management
+                    # This ensures SL/Targets work even if the website is closed
+                    strategy_manager.update_risk_engine(kite)
+                    
                 except Exception as e:
-                    print(f"⚠️ Health Check Failed (Connection Lost): {e}")
-                    bot_active = False
+                    print(f"⚠️ Health/Risk Check Failed: {e}")
+                    # Only mark inactive if it's a connection/token error, not logic error
+                    if "Token is invalid" in str(e) or "Network" in str(e):
+                        bot_active = False
 
             # 2. Continuous Retry Logic
             if not bot_active:
@@ -109,8 +116,8 @@ def background_monitor():
         except Exception as e:
             print(f"❌ Monitor Loop Error: {e}")
         
-        # Check every 5 seconds
-        time.sleep(5)
+        # Check every 2 seconds for faster response
+        time.sleep(2)
 
 @app.route('/')
 def home():
@@ -188,6 +195,8 @@ def api_settings_save():
 # --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
+    # Note: Risk Engine is now also called in background_monitor
+    # We keep it here to ensure immediate UI updates on refresh
     if bot_active:
         strategy_manager.update_risk_engine(kite)
     
@@ -214,7 +223,9 @@ def api_delete_trade(trade_id):
 def api_update_trade():
     data = request.json
     try:
+        # [UPDATED] Passing kite to allow modifying Broker SL orders
         if strategy_manager.update_trade_protection(
+            kite, # Added kite instance
             data['id'], data['sl'], data['targets'], 
             data.get('trailing_sl', 0), data.get('entry_price'),
             data.get('target_controls'), data.get('sl_to_entry', 0),

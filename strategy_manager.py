@@ -273,6 +273,14 @@ def get_exchange(symbol):
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1):
     trades = load_trades()
+    
+    # [FIX] Duplicate Protection (Debounce)
+    # If a trade with same symbol and same quantity was added in last 5 seconds, reject it.
+    current_ts = int(time.time())
+    for t in trades:
+        if t['symbol'] == specific_symbol and t['quantity'] == quantity and (current_ts - t['id']) < 5:
+             return {"status": "error", "message": "Duplicate trade ignored (Too Fast)"}
+
     exchange = get_exchange(specific_symbol)
     
     current_ltp = 0.0

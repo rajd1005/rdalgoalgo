@@ -357,7 +357,6 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
     try:
         # 1. Parse Input & Initialize Data
         entry_time = datetime.strptime(entry_dt_str, "%Y-%m-%dT%H:%M") 
-        # Localize if using IST to match data consistency
         try: entry_time = IST.localize(entry_time)
         except: pass
 
@@ -370,7 +369,12 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         hist_data = smart_trader.fetch_historical_data(kite, token, entry_time, now, "minute")
         if not hist_data: return {"status": "error", "message": "No historical data found"}
         
-        # 2. Simulation State Initialization
+        # 2. Determine Trigger Direction (Critical fix for Replay)
+        # If First Candle is BELOW Entry, we expect breakout UP (ABOVE)
+        # If First Candle is ABOVE Entry, we expect breakout DOWN (BELOW)
+        first_open = hist_data[0]['open']
+        trigger_dir = "ABOVE" if first_open < entry_price else "BELOW"
+
         status = "PENDING"
         current_sl = float(sl_price)
         current_qty = int(qty)
@@ -378,15 +382,13 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         targets_hit_indices = []
         t_list = [float(x) for x in targets]
         
-        # LOG 1: Trade Added with User Input Time
-        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Replay Import Started. Entry: {entry_price}"]
+        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Replay Import Started. Entry: {entry_price}. Trigger: {trigger_dir}"]
         
         final_status = "PENDING"
         exit_reason = ""
         final_exit_price = 0.0
         
         # 3. Candle-by-Candle Simulation (INSTANT LOOP)
-        
         for candle in hist_data:
             c_time_obj = candle['date']
             if hasattr(c_time_obj, 'strftime'):
@@ -397,17 +399,16 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             high = candle['high']
             low = candle['low']
             close = candle['close']
-            open_p = candle['open']
             
             # --- PHASE 1: ACTIVATION ---
             if status == "PENDING":
-                # STRICT TRIGGER: Price must touch Entry
+                # Strict Price Touch Condition
                 if low <= entry_price <= high:
                     status = "OPEN"
                     logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
                     highest_ltp = max(entry_price, high)
                 else:
-                    continue # Wait for next candle if not triggered
+                    continue 
 
             # --- PHASE 2: SIMULATION (Risk Engine) ---
             if status == "OPEN":
@@ -493,7 +494,8 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 "sl_order_id": None,
                 "targets_hit_indices": targets_hit_indices, 
                 "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-                "current_ltp": current_ltp, "trigger_dir": "BELOW", 
+                "current_ltp": current_ltp, 
+                "trigger_dir": trigger_dir,  # Correctly calculated direction
                 "logs": logs
             }
             trades = load_trades()
@@ -522,7 +524,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 "sl_order_id": None,
                 "targets_hit_indices": targets_hit_indices, 
                 "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-                "current_ltp": final_exit_price, "trigger_dir": "BELOW", 
+                "current_ltp": final_exit_price, "trigger_dir": trigger_dir, 
                 "logs": logs
             }
             move_to_history(record, exit_reason, final_exit_price)
@@ -587,7 +589,14 @@ def update_risk_engine(kite):
         t['current_ltp'] = ltp; updated = True
         
         if t['status'] == "PENDING":
-            if (t.get('trigger_dir') == 'BELOW' and ltp <= t['entry_price']) or (t.get('trigger_dir') == 'ABOVE' and ltp >= t['entry_price']):
+            # Check conditions based on trigger direction
+            condition_met = False
+            if t.get('trigger_dir') == 'BELOW':
+                if ltp <= t['entry_price']: condition_met = True
+            elif t.get('trigger_dir') == 'ABOVE':
+                if ltp >= t['entry_price']: condition_met = True
+            
+            if condition_met:
                 t['status'] = "OPEN"; t['highest_ltp'] = t['entry_price']
                 log_event(t, f"Order ACTIVATED @ {ltp}")
                 if t['mode'] == 'LIVE':

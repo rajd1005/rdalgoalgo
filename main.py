@@ -74,7 +74,7 @@ def run_auto_login_process():
         login_state = "FAILED"
         login_error_msg = str(e)
 
-# --- SERVER-SIDE CONNECTION MONITOR ---
+# --- SERVER-SIDE CONNECTION MONITOR & WORKER ---
 def background_monitor():
     global bot_active, login_state
     print("🖥️ Background Monitor Started")
@@ -83,38 +83,41 @@ def background_monitor():
     time.sleep(2)
     
     while True:
-        try:
-            # 1. Health Check & Risk Engine
-            if bot_active:
-                try:
-                    # Lightweight API call to verify token validity
-                    kite.quote("NSE:NIFTY 50")
-                    
-                    # [UPDATED] Background Worker: Risk Management
-                    # This ensures SL/Targets work even if the website is closed
-                    strategy_manager.update_risk_engine(kite)
-                    
-                except Exception as e:
-                    print(f"⚠️ Health/Risk Check Failed: {e}")
-                    # Only mark inactive if it's a connection/token error, not logic error
-                    if "Token is invalid" in str(e) or "Network" in str(e):
-                        bot_active = False
+        # [FIX] Wrap operations in app_context so DB queries work in this thread
+        with app.app_context():
+            try:
+                # 1. Health Check & Risk Engine
+                if bot_active:
+                    try:
+                        # Lightweight API call to verify token validity
+                        kite.quote("NSE:NIFTY 50")
+                        
+                        # Background Worker: Risk Management
+                        # This checks SL/Targets even if the browser is closed
+                        strategy_manager.update_risk_engine(kite)
+                        
+                    except Exception as e:
+                        # Only mark inactive if it's a connection/token error, not logic error
+                        if "Token is invalid" in str(e) or "Network" in str(e):
+                            print(f"⚠️ Health Check Failed (Connection Lost): {e}")
+                            bot_active = False
+                        else:
+                            print(f"⚠️ Risk Engine Error: {e}")
 
-            # 2. Continuous Retry Logic
-            if not bot_active:
-                if login_state == "IDLE":
-                    print("🔄 Monitor: System Offline. Initiating Auto-Login...")
-                    with app.app_context():
+                # 2. Continuous Retry Logic
+                if not bot_active:
+                    if login_state == "IDLE":
+                        print("🔄 Monitor: System Offline. Initiating Auto-Login...")
                         run_auto_login_process()
-                
-                elif login_state == "FAILED":
-                    # If failed, wait 30 seconds then reset to IDLE to try again (Infinite Loop)
-                    print("⚠️ Auto-Login previously failed. Retrying in 30s...")
-                    time.sleep(30)
-                    login_state = "IDLE"
+                    
+                    elif login_state == "FAILED":
+                        # If failed, wait 30 seconds then reset to IDLE to try again (Infinite Loop)
+                        print("⚠️ Auto-Login previously failed. Retrying in 30s...")
+                        time.sleep(30)
+                        login_state = "IDLE"
 
-        except Exception as e:
-            print(f"❌ Monitor Loop Error: {e}")
+            except Exception as e:
+                print(f"❌ Monitor Loop Critical Error: {e}")
         
         # Check every 2 seconds for faster response
         time.sleep(2)
@@ -136,7 +139,7 @@ def home():
                            error=login_error_msg,
                            login_url=kite.login_url())
 
-# --- SECURE MANUAL LOGIN ROUTE (NEW) ---
+# --- SECURE MANUAL LOGIN ROUTE ---
 @app.route('/secure', methods=['GET', 'POST'])
 def secure_login_page():
     if request.method == 'POST':
@@ -195,8 +198,7 @@ def api_settings_save():
 # --- TRADE MANAGEMENT API ---
 @app.route('/api/positions')
 def api_positions():
-    # Note: Risk Engine is now also called in background_monitor
-    # We keep it here to ensure immediate UI updates on refresh
+    # Calling logic here as well to ensure UI force-refresh triggers updates
     if bot_active:
         strategy_manager.update_risk_engine(kite)
     
@@ -223,9 +225,9 @@ def api_delete_trade(trade_id):
 def api_update_trade():
     data = request.json
     try:
-        # [UPDATED] Passing kite to allow modifying Broker SL orders
+        # Pass kite to update broker orders if needed
         if strategy_manager.update_trade_protection(
-            kite, # Added kite instance
+            kite, 
             data['id'], data['sl'], data['targets'], 
             data.get('trailing_sl', 0), data.get('entry_price'),
             data.get('target_controls'), data.get('sl_to_entry', 0),

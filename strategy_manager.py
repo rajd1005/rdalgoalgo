@@ -10,7 +10,6 @@ import settings
 IST = pytz.timezone('Asia/Kolkata')
 
 # Global State for Profit Trailing
-# Format: {'LIVE': {'high': -inf, 'sl': -inf}, 'PAPER': ...}
 GLOBAL_RISK_STATE = {
     'LIVE': {'high_pnl': float('-inf'), 'global_sl': float('-inf'), 'active': False},
     'PAPER': {'high_pnl': float('-inf'), 'global_sl': float('-inf'), 'active': False}
@@ -46,7 +45,7 @@ def delete_trade(trade_id):
         db.session.rollback()
         return False
 
-# --- HELPER: Manage Broker SL (Cancel or Modify) ---
+# --- HELPER: Manage Broker SL ---
 def manage_broker_sl(kite, trade, qty_to_remove=0, cancel_completely=False):
     sl_id = trade.get('sl_order_id')
     if not sl_id or trade['mode'] != 'LIVE': return
@@ -77,19 +76,14 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
             old_sl = t['sl']
             entry_msg = ""
             
-            # 1. Entry Price Update Logic (Locked if Active)
             if entry_price is not None:
                 if t['status'] == 'PENDING':
                     new_entry = float(entry_price)
                     if new_entry != t['entry_price']:
                         t['entry_price'] = new_entry
                         entry_msg = f" | Entry Updated to {new_entry}"
-                else:
-                    # Ignore entry update for active trades
-                    pass
+                else: pass
             
-            # 2. Trailing SL Auto-Match Logic
-            # If -1 is passed, calculate trailing points based on (Entry - New SL)
             final_trailing_sl = float(trailing_sl) if trailing_sl else 0
             if final_trailing_sl == -1.0:
                 calc_diff = t['entry_price'] - float(sl)
@@ -100,19 +94,12 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
             t['sl_to_entry'] = int(sl_to_entry)
             t['exit_multiplier'] = int(exit_multiplier) 
             
-            # 3. Update Broker SL Order if SL Price Changed
             if t['mode'] == 'LIVE' and t.get('sl_order_id'):
                 try:
-                    kite.modify_order(
-                        variety=kite.VARIETY_REGULAR,
-                        order_id=t['sl_order_id'],
-                        trigger_price=t['sl']
-                    )
+                    kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], trigger_price=t['sl'])
                     entry_msg += " [Broker SL Updated]"
-                except Exception as e:
-                     entry_msg += f" [Broker SL Fail: {e}]"
+                except Exception as e: entry_msg += f" [Broker SL Fail: {e}]"
 
-            # 4. Re-Calculate Targets if Exit Multiplier Changed
             if exit_multiplier > 1:
                 eff_entry = t['entry_price']
                 eff_sl_points = eff_entry - float(sl)
@@ -133,12 +120,8 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
                     lots_here = base_lots + (remainder if i == exit_multiplier else 0)
                     new_controls.append({'enabled': True, 'lots': int(lots_here)})
                 
-                while len(new_targets) < 3:
-                    new_targets.append(0)
-                    new_controls.append({'enabled': False, 'lots': 0})
-                
-                t['targets'] = new_targets
-                t['target_controls'] = new_controls
+                while len(new_targets) < 3: new_targets.append(0); new_controls.append({'enabled': False, 'lots': 0})
+                t['targets'] = new_targets; t['target_controls'] = new_controls
             else:
                 t['targets'] = [float(x) for x in targets]
                 if target_controls: t['target_controls'] = target_controls
@@ -174,8 +157,7 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                 if t['mode'] == 'LIVE':
                     try:
                         kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=qty_delta, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
-                        if t.get('sl_order_id'):
-                            kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], quantity=new_total)
+                        if t.get('sl_order_id'): kite.modify_order(variety=kite.VARIETY_REGULAR, order_id=t['sl_order_id'], quantity=new_total)
                     except Exception as e: log_event(t, f"Broker Fail (Add): {e}")
                 updated = True
                 
@@ -191,13 +173,11 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                 else: return False 
             break
             
-    if updated:
-        save_trades(trades)
-        return True
+    if updated: save_trades(trades)
+    return True
     return False
 
-def get_time_str():
-    return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+def get_time_str(): return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
 
 def log_event(trade, message):
     if 'logs' not in trade: trade['logs'] = []
@@ -229,105 +209,66 @@ def get_exchange(symbol):
     return "NSE"
 
 def get_day_pnl(mode):
-    """Calculates Total P&L (Active + Closed) for today"""
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
     total = 0.0
-    
-    # 1. Closed Trades
     history = load_history()
     for t in history:
-        if t['exit_time'].startswith(today_str) and t['mode'] == mode:
-            total += t.get('pnl', 0)
-            
-    # 2. Active Trades (Unrealized)
+        if t['exit_time'].startswith(today_str) and t['mode'] == mode: total += t.get('pnl', 0)
     active = load_trades()
     for t in active:
         if t['mode'] == mode and t['status'] != 'PENDING':
-            qty = t['quantity']
-            ent = t['entry_price']
-            cur = t.get('current_ltp', ent)
-            total += (cur - ent) * qty
-            
+            total += (t.get('current_ltp', t['entry_price']) - t['entry_price']) * t['quantity']
     return total
 
 def panic_exit_all(kite):
-    """Closes ALL positions immediately (Paper & Live)"""
     trades = load_trades()
     if not trades: return True
-    
     print(f"🚨 PANIC MODE TRIGGERED: Closing {len(trades)} positions.")
     for t in trades:
         if t['mode'] == "LIVE" and t['status'] != 'PENDING':
             manage_broker_sl(kite, t, cancel_completely=True)
-            try: 
-                kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
-            except Exception as e:
-                print(f"Panic Broker Fail {t['symbol']}: {e}")
-        
+            try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+            except Exception as e: print(f"Panic Broker Fail {t['symbol']}: {e}")
         move_to_history(t, "PANIC_EXIT", t.get('current_ltp', t['entry_price']))
-    
-    save_trades([]) # Clear Active DB
+    save_trades([])
     return True
 
 def check_global_exit_conditions(kite, mode, mode_settings):
-    """Checks Universal Time and Global Profit Lock Logic"""
     now = datetime.now(IST)
-    
-    # 1. Universal Square Off Time
     exit_time_str = mode_settings.get('universal_exit_time', "15:25")
     try:
         exit_dt = datetime.strptime(exit_time_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-        exit_dt = IST.localize(exit_dt.replace(tzinfo=None)) # Adjust TZ
-        
-        # If time passed within last minute, trigger exit
+        exit_dt = IST.localize(exit_dt.replace(tzinfo=None))
         if now >= exit_dt and (now - exit_dt).seconds < 120:
-             # Check if we have active trades for this mode
              trades = load_trades()
              active_mode = [t for t in trades if t['mode'] == mode]
              if active_mode:
-                 print(f"⏰ Universal Square Off Triggered for {mode} at {now}")
                  for t in active_mode:
                      if t['mode'] == "LIVE" and t['status'] != 'PENDING':
                         manage_broker_sl(kite, t, cancel_completely=True)
                         try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                      move_to_history(t, "TIME_EXIT", t.get('current_ltp', 0))
-                 
-                 # Save remaining (non-mode) trades back
                  remaining = [t for t in trades if t['mode'] != mode]
                  save_trades(remaining)
                  return
-    except Exception as e:
-        print(f"Time Check Error: {e}")
+    except Exception as e: print(f"Time Check Error: {e}")
 
-    # 2. Global Profit Locking & Trailing
     pnl_start = float(mode_settings.get('profit_lock', 0))
     if pnl_start > 0:
         current_total_pnl = get_day_pnl(mode)
         state = GLOBAL_RISK_STATE[mode]
-        
-        # Initialize or Reset if new day (logic simplified for runtime)
         if not state['active'] and current_total_pnl >= pnl_start:
-            state['active'] = True
-            state['high_pnl'] = current_total_pnl
-            state['global_sl'] = float(mode_settings.get('profit_min', 0))
-            print(f"🔒 Global Profit Lock Activated for {mode}. PnL: {current_total_pnl}, Locked at: {state['global_sl']}")
-        
+            state['active'] = True; state['high_pnl'] = current_total_pnl; state['global_sl'] = float(mode_settings.get('profit_min', 0))
         if state['active']:
-            # Trail Logic
             if current_total_pnl > state['high_pnl']:
                 diff = current_total_pnl - state['high_pnl']
                 trail_step = float(mode_settings.get('profit_trail', 0))
-                
                 if trail_step > 0 and diff >= trail_step:
                      steps = int(diff / trail_step)
                      state['global_sl'] += (steps * trail_step)
                      state['high_pnl'] = current_total_pnl
-                     print(f"📈 Global Profit Trailed for {mode}. New Lock: {state['global_sl']}")
-            
-            # Hit Logic
             if current_total_pnl <= state['global_sl']:
-                print(f"📉 Global Profit Lock HIT for {mode}. Exiting All.")
                 trades = load_trades()
                 active_mode = [t for t in trades if t['mode'] == mode]
                 for t in active_mode:
@@ -336,35 +277,26 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                         try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                      move_to_history(t, "PROFIT_LOCK", t.get('current_ltp', 0))
-                
                 remaining = [t for t in trades if t['mode'] != mode]
                 save_trades(remaining)
-                state['active'] = False # Reset
+                state['active'] = False
 
 def can_place_order(mode):
-    """Checks Max Daily Loss Limit"""
     current_settings = settings.load_settings()
     mode_conf = current_settings['modes'][mode]
     max_loss_limit = float(mode_conf.get('max_loss', 0))
-    
     if max_loss_limit > 0:
-        # Convert positive input to negative limit
         limit = -abs(max_loss_limit)
         current_pnl = get_day_pnl(mode)
-        
-        if current_pnl <= limit:
-            return False, f"Max Daily Loss Reached ({current_pnl:.2f} <= {limit})"
-            
+        if current_pnl <= limit: return False, f"Max Daily Loss Reached ({current_pnl:.2f} <= {limit})"
     return True, "OK"
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplayer=1):
     trades = load_trades()
-    
-    # [DUPLICATE TRADE PROTECTION]
     current_ts = int(time.time())
     for t in trades:
         if t['symbol'] == specific_symbol and t['quantity'] == quantity and (current_ts - t['id']) < 5:
-             return {"status": "error", "message": "Duplicate Trade Blocked (Please Wait)"}
+             return {"status": "error", "message": "Duplicate Trade Blocked"}
 
     exchange = get_exchange(specific_symbol)
     current_ltp = 0.0
@@ -378,7 +310,6 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
         trigger_dir = "ABOVE" if entry_price >= current_ltp else "BELOW"
 
     logs = []; sl_order_id = None
-    
     if mode == "LIVE" and status == "OPEN":
         try:
             kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=specific_symbol, exchange=exchange, transaction_type=kite.TRANSACTION_TYPE_BUY, quantity=quantity, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
@@ -389,16 +320,12 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
             except Exception as sl_e: logs.append(f"[{get_time_str()}] Broker SL FAILED: {sl_e}")
         except Exception as e: return {"status": "error", "message": f"Broker Rejected: {e}"}
 
-    # Generate Targets
     targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
     if not target_controls: target_controls = [{'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 1000}]
     
     lot_size = smart_trader.get_lot_size(specific_symbol)
-    
-    # Trailing SL Auto-Match Logic
     final_trailing_sl = float(trailing_sl) if trailing_sl else 0
-    if final_trailing_sl == -1.0:
-        final_trailing_sl = float(sl_points)
+    if final_trailing_sl == -1.0: final_trailing_sl = float(sl_points)
 
     if exit_multiplayer > 1:
         final_goal = max([x for x in custom_targets if x > 0]) if [x for x in custom_targets if x > 0] else (entry_price + (sl_points * 2))
@@ -424,6 +351,102 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     trades.append(record)
     save_trades(trades)
     return {"status": "success", "trade": record}
+
+# --- IMPORT PAST TRADE LOGIC ---
+def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, targets):
+    """
+    Replays market history to determine current status of a past trade.
+    """
+    try:
+        # 1. Parse Input
+        entry_time = datetime.strptime(entry_dt_str, "%Y-%m-%dT%H:%M") # ISO Format from HTML
+        now = datetime.now()
+        exchange = get_exchange(symbol)
+        
+        # 2. Get Token & History
+        token = smart_trader.get_instrument_token(symbol, exchange)
+        if not token: return {"status": "error", "message": "Symbol Token not found"}
+        
+        # Fetch data from Entry Time until Now
+        hist_data = smart_trader.fetch_historical_data(kite, token, entry_time, now, "minute")
+        if not hist_data: return {"status": "error", "message": "No historical data found"}
+        
+        # 3. Simulation / Replay
+        status = "OPEN"
+        exit_price = 0.0
+        exit_reason = ""
+        highest_ltp = entry_price
+        targets_hit_indices = []
+        
+        # Convert targets to list of floats
+        t_list = [float(x) for x in targets]
+        
+        for candle in hist_data:
+            # Check High for Targets
+            h = candle['high']
+            l = candle['low']
+            c = candle['close']
+            highest_ltp = max(highest_ltp, h)
+            
+            # Conservative Check: Did Low hit SL?
+            if l <= sl_price:
+                status = "SL_HIT"
+                exit_price = sl_price
+                exit_reason = "SL_HIT"
+                break
+            
+            # Check Targets
+            for i, tgt in enumerate(t_list):
+                if i not in targets_hit_indices and h >= tgt:
+                    targets_hit_indices.append(i)
+                    # If last target hit, treat as full exit (simplified for import)
+                    if i == len(t_list) - 1:
+                        status = "TARGET_HIT"
+                        exit_price = tgt
+                        exit_reason = "TARGET_HIT"
+                        break
+            if status == "TARGET_HIT": break
+            
+        # 4. Construct Trade Record
+        # If open, fetch live price now
+        current_ltp = entry_price
+        if status == "OPEN":
+            try: current_ltp = kite.quote(f"{exchange}:{symbol}")[f"{exchange}:{symbol}"]['last_price']
+            except: current_ltp = hist_data[-1]['close']
+        else:
+            current_ltp = exit_price
+
+        logs = [f"[{get_time_str()}] Imported Trade from {entry_dt_str}. Initial Status: {status}"]
+        
+        record = {
+            "id": int(time.time()), 
+            "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+            "symbol": symbol, "exchange": exchange,
+            "mode": "PAPER", # Imported trades act as PAPER
+            "order_type": "MARKET", "status": status, 
+            "entry_price": entry_price, "quantity": qty,
+            "sl": sl_price, "targets": t_list, 
+            "target_controls": [{'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 0}, {'enabled': True, 'lots': 1000}],
+            "lot_size": smart_trader.get_lot_size(symbol), 
+            "trailing_sl": 0, "sl_to_entry": 0, "exit_multiplier": 1, 
+            "sl_order_id": None,
+            "targets_hit_indices": targets_hit_indices, 
+            "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+            "current_ltp": current_ltp, "trigger_dir": "BELOW", 
+            "logs": logs
+        }
+
+        if status == "OPEN":
+            trades = load_trades()
+            trades.append(record)
+            save_trades(trades)
+            return {"status": "success", "message": "Trade Imported as Active (Paper)"}
+        else:
+            move_to_history(record, exit_reason, exit_price)
+            return {"status": "success", "message": f"Trade Imported as Closed ({exit_reason})"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 def promote_to_live(kite, trade_id):
     trades = load_trades()
@@ -455,20 +478,18 @@ def close_trade_manual(kite, trade_id):
                 manage_broker_sl(kite, t, cancel_completely=True)
                 try: kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                 except: pass
-            
             move_to_history(t, "MANUAL_EXIT", exit_p)
         else: active_list.append(t)
     if found: save_trades(active_list)
     return found
 
 def update_risk_engine(kite):
-    # --- GLOBAL CHECKS (TIME, PROFIT LOCK) ---
     current_settings = settings.load_settings()
     check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
     check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
 
     active_trades = load_trades()
-    if not active_trades: return # Save resources if no trades
+    if not active_trades: return 
 
     instruments = list(set([f"{t['exchange']}:{t['symbol']}" for t in active_trades]))
     try: live_prices = kite.quote(instruments)
@@ -483,7 +504,6 @@ def update_risk_engine(kite):
         ltp = live_prices[inst_key]['last_price']
         t['current_ltp'] = ltp; updated = True
         
-        # PENDING ORDER ACTIVATION
         if t['status'] == "PENDING":
             if (t.get('trigger_dir') == 'BELOW' and ltp <= t['entry_price']) or (t.get('trigger_dir') == 'ABOVE' and ltp >= t['entry_price']):
                 t['status'] = "OPEN"; t['highest_ltp'] = t['entry_price']
@@ -500,27 +520,18 @@ def update_risk_engine(kite):
             else: active_list.append(t)
             continue
 
-        # OPEN TRADE MANAGEMENT
         if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
             t['highest_ltp'] = max(t.get('highest_ltp', 0), ltp); t['made_high'] = t['highest_ltp']
             
-            # --- STEP TRAILING SL LOGIC ---
             if t.get('trailing_sl', 0) > 0:
                 step = t['trailing_sl']
                 current_sl = t['sl']
-                
-                # Logic: We maintain a buffer of 'step'.
-                # To move SL up by 'step', Price must be at least (current_sl + step) + step
-                # Check how far price has moved beyond the 'buffer' zone
-                # Buffer Zone End = current_sl + step
                 diff = ltp - (current_sl + step)
                 
                 if diff >= step:
-                    # Calculate how many full steps we can jump
                     steps_to_move = int(diff / step)
                     new_sl = current_sl + (steps_to_move * step)
                     
-                    # Apply Limits (e.g., Trailing to Entry, T1, T2)
                     sl_limit = float('inf')
                     mode = int(t.get('sl_to_entry', 0))
                     if mode == 1: sl_limit = t['entry_price']
@@ -536,9 +547,7 @@ def update_risk_engine(kite):
                             except: pass
                         log_event(t, f"Step Trailing: SL Moved to {t['sl']:.2f} (LTP {ltp})")
 
-            # EXIT CHECKS
             exit_triggered = False; exit_reason = ""
-            
             if ltp <= t['sl']:
                 exit_triggered = True; exit_reason = "SL_HIT"
             elif not exit_triggered:

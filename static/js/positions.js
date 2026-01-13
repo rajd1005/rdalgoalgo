@@ -143,9 +143,9 @@ function openEditTradeModal(id) {
     
     // Default Controls if missing
     let defaults = [
-        {enabled: true, lots: 0},
-        {enabled: true, lots: 0},
-        {enabled: true, lots: 1000} // Default T3 exits all
+        {enabled: true, lots: 0, trail_to_entry: false},
+        {enabled: true, lots: 0, trail_to_entry: false},
+        {enabled: true, lots: 1000, trail_to_entry: false} // Default T3 exits all
     ];
     let controls = t.target_controls || defaults;
 
@@ -155,6 +155,7 @@ function openEditTradeModal(id) {
     let l1 = controls[0].lots;
     $('#full_t1').prop('checked', l1 >= 1000);
     $('#lot_t1').val(l1 < 1000 && l1 > 0 ? l1 : '');
+    $('#cost_t1').prop('checked', controls[0].trail_to_entry || false);
     
     // T2
     $('#edit_t2').val(t.targets[1] || 0);
@@ -162,6 +163,7 @@ function openEditTradeModal(id) {
     let l2 = controls[1].lots;
     $('#full_t2').prop('checked', l2 >= 1000);
     $('#lot_t2').val(l2 < 1000 && l2 > 0 ? l2 : '');
+    $('#cost_t2').prop('checked', controls[1].trail_to_entry || false);
 
     // T3
     $('#edit_t3').val(t.targets[2] || 0);
@@ -169,6 +171,7 @@ function openEditTradeModal(id) {
     let l3 = controls[2].lots;
     $('#full_t3').prop('checked', l3 >= 1000);
     $('#lot_t3').val(l3 < 1000 && l3 > 0 ? l3 : '');
+    $('#cost_t3').prop('checked', controls[2].trail_to_entry || false);
     
     // Disable target inputs if they are already hit
     let hits = t.targets_hit_indices || [];
@@ -200,15 +203,18 @@ function saveTradeUpdate() {
         target_controls: [
             { 
                 enabled: $('#check_t1').is(':checked'), 
-                lots: $('#full_t1').is(':checked') ? 1000 : (parseInt($('#lot_t1').val()) || 0)
+                lots: $('#full_t1').is(':checked') ? 1000 : (parseInt($('#lot_t1').val()) || 0),
+                trail_to_entry: $('#cost_t1').is(':checked')
             },
             { 
                 enabled: $('#check_t2').is(':checked'), 
-                lots: $('#full_t2').is(':checked') ? 1000 : (parseInt($('#lot_t2').val()) || 0)
+                lots: $('#full_t2').is(':checked') ? 1000 : (parseInt($('#lot_t2').val()) || 0),
+                trail_to_entry: $('#cost_t2').is(':checked')
             },
             { 
                 enabled: $('#check_t3').is(':checked'), 
-                lots: $('#full_t3').is(':checked') ? 1000 : (parseInt($('#lot_t3').val()) || 0)
+                lots: $('#full_t3').is(':checked') ? 1000 : (parseInt($('#lot_t3').val()) || 0),
+                trail_to_entry: $('#cost_t3').is(':checked')
             }
         ]
     };

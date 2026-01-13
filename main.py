@@ -16,7 +16,6 @@ app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 app.config.from_object(config)
 
-# Initialize Database
 db.init_app(app)
 with app.app_context():
     db.create_all()
@@ -30,152 +29,82 @@ login_error_msg = None
 
 def run_auto_login_process():
     global bot_active, login_state, login_error_msg
-    
     if not config.ZERODHA_USER_ID or not config.TOTP_SECRET:
-        login_state = "FAILED"
-        login_error_msg = "Missing Credentials in Config"
-        return
-
-    login_state = "WORKING"
-    login_error_msg = None
-    
+        login_state = "FAILED"; login_error_msg = "Missing Credentials in Config"; return
+    login_state = "WORKING"; login_error_msg = None
     try:
-        # Perform Login
         token, error = auto_login.perform_auto_login(kite)
-        
-        # Force Clean Memory after heavy Selenium usage
         gc.collect() 
-
-        # CASE 1: Dashboard Detected (Callback handled logic)
         if token == "SKIP_SESSION":
             print("✅ Auto-Login Verified: Session Active.")
-            bot_active = True
-            login_state = "IDLE" 
-            return
-
-        # CASE 2: Token Captured (Need to generate session manually)
+            bot_active = True; login_state = "IDLE"; return
         if token and token != "SKIP_SESSION":
             try:
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
                 kite.set_access_token(data["access_token"])
                 bot_active = True
-                
-                # Load Instruments (Heavy Operation)
                 smart_trader.fetch_instruments(kite)
-                gc.collect() # Clean up again after loading instruments
-                
-                print("✅ Session Generated Successfully")
-                login_state = "IDLE"
+                gc.collect()
+                print("✅ Session Generated Successfully"); login_state = "IDLE"
             except Exception as e:
                 if "Token is invalid" in str(e) and bot_active:
-                    print("⚠️ Token Expired but Bot is Active (Race Condition Solved)")
+                    print("⚠️ Token Expired but Bot is Active")
                     login_state = "IDLE"
-                else:
-                    raise e
+                else: raise e
         else:
-            print(f"❌ Auto-Login Failed: {error}")
-            login_state = "FAILED"
-            login_error_msg = error
-            
+            print(f"❌ Auto-Login Failed: {error}"); login_state = "FAILED"; login_error_msg = error
     except Exception as e:
-        print(f"❌ Session Error: {e}")
-        login_state = "FAILED"
-        login_error_msg = str(e)
+        print(f"❌ Session Error: {e}"); login_state = "FAILED"; login_error_msg = str(e)
 
-# --- SERVER-SIDE CONNECTION MONITOR & WORKER ---
 def background_monitor():
     global bot_active, login_state
     print("🖥️ Background Monitor Started")
-    
-    # Give the server a moment to fully initialize
     time.sleep(5)
-    
     while True:
         with app.app_context():
             try:
-                # 1. Health Check & Risk Engine
                 if bot_active:
                     try:
-                        # Lightweight API call to verify token validity
-                        # We use a simple variable check first to save API calls
-                        if not kite.access_token:
-                            raise Exception("No Access Token")
-
-                        # Risk Management (SL/Target/Trailing)
-                        # This runs inside the thread to keep SL active even if UI is closed
+                        if not kite.access_token: raise Exception("No Access Token")
                         strategy_manager.update_risk_engine(kite)
-                        
                     except Exception as e:
                         if "Token is invalid" in str(e) or "Network" in str(e) or "No Access Token" in str(e):
-                            print(f"⚠️ Connection Lost: {e}")
-                            bot_active = False
-                        else:
-                            # Log logic errors but don't kill the bot
-                            print(f"⚠️ Risk Loop Warning: {e}")
-
-                # 2. Auto-Login Retry Logic
+                            print(f"⚠️ Connection Lost: {e}"); bot_active = False
+                        else: print(f"⚠️ Risk Loop Warning: {e}")
                 if not bot_active:
                     if login_state == "IDLE":
-                        print("🔄 Monitor: System Offline. Initiating Auto-Login...")
-                        run_auto_login_process()
-                    
+                        print("🔄 Monitor: System Offline. Initiating Auto-Login..."); run_auto_login_process()
                     elif login_state == "FAILED":
-                        print("⚠️ Auto-Login previously failed. Retrying in 60s...")
-                        time.sleep(60)
-                        login_state = "IDLE"
-
-            except Exception as e:
-                print(f"❌ Monitor Loop Critical Error: {e}")
-            finally:
-                # CRITICAL: Close DB session to prevent Locking and Timeout
-                db.session.remove()
-        
-        # Sleep 3 seconds to prevent CPU Starvation and allow Gunicorn Heartbeats
+                        print("⚠️ Auto-Login previously failed. Retrying in 60s..."); time.sleep(60); login_state = "IDLE"
+            except Exception as e: print(f"❌ Monitor Loop Critical Error: {e}")
+            finally: db.session.remove()
         time.sleep(3)
 
 @app.route('/')
 def home():
     global bot_active, login_state
-    
     if bot_active:
         trades = strategy_manager.load_trades()
-        for t in trades:
-            t['symbol'] = smart_trader.get_display_name(t['symbol'])
+        for t in trades: t['symbol'] = smart_trader.get_display_name(t['symbol'])
         active = [t for t in trades if t['status'] in ['OPEN', 'PROMOTED_LIVE', 'PENDING', 'MONITORING']]
         return render_template('dashboard.html', is_active=True, trades=active)
-
-    return render_template('dashboard.html', 
-                           is_active=False, 
-                           state=login_state, 
-                           error=login_error_msg,
-                           login_url=kite.login_url())
+    return render_template('dashboard.html', is_active=False, state=login_state, error=login_error_msg, login_url=kite.login_url())
 
 @app.route('/secure', methods=['GET', 'POST'])
 def secure_login_page():
     if request.method == 'POST':
-        pwd = request.form.get('password')
-        if pwd == config.ADMIN_PASSWORD:
-            print("🔐 Secure Admin Login Successful. Redirecting to Zerodha...")
+        if request.form.get('password') == config.ADMIN_PASSWORD:
             return redirect(kite.login_url())
-        else:
-            return render_template('secure_login.html', error="Invalid Password! Access Denied.")
+        else: return render_template('secure_login.html', error="Invalid Password! Access Denied.")
     return render_template('secure_login.html')
 
 @app.route('/api/status')
-def api_status():
-    return jsonify({
-        "active": bot_active, 
-        "state": login_state,
-        "login_url": kite.login_url()
-    })
+def api_status(): return jsonify({"active": bot_active, "state": login_state, "login_url": kite.login_url()})
 
 @app.route('/reset_connection')
 def reset_connection():
     global bot_active, login_state
-    bot_active = False
-    login_state = "IDLE"
-    flash("🔄 Connection Reset")
-    return redirect('/')
+    bot_active = False; login_state = "IDLE"; flash("🔄 Connection Reset"); return redirect('/')
 
 @app.route('/callback')
 def callback():
@@ -185,27 +114,20 @@ def callback():
         try:
             data = kite.generate_session(t, api_secret=config.API_SECRET)
             kite.set_access_token(data["access_token"])
-            bot_active = True
-            smart_trader.fetch_instruments(kite)
-            gc.collect()
-            flash("✅ System Online")
-        except Exception as e:
-            flash(f"Login Error: {e}")
+            bot_active = True; smart_trader.fetch_instruments(kite); gc.collect(); flash("✅ System Online")
+        except Exception as e: flash(f"Login Error: {e}")
     return redirect('/')
 
 @app.route('/api/settings/load')
-def api_settings_load():
-    return jsonify(settings.load_settings())
+def api_settings_load(): return jsonify(settings.load_settings())
 
 @app.route('/api/settings/save', methods=['POST'])
 def api_settings_save():
-    if settings.save_settings_file(request.json):
-        return jsonify({"status": "success"})
+    if settings.save_settings_file(request.json): return jsonify({"status": "success"})
     return jsonify({"status": "error"})
 
 @app.route('/api/positions')
 def api_positions():
-    # Only read from DB. Risk Engine is handled by Background Worker.
     trades = strategy_manager.load_trades()
     for t in trades:
         t['lot_size'] = smart_trader.get_lot_size(t['symbol'])
@@ -215,54 +137,37 @@ def api_positions():
 @app.route('/api/closed_trades')
 def api_closed_trades():
     trades = strategy_manager.load_history()
-    for t in trades:
-        t['symbol'] = smart_trader.get_display_name(t['symbol'])
+    for t in trades: t['symbol'] = smart_trader.get_display_name(t['symbol'])
     return jsonify(trades)
 
 @app.route('/api/delete_trade/<trade_id>', methods=['POST'])
 def api_delete_trade(trade_id):
-    if strategy_manager.delete_trade(trade_id):
-        return jsonify({"status": "success"})
+    if strategy_manager.delete_trade(trade_id): return jsonify({"status": "success"})
     return jsonify({"status": "error"})
 
 @app.route('/api/update_trade', methods=['POST'])
 def api_update_trade():
     data = request.json
     try:
-        if strategy_manager.update_trade_protection(
-            kite, 
-            data['id'], data['sl'], data['targets'], 
-            data.get('trailing_sl', 0), data.get('entry_price'),
-            data.get('target_controls'), data.get('sl_to_entry', 0),
-            data.get('exit_multiplier', 1)
-        ):
+        if strategy_manager.update_trade_protection(kite, data['id'], data['sl'], data['targets'], data.get('trailing_sl', 0), data.get('entry_price'), data.get('target_controls'), data.get('sl_to_entry', 0), data.get('exit_multiplier', 1)):
             return jsonify({"status": "success"})
-        else:
-            return jsonify({"status": "error", "message": "Trade not found"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        else: return jsonify({"status": "error", "message": "Trade not found"})
+    except Exception as e: return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/api/manage_trade', methods=['POST'])
 def api_manage_trade():
     data = request.json
-    trade_id = data.get('id')
-    action = data.get('action') 
-    lots = int(data.get('lots', 0))
-    
+    trade_id = data.get('id'); action = data.get('action'); lots = int(data.get('lots', 0))
     trades = strategy_manager.load_trades()
     t = next((x for x in trades if str(x['id']) == str(trade_id)), None)
-    
     if t and lots > 0:
         lot_size = smart_trader.get_lot_size(t['symbol'])
-        if strategy_manager.manage_trade_position(kite, trade_id, action, lot_size, lots):
-             return jsonify({"status": "success"})
-    
+        if strategy_manager.manage_trade_position(kite, trade_id, action, lot_size, lots): return jsonify({"status": "success"})
     return jsonify({"status": "error", "message": "Action Failed"})
 
 @app.route('/api/indices')
 def api_indices():
-    if not bot_active:
-        return jsonify({"NIFTY":0, "BANKNIFTY":0, "SENSEX":0})
+    if not bot_active: return jsonify({"NIFTY":0, "BANKNIFTY":0, "SENSEX":0})
     return jsonify(smart_trader.get_indices_ltp(kite))
 
 @app.route('/api/search')
@@ -272,56 +177,52 @@ def api_search():
     return jsonify(smart_trader.search_symbols(kite, request.args.get('q', ''), allowed))
 
 @app.route('/api/details')
-def api_details():
-    return jsonify(smart_trader.get_symbol_details(kite, request.args.get('symbol', '')))
+def api_details(): return jsonify(smart_trader.get_symbol_details(kite, request.args.get('symbol', '')))
 
 @app.route('/api/chain')
-def api_chain(): 
-    return jsonify(smart_trader.get_chain_data(request.args.get('symbol'), request.args.get('expiry'), request.args.get('type'), float(request.args.get('ltp', 0))))
+def api_chain(): return jsonify(smart_trader.get_chain_data(request.args.get('symbol'), request.args.get('expiry'), request.args.get('type'), float(request.args.get('ltp', 0))))
 
 @app.route('/api/specific_ltp')
-def api_s_ltp(): 
-    return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
+def api_s_ltp(): return jsonify({"ltp": smart_trader.get_specific_ltp(kite, request.args.get('symbol'), request.args.get('expiry'), request.args.get('strike'), request.args.get('type'))})
 
 @app.route('/api/panic_exit', methods=['POST'])
 def api_panic_exit():
-    if not bot_active:
-        return jsonify({"status": "error", "message": "Bot not connected"})
+    if not bot_active: return jsonify({"status": "error", "message": "Bot not connected"})
     if strategy_manager.panic_exit_all(kite):
         flash("🚨 PANIC MODE EXECUTED. ALL TRADES CLOSED.")
         return jsonify({"status": "success"})
     return jsonify({"status": "error", "message": "Failed to execute panic mode"})
 
+# --- NEW: IMPORT TRADE ROUTE ---
+@app.route('/api/import_trade', methods=['POST'])
+def api_import_trade():
+    if not bot_active: return jsonify({"status": "error", "message": "Bot not connected"})
+    data = request.json
+    try:
+        final_sym = smart_trader.get_exact_symbol(data['symbol'], data['expiry'], data['strike'], data['type'])
+        if not final_sym: return jsonify({"status": "error", "message": "Invalid Symbol/Strike"})
+        
+        result = strategy_manager.import_past_trade(
+            kite, final_sym, data['entry_time'], 
+            int(data['qty']), float(data['price']), 
+            float(data['sl']), [float(t) for t in data['targets']]
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 @app.route('/trade', methods=['POST'])
 def place_trade():
-    if not bot_active:
-        return redirect('/')
+    if not bot_active: return redirect('/')
     try:
-        sym = request.form['index']
-        type_ = request.form['type']
-        mode = request.form['mode']
-        qty = int(request.form['qty'])
-        order_type = request.form['order_type']
-        limit_price = float(request.form.get('limit_price') or 0)
-        sl_points = float(request.form.get('sl_points', 0))
-        trailing_sl = float(request.form.get('trailing_sl') or 0)
-        sl_to_entry = int(request.form.get('sl_to_entry', 0))
-        exit_multiplayer = int(request.form.get('exit_multiplayer', 1))
-        t1 = float(request.form.get('t1_price', 0))
-        t2 = float(request.form.get('t2_price', 0))
-        t3 = float(request.form.get('t3_price', 0))
-        
-        # --- NEW: Check Max Daily Loss Limit ---
+        sym = request.form['index']; type_ = request.form['type']; mode = request.form['mode']; qty = int(request.form['qty']); order_type = request.form['order_type']
+        limit_price = float(request.form.get('limit_price') or 0); sl_points = float(request.form.get('sl_points', 0)); trailing_sl = float(request.form.get('trailing_sl') or 0); sl_to_entry = int(request.form.get('sl_to_entry', 0)); exit_multiplayer = int(request.form.get('exit_multiplayer', 1))
+        t1 = float(request.form.get('t1_price', 0)); t2 = float(request.form.get('t2_price', 0)); t3 = float(request.form.get('t3_price', 0))
         can_trade, reason = strategy_manager.can_place_order(mode)
-        if not can_trade:
-            flash(f"⛔ Trade Blocked: {reason}")
-            return redirect('/')
-        # ---------------------------------------
-
-        if exit_multiplayer > 1:
-            custom_targets = [t1, t2, t3] 
-        else:
-            custom_targets = [t1, t2, t3] if t1 > 0 else []
+        if not can_trade: flash(f"⛔ Trade Blocked: {reason}"); return redirect('/')
+        
+        if exit_multiplayer > 1: custom_targets = [t1, t2, t3] 
+        else: custom_targets = [t1, t2, t3] if t1 > 0 else []
         
         target_controls = []
         for i in range(1, 4):

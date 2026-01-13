@@ -367,15 +367,15 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         if not hist_data: return {"status": "error", "message": "No historical data found"}
         
         # 2. Simulation State Initialization
-        status = "PENDING" # Start as Pending per requirement
+        status = "PENDING"
         current_sl = float(sl_price)
         current_qty = int(qty)
         highest_ltp = float(entry_price)
         targets_hit_indices = []
         t_list = [float(x) for x in targets]
         
-        # 1st Log: Trade Added
-        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Trade Added (Pending). Waiting for Entry Price: {entry_price}"]
+        # LOG 1: Trade Added (User specified time)
+        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Trade Added (Pending). Waiting for Entry: {entry_price}"]
         
         final_status = "PENDING"
         exit_reason = ""
@@ -394,7 +394,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 if low <= entry_price <= high:
                     status = "OPEN"
                     final_status = "OPEN"
-                    # 2nd Log: Trade Active
+                    # LOG 2: Order Activated (Chart Time)
                     logs.append(f"[{c_time}] 🚀 Order ACTIVATED @ {entry_price}")
                     # Continue to process this SAME candle for risks (Intraday volatility)
                 else:
@@ -440,7 +440,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 
                 if current_qty == 0: break 
 
-                # C. Trailing SL Logic (Using High)
+                # C. Trailing SL Logic (Using High to calculate potential trail)
                 if trailing_sl > 0:
                     step = float(trailing_sl)
                     diff = highest_ltp - (current_sl + step)
@@ -473,7 +473,6 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             except: 
                 if hist_data: current_ltp = hist_data[-1]['close']
             
-            # If it never activated, we still save it as PENDING
             record_status = final_status
             
             record = {
@@ -508,7 +507,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 "symbol": symbol, "exchange": exchange,
                 "mode": "PAPER", 
                 "order_type": "MARKET", "status": final_status, 
-                "entry_price": entry_price, "quantity": qty, # For history record
+                "entry_price": entry_price, "quantity": qty, # Original qty for history log
                 "sl": current_sl, "targets": t_list, 
                 "target_controls": target_controls,
                 "lot_size": smart_trader.get_lot_size(symbol), 

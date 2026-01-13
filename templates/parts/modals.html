@@ -57,9 +57,13 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div> 
             <div class="modal-body">
-                <label class="pos-grid-label">Symbol</label>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="pos-grid-label">WATCHLIST (Auto-Populate)</label>
+                    <select id="imp_watch" class="form-select form-select-sm fw-bold border-secondary" style="width: auto;" onchange="loadWatchlist('imp_watch', '#imp_sym')"><option value="">📺 Select</option></select>
+                </div>
+                
                 <div class="input-group mb-2">
-                    <input type="text" id="imp_sym" class="form-control fw-bold" placeholder="e.g. NIFTY 22000 CE">
+                    <input type="text" id="imp_sym" class="form-control fw-bold" placeholder="e.g. NIFTY" list="sym_list">
                 </div>
 
                 <div class="row g-2 mb-2">
@@ -93,15 +97,54 @@
                 <label class="pos-grid-label text-danger">Stop Loss Price</label>
                 <input type="number" step="0.05" id="imp_sl" class="form-control mb-2 text-danger fw-bold">
 
-                <label class="pos-grid-label text-success">Targets (T1 / T2 / T3)</label>
-                <div class="input-group mb-3">
-                    <input type="number" step="0.05" id="imp_t1" class="form-control text-success" placeholder="T1">
-                    <input type="number" step="0.05" id="imp_t2" class="form-control text-success" placeholder="T2">
-                    <input type="number" step="0.05" id="imp_t3" class="form-control text-success" placeholder="T3">
+                <div class="row g-2 mb-2">
+                     <div class="col-6">
+                        <label class="pos-grid-label">Trailing SL</label>
+                        <input type="number" step="0.5" id="imp_trail_sl" class="form-control text-info fw-bold" placeholder="0">
+                     </div>
+                     <div class="col-6">
+                        <label class="pos-grid-label">Trail Limit</label>
+                        <select id="imp_trail_limit" class="form-select fw-bold">
+                             <option value="0">Unlimited</option>
+                             <option value="1">Up-to Entry</option>
+                             <option value="2">Up-to T1</option>
+                             <option value="3">Up-to T2</option>
+                             <option value="4">Up-to T3</option>
+                        </select>
+                     </div>
                 </div>
+                
+                <div class="mb-2">
+                    <label class="pos-grid-label">Exit Multiplier</label>
+                    <input type="number" id="imp_exit_mult" class="form-control border-info fw-bold text-center" value="1" min="1" max="10">
+                </div>
+
+                <label class="pos-grid-label text-success">Targets (Price | Active | Lots | Full)</label>
+                <div class="input-group input-group-sm mb-1">
+                    <span class="input-group-text text-success fw-bold">T1</span>
+                    <input type="number" step="0.05" id="imp_t1" class="form-control text-success fw-bold">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="imp_t1_active"></div>
+                    <input type="number" id="imp_t1_lots" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="imp_t1_full"></div>
+                </div>
+                <div class="input-group input-group-sm mb-1">
+                    <span class="input-group-text text-success fw-bold">T2</span>
+                    <input type="number" step="0.05" id="imp_t2" class="form-control text-success fw-bold">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="imp_t2_active"></div>
+                    <input type="number" id="imp_t2_lots" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="imp_t2_full"></div>
+                </div>
+                <div class="input-group input-group-sm mb-3">
+                    <span class="input-group-text text-success fw-bold">T3</span>
+                    <input type="number" step="0.05" id="imp_t3" class="form-control text-success fw-bold">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="imp_t3_active"></div>
+                    <input type="number" id="imp_t3_lots" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="imp_t3_full"></div>
+                </div>
+
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="calculateImportRisk()">Calc Risk</button>
+                <button type="button" class="btn btn-secondary" onclick="calculateImportRisk()">Recalc Risk</button>
                 <button type="button" class="btn btn-primary w-100" onclick="submitImport()">📥 Check & Import</button>
             </div> 
         </div> 

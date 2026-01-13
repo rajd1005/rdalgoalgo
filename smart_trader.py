@@ -53,23 +53,16 @@ def get_lot_size(tradingsymbol):
     return 1
 
 def get_display_name(tradingsymbol):
-    """
-    Formats the trading symbol to: SymbolName Strike CE/PE ExpDate
-    Example: BANKNIFTY 59300 PE 26 JAN
-    """
     global instrument_dump
     if instrument_dump is None:
         return tradingsymbol
         
     try:
-        # Fast lookup
         row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
         if not row.empty:
             data = row.iloc[0]
             name = data['name']
             inst_type = data['instrument_type']
-            
-            # Format expiry to "26 JAN"
             expiry_dt = data['expiry_date'] 
             expiry_str = expiry_dt.strftime('%d %b').upper()
             
@@ -80,7 +73,6 @@ def get_display_name(tradingsymbol):
                  return f"{name} FUT {expiry_str}"
             else:
                  return f"{name} {inst_type}"
-                 
         return tradingsymbol
     except:
         return tradingsymbol
@@ -231,3 +223,22 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
              if not row.empty: exch = row.iloc[0]['exchange']
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
+
+# --- NEW FUNCTIONS FOR IMPORT/BACKTEST ---
+def get_instrument_token(tradingsymbol, exchange):
+    global instrument_dump
+    if instrument_dump is None: return None
+    try:
+        row = instrument_dump[(instrument_dump['tradingsymbol'] == tradingsymbol) & (instrument_dump['exchange'] == exchange)]
+        if not row.empty:
+            return int(row.iloc[0]['instrument_token'])
+    except: pass
+    return None
+
+def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
+    try:
+        data = kite.historical_data(token, from_date, to_date, interval)
+        return data
+    except Exception as e:
+        print(f"History Fetch Error: {e}")
+        return []

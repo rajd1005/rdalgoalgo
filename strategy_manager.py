@@ -1,3 +1,4 @@
+# strategy_manager.py
 import json
 import time
 import threading
@@ -439,7 +440,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
         final_exit_price = 0.0
         
         # 3. Candle-by-Candle Simulation (Interpolated Ticks)
-        for candle in hist_data:
+        for idx, candle in enumerate(hist_data):
             c_date_str = candle['date'] # "YYYY-MM-DD HH:MM:SS"
             
             # --- Check Universal Time Exit ---
@@ -544,7 +545,18 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                          final_exit_price = ltp
                          break 
 
-            if current_qty == 0: break 
+            if current_qty == 0:
+                # --- NEW FIX: Post-Exit Scan ---
+                # Continue scanning the remaining history to find the True Max High
+                remaining_candles = hist_data[idx+1:]
+                if remaining_candles:
+                    try:
+                        max_rest = max([float(c['high']) for c in remaining_candles])
+                        if max_rest > highest_ltp:
+                            highest_ltp = max_rest
+                            logs.append(f"[{remaining_candles[-1]['date']}] ℹ️ Post-Exit High Detected: {highest_ltp}")
+                    except: pass
+                break 
 
         # 4. Finalize & Save
         with TRADE_LOCK:

@@ -23,8 +23,9 @@ function loadClosedTrades() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat); // Returns HTML string for badge
                 
-                // --- Potential Profit Logic ---
+                // --- Potential Profit & Pot Tags Logic ---
                 let potHtml = '';
+                let potTag = ''; // Define potTag here to use it in Header
                 let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
 
                 if (!isPureSL) {
@@ -34,36 +35,60 @@ function loadClosedTrades() {
                     
                     if(pot > 0) {
                         totalPotential += pot; 
-                        let potTag = '';
+                        
+                        // Create Badge for Header
                         if (t.targets && t.targets.length >= 3) {
-                            if (mh >= t.targets[2]) potTag = '<span class="badge border border-success text-success" style="font-size:0.6rem;">Pot. T3</span>';
-                            else if (mh >= t.targets[1]) potTag = '<span class="badge border border-success text-success" style="font-size:0.6rem;">Pot. T2</span>';
-                            else if (mh >= t.targets[0]) potTag = '<span class="badge border border-success text-success" style="font-size:0.6rem;">Pot. T1</span>';
+                            // Use outline-success style to differentiate from actual hits
+                            let badgeStyle = 'badge bg-white text-success border border-success';
+                            if (mh >= t.targets[2]) potTag = `<span class="${badgeStyle}" style="font-size:0.65rem;">Pot. T3</span>`;
+                            else if (mh >= t.targets[1]) potTag = `<span class="${badgeStyle}" style="font-size:0.65rem;">Pot. T2</span>`;
+                            else if (mh >= t.targets[0]) potTag = `<span class="${badgeStyle}" style="font-size:0.65rem;">Pot. T1</span>`;
                         }
                         
-                        // Mobile-First Potential Block
+                        // Bottom row shows just the Value
                         potHtml = `
                         <div class="mt-2 p-1 rounded bg-light border border-warning border-opacity-25 d-flex justify-content-between align-items-center" style="font-size:0.75rem;">
                             <span class="text-muted">High: <b>${mh.toFixed(2)}</b></span>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="text-success fw-bold">Max: ₹${pot.toFixed(0)}</span>
-                                ${potTag}
-                            </div>
+                            <span class="text-success fw-bold">Max Potential: ₹${pot.toFixed(0)}</span>
                         </div>`;
                     }
                 }
 
-                // --- Status Tags ---
+                // --- Status Tags (Fixed for Target_3_Hit) ---
                 let statusTag = '';
-                if (t.status === 'SL_HIT') statusTag = '<span class="badge bg-danger" style="font-size:0.65rem;">Stop-Loss</span>';
-                else if (t.status === 'TARGET_HIT') {
-                     let maxHit = 2; 
-                     if (t.targets_hit_indices && t.targets_hit_indices.length > 0) maxHit = Math.max(...t.targets_hit_indices);
+                // Normalize Status: If backend sends "TARGET_3_HIT", treat as "TARGET_HIT" logic
+                let rawStatus = t.status || '';
+                
+                if (rawStatus === 'SL_HIT') {
+                    statusTag = '<span class="badge bg-danger" style="font-size:0.65rem;">Stop-Loss</span>';
+                } 
+                else if (rawStatus.includes('TARGET')) {
+                     // Check indices first (preferred)
+                     let maxHit = -1;
+                     if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
+                         maxHit = Math.max(...t.targets_hit_indices);
+                     } else {
+                         // Fallback: Parse string "TARGET_2_HIT"
+                         if(rawStatus.includes('1')) maxHit = 0;
+                         if(rawStatus.includes('2')) maxHit = 1;
+                         if(rawStatus.includes('3')) maxHit = 2;
+                     }
+
                      if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T1 Hit</span>';
                      else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T2 Hit</span>';
-                     else statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>';
-                } else if (t.status === 'COST_EXIT') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Cost Exit</span>';
-                else statusTag = `<span class="badge bg-secondary" style="font-size:0.65rem;">${t.status}</span>`;
+                     else statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>'; // Default to T3/Full Target
+                } 
+                else if (rawStatus === 'COST_EXIT') {
+                    statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Cost Exit</span>';
+                } 
+                else {
+                    statusTag = `<span class="badge bg-secondary" style="font-size:0.65rem;">${rawStatus}</span>`;
+                }
+
+                // --- Time Formatting ---
+                // Show Seconds for Added Time to distinguish trades
+                let addedTime = t.entry_time ? t.entry_time.slice(11, 19) : '--:--:--';
+                let closedTime = t.exit_time ? t.exit_time.slice(11, 16) : '--:--';
 
                 // --- Actions ---
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="editSim('${t.id}')">✏️</button>` : '';
@@ -76,13 +101,13 @@ function loadClosedTrades() {
                         <div class="d-flex justify-content-between align-items-start mb-1">
                             <div>
                                 <span class="fw-bold text-dark h6 m-0">${t.symbol}</span>
-                                <div class="mt-1 d-flex gap-1 align-items-center">
-                                    ${badge} ${statusTag}
+                                <div class="mt-1 d-flex gap-1 align-items-center flex-wrap">
+                                    ${badge} ${statusTag} ${potTag}
                                 </div>
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold h6 m-0 ${color}">${t.pnl.toFixed(2)}</div>
-                                <small class="text-muted" style="font-size:0.7rem;">${t.exit_time.slice(11,16)}</small>
+                                <small class="text-muted" style="font-size:0.7rem;">Exit: ${closedTime}</small>
                             </div>
                         </div>
 
@@ -98,7 +123,7 @@ function loadClosedTrades() {
                                 <div class="fw-bold text-dark">${t.entry_price.toFixed(2)}</div>
                             </div>
                             <div class="col-3 border-end">
-                                <div class="text-muted small">Exit</div>
+                                <div class="text-muted small">LTP</div>
                                 <div class="fw-bold text-dark">${t.current_ltp ? t.current_ltp.toFixed(2) : t.exit_price.toFixed(2)}</div>
                             </div>
                             <div class="col-3">
@@ -108,8 +133,8 @@ function loadClosedTrades() {
                         </div>
 
                         <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
+                            <span class="text-muted">Added: <b>${addedTime}</b></span>
                             <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
-                            <span class="text-muted">Targets: ${t.targets[0].toFixed(0)} / ${t.targets[1].toFixed(0)} / ${t.targets[2].toFixed(0)}</span>
                         </div>
 
                         ${potHtml}

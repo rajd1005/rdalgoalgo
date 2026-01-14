@@ -1,3 +1,4 @@
+import time
 import os
 import pyotp
 from urllib.parse import parse_qs, urlparse
@@ -39,11 +40,11 @@ def perform_auto_login(kite_instance):
         
         # Mask WebDriver property to avoid bot detection scripts
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": \"\"\"
+            "source": """
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 })
-            \"\"\"
+            """
         })
         
         login_url = kite_instance.login_url()
@@ -87,7 +88,6 @@ def perform_auto_login(kite_instance):
             except: pass
 
             # Look for the TOTP input field (Type can vary, usually 'text' or 'number' inside the 2FA form)
-            # Zerodha 2FA input often has specific classes or structure
             totp_input = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='text'], input[type='number'], input[placeholder='TOTP']")))
             
             if not config.TOTP_SECRET:
@@ -147,4 +147,3 @@ def perform_auto_login(kite_instance):
             try:
                 driver.quit()
             except: pass
-"""

@@ -19,11 +19,10 @@ function loadClosedTrades() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
-                // Logic for Potential Profit Display
+                // --- Logic for Potential Profit & Potential Tags ---
                 let potHtml = '';
 
-                // Condition: Skip if SL Hit without touching Target 1
-                // (i.e., A "Pure" Stop Loss hit)
+                // 1. Skip if it was a "Pure" Stop Loss hit (SL hit without touching any target)
                 let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
 
                 if (!isPureSL) {
@@ -35,9 +34,27 @@ function loadClosedTrades() {
                     // Show only if there is a positive potential profit
                     if(pot > 0) {
                         totalPotential += pot; 
-                        potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
+                        
+                        // --- NEW: Calculate Potential Target Hit ---
+                        let potTag = '';
+                        if (t.targets && t.targets.length >= 3) {
+                            if (mh >= t.targets[2]) {
+                                potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Pot. T3</span>';
+                            } else if (mh >= t.targets[1]) {
+                                potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Pot. T2</span>';
+                            } else if (mh >= t.targets[0]) {
+                                potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Pot. T1</span>';
+                            }
+                        }
+                        // ------------------------------------------
+
+                        potHtml = `<br>
+                        <span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> 
+                        <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>
+                        ${potTag}`; 
                     }
                 }
+                // ---------------------------------------------------
 
                 // --- Live Status Tag Logic for Closed Trades (Updated) ---
                 let statusTag = '';

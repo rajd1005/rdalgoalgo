@@ -796,6 +796,13 @@ def update_risk_engine(kite):
         # 2. Process CLOSED TRADES (Missed Opportunity Tracker)
         history_updated = False
         for t in todays_closed:
+            # --- NEW CONDITION: Skip if SL Hit AFTER hitting Targets ---
+            # If the trade hit SL, but ALREADY hit some targets (indices not empty), 
+            # we respect the High recorded during the trade and do NOT update it further.
+            if t['status'] == 'SL_HIT' and t.get('targets_hit_indices'):
+                continue
+            # -----------------------------------------------------------
+
             inst_key = f"{t['exchange']}:{t['symbol']}"
             if inst_key in live_prices:
                 ltp = live_prices[inst_key]['last_price']

@@ -1,4 +1,3 @@
-# strategy_manager.py
 import json
 import time
 import threading
@@ -657,12 +656,28 @@ def update_risk_engine(kite):
 
     with TRADE_LOCK:
         active_trades = load_trades()
-        if not active_trades: return 
+        
+        # --- NEW: Load Today's Closed Trades for Missed Opportunity Tracking ---
+        history = load_history()
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        todays_closed = [t for t in history if t['exit_time'].startswith(today_str)]
+        # -----------------------------------------------------------------------
 
-        instruments = list(set([f"{t['exchange']}:{t['symbol']}" for t in active_trades]))
-        try: live_prices = kite.quote(instruments)
-        except: return
+        # Combine Active Symbols AND Closed Symbols for Data Fetching
+        active_symbols = [f"{t['exchange']}:{t['symbol']}" for t in active_trades]
+        closed_symbols = [f"{t['exchange']}:{t['symbol']}" for t in todays_closed]
+        
+        # Unique list of instruments to quote
+        all_instruments = list(set(active_symbols + closed_symbols))
 
+        if not all_instruments: return
+
+        try: 
+            live_prices = kite.quote(all_instruments)
+        except: 
+            return
+
+        # 1. Process ACTIVE TRADES
         active_list = []; updated = False
         for t in active_trades:
             inst_key = f"{t['exchange']}:{t['symbol']}"
@@ -765,3 +780,22 @@ def update_risk_engine(kite):
                     active_list.append(t)
         
         if updated: save_trades(active_list)
+
+        # 2. Process CLOSED TRADES (Missed Opportunity Tracker)
+        history_updated = False
+        for t in todays_closed:
+            inst_key = f"{t['exchange']}:{t['symbol']}"
+            if inst_key in live_prices:
+                ltp = live_prices[inst_key]['last_price']
+                
+                # Check if current price is higher than the recorded high
+                current_high = t.get('made_high', t['entry_price'])
+                if ltp > current_high:
+                    t['made_high'] = ltp
+                    # Update the database record
+                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                    history_updated = True
+        
+        if history_updated: 
+            db.session.commit()
+            # print("📈 Updated History Highs") # Uncomment for debug logging

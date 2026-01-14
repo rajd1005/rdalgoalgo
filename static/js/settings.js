@@ -32,25 +32,28 @@ function loadSettings() {
 
                 // Target Config
                 let tgts = s.targets || [
-                    {active: true, lots: 0, full: false},
-                    {active: true, lots: 0, full: false},
-                    {active: true, lots: 1000, full: true}
+                    {active: true, lots: 0, full: false, trail_to_entry: false},
+                    {active: true, lots: 0, full: false, trail_to_entry: false},
+                    {active: true, lots: 1000, full: true, trail_to_entry: false}
                 ];
                 
                 // T1
                 $(`#${k}_a1`).prop('checked', tgts[0].active);
                 $(`#${k}_l1`).val(tgts[0].lots > 0 && !tgts[0].full ? tgts[0].lots : '');
                 $(`#${k}_f1`).prop('checked', tgts[0].full);
+                $(`#${k}_c1`).prop('checked', tgts[0].trail_to_entry || false); // Added
                 
                 // T2
                 $(`#${k}_a2`).prop('checked', tgts[1].active);
                 $(`#${k}_l2`).val(tgts[1].lots > 0 && !tgts[1].full ? tgts[1].lots : '');
                 $(`#${k}_f2`).prop('checked', tgts[1].full);
+                $(`#${k}_c2`).prop('checked', tgts[1].trail_to_entry || false); // Added
 
                 // T3
                 $(`#${k}_a3`).prop('checked', tgts[2].active);
                 $(`#${k}_l3`).val(tgts[2].lots > 0 && !tgts[2].full ? tgts[2].lots : '');
                 $(`#${k}_f3`).prop('checked', tgts[2].full);
+                $(`#${k}_c3`).prop('checked', tgts[2].trail_to_entry || false); // Added
 
                 renderSLTable(m);
             });
@@ -89,17 +92,20 @@ function saveSettings() {
             {
                 active: $(`#${k}_a1`).is(':checked'),
                 full: $(`#${k}_f1`).is(':checked'),
-                lots: $(`#${k}_f1`).is(':checked') ? 1000 : (parseInt($(`#${k}_l1`).val()) || 0)
+                lots: $(`#${k}_f1`).is(':checked') ? 1000 : (parseInt($(`#${k}_l1`).val()) || 0),
+                trail_to_entry: $(`#${k}_c1`).is(':checked') // Added
             },
             {
                 active: $(`#${k}_a2`).is(':checked'),
                 full: $(`#${k}_f2`).is(':checked'),
-                lots: $(`#${k}_f2`).is(':checked') ? 1000 : (parseInt($(`#${k}_l2`).val()) || 0)
+                lots: $(`#${k}_f2`).is(':checked') ? 1000 : (parseInt($(`#${k}_l2`).val()) || 0),
+                trail_to_entry: $(`#${k}_c2`).is(':checked') // Added
             },
             {
                 active: $(`#${k}_a3`).is(':checked'),
                 full: $(`#${k}_f3`).is(':checked'),
-                lots: $(`#${k}_f3`).is(':checked') ? 1000 : (parseInt($(`#${k}_l3`).val()) || 0)
+                lots: $(`#${k}_f3`).is(':checked') ? 1000 : (parseInt($(`#${k}_l3`).val()) || 0),
+                trail_to_entry: $(`#${k}_c3`).is(':checked') // Added
             }
         ];
     });

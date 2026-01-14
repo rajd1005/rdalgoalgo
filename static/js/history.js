@@ -21,11 +21,11 @@ function loadClosedTrades() {
 
                 let color = t.pnl >= 0 ? 'text-success' : 'text-danger';
                 let cat = getTradeCategory(t); 
-                let badge = getMarkBadge(cat); // Returns HTML string for badge
+                let badge = getMarkBadge(cat);
                 
                 // --- Potential Profit & Pot Tags Logic ---
                 let potHtml = '';
-                let potTag = ''; // Define potTag here to use it in Header
+                let potTag = ''; 
                 let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
 
                 if (!isPureSL) {
@@ -36,16 +36,13 @@ function loadClosedTrades() {
                     if(pot > 0) {
                         totalPotential += pot; 
                         
-                        // Create Badge for Header
                         if (t.targets && t.targets.length >= 3) {
-                            // Use outline-success style to differentiate from actual hits
                             let badgeStyle = 'badge bg-white text-success border border-success';
                             if (mh >= t.targets[2]) potTag = `<span class="${badgeStyle}" style="font-size:0.65rem;">Pot. T3</span>`;
                             else if (mh >= t.targets[1]) potTag = `<span class="${badgeStyle}" style="font-size:0.65rem;">Pot. T2</span>`;
                             else if (mh >= t.targets[0]) potTag = `<span class="${badgeStyle}" style="font-size:0.65rem;">Pot. T1</span>`;
                         }
                         
-                        // Bottom row shows just the Value
                         potHtml = `
                         <div class="mt-2 p-1 rounded bg-light border border-warning border-opacity-25 d-flex justify-content-between align-items-center" style="font-size:0.75rem;">
                             <span class="text-muted">High: <b>${mh.toFixed(2)}</b></span>
@@ -54,21 +51,18 @@ function loadClosedTrades() {
                     }
                 }
 
-                // --- Status Tags (Fixed for Target_3_Hit) ---
+                // --- Status Tags ---
                 let statusTag = '';
-                // Normalize Status: If backend sends "TARGET_3_HIT", treat as "TARGET_HIT" logic
                 let rawStatus = t.status || '';
                 
                 if (rawStatus === 'SL_HIT') {
                     statusTag = '<span class="badge bg-danger" style="font-size:0.65rem;">Stop-Loss</span>';
                 } 
                 else if (rawStatus.includes('TARGET')) {
-                     // Check indices first (preferred)
                      let maxHit = -1;
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
                          maxHit = Math.max(...t.targets_hit_indices);
                      } else {
-                         // Fallback: Parse string "TARGET_2_HIT"
                          if(rawStatus.includes('1')) maxHit = 0;
                          if(rawStatus.includes('2')) maxHit = 1;
                          if(rawStatus.includes('3')) maxHit = 2;
@@ -76,7 +70,7 @@ function loadClosedTrades() {
 
                      if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T1 Hit</span>';
                      else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T2 Hit</span>';
-                     else statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>'; // Default to T3/Full Target
+                     else statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>'; 
                 } 
                 else if (rawStatus === 'COST_EXIT') {
                     statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Cost Exit</span>';
@@ -85,10 +79,26 @@ function loadClosedTrades() {
                     statusTag = `<span class="badge bg-secondary" style="font-size:0.65rem;">${rawStatus}</span>`;
                 }
 
-                // --- Time Formatting ---
-                // Show Seconds for Added Time to distinguish trades
+                // --- Time & Duration Logic ---
                 let addedTime = t.entry_time ? t.entry_time.slice(11, 19) : '--:--:--';
-                let closedTime = t.exit_time ? t.exit_time.slice(11, 16) : '--:--';
+                
+                // Calculate Duration (Active Time)
+                let durationStr = '--';
+                if (t.entry_time && t.exit_time) {
+                    let start = new Date(t.entry_time);
+                    let end = new Date(t.exit_time);
+                    let diffMs = end - start;
+                    if (!isNaN(diffMs) && diffMs >= 0) {
+                        let diffSecs = Math.floor(diffMs / 1000);
+                        let hrs = Math.floor(diffSecs / 3600);
+                        let mins = Math.floor((diffSecs % 3600) / 60);
+                        let secs = diffSecs % 60;
+                        
+                        if (hrs > 0) durationStr = `${hrs}h ${mins}m`;
+                        else if (mins > 0) durationStr = `${mins}m ${secs}s`;
+                        else durationStr = `${secs}s`;
+                    }
+                }
 
                 // --- Actions ---
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="editSim('${t.id}')">✏️</button>` : '';
@@ -107,7 +117,7 @@ function loadClosedTrades() {
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold h6 m-0 ${color}">${t.pnl.toFixed(2)}</div>
-                                <small class="text-muted" style="font-size:0.7rem;">Exit: ${closedTime}</small>
+                                <small class="text-muted" style="font-size:0.7rem;">Active: ${durationStr}</small>
                             </div>
                         </div>
 
@@ -135,6 +145,10 @@ function loadClosedTrades() {
                         <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
                             <span class="text-muted">Added: <b>${addedTime}</b></span>
                             <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
+                        </div>
+
+                        <div class="mt-1 px-1" style="font-size:0.75rem;">
+                            <span class="text-muted">Targets: <b>${t.targets[0].toFixed(0)}</b> | <b>${t.targets[1].toFixed(0)}</b> | <b>${t.targets[2].toFixed(0)}</b></span>
                         </div>
 
                         ${potHtml}

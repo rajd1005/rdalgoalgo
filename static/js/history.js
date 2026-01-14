@@ -79,27 +79,43 @@ function loadClosedTrades() {
                     statusTag = `<span class="badge bg-secondary" style="font-size:0.65rem;">${rawStatus}</span>`;
                 }
 
-                // --- NEW TIME LOGIC ---
-                // 1. Added Time (Entry Time field)
-                let addedTime = t.entry_time ? t.entry_time.slice(11, 16) : '--:--';
+                // --- NEW TIME & ACTIVATION DURATION LOGIC ---
+                
+                // 1. Added Time (From DB)
+                let addedTimeStr = t.entry_time ? t.entry_time.slice(11, 16) : '--:--';
+                let addedDateObj = t.entry_time ? new Date(t.entry_time) : null;
                 
                 // 2. Active Time (Parse Logs)
-                let activeTime = '--:--';
+                let activeTimeStr = '--:--';
+                let waitDuration = '';
+                
                 if (t.logs && t.logs.length > 0) {
-                    // Check for explicit activation (Import or Limit Orders)
                     let activationLog = t.logs.find(l => l.includes('Order ACTIVATED'));
                     
                     if (activationLog) {
                         // Extract [YYYY-MM-DD HH:MM:SS]
                         let match = activationLog.match(/\[(.*?)\]/);
                         if (match && match[1]) {
-                            activeTime = match[1].slice(11, 16); // Extract HH:MM
+                            activeTimeStr = match[1].slice(11, 16); // Extract HH:MM
+                            
+                            // Calculate Duration
+                            let activeDateObj = new Date(match[1]);
+                            if(addedDateObj && activeDateObj) {
+                                let diff = activeDateObj - addedDateObj; // in ms
+                                if(diff > 0) {
+                                    let totalSecs = Math.floor(diff / 1000);
+                                    let m = Math.floor(totalSecs / 60);
+                                    let s = totalSecs % 60;
+                                    waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(${m}m ${s}s)</span>`;
+                                }
+                            }
                         }
                     } else {
                         // Check if it was OPEN immediately (Market Order)
                         let firstLog = t.logs[0] || "";
                         if (firstLog.includes("Status: OPEN")) {
-                            activeTime = addedTime;
+                            activeTimeStr = addedTimeStr;
+                            waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(Instant)</span>`;
                         }
                     }
                 }
@@ -121,7 +137,7 @@ function loadClosedTrades() {
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold h6 m-0 ${color}">${t.pnl.toFixed(2)}</div>
-                                </div>
+                            </div>
                         </div>
 
                         <hr class="my-1 text-muted opacity-25">
@@ -146,8 +162,11 @@ function loadClosedTrades() {
                         </div>
 
                         <div class="d-flex justify-content-between align-items-center mt-2 px-1 bg-light rounded py-1" style="font-size:0.75rem;">
-                            <span class="text-muted">Added: <b>${addedTime}</b></span>
-                            <span class="text-primary">Active: <b>${activeTime}</b></span>
+                            <span class="text-muted">Added: <b>${addedTimeStr}</b></span>
+                            <div class="d-flex align-items-center">
+                                <span class="text-primary">Active: <b>${activeTimeStr}</b></span>
+                                ${waitDuration}
+                            </div>
                         </div>
 
                         <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">

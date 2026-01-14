@@ -1,4 +1,3 @@
-import time
 import os
 import pyotp
 from urllib.parse import parse_qs, urlparse
@@ -15,142 +14,137 @@ import config
 def perform_auto_login(kite_instance):
     print("🔄 Starting Auto-Login Sequence...")
     
+    # --- CONFIGURE CHROME OPTIONS FOR STABILITY ---
     chrome_options = Options()
-    chrome_options.add_argument("--headless") 
+    # Use 'new' headless mode for better compatibility with modern websites
+    chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("--ignore-certificate-errors")
+    
+    # ANTI-BOT DETECTION FLAGS
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     
     driver = None
     try:
+        # Install/Update Driver automatically
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
+        # Mask WebDriver property to avoid bot detection scripts
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": \"\"\"
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                })
+            \"\"\"
+        })
+        
         login_url = kite_instance.login_url()
+        print(f"➡️ Navigating to Login URL...")
         driver.get(login_url)
-        wait = WebDriverWait(driver, 25)
+        wait = WebDriverWait(driver, 30) # Increased wait time for slow network
 
         # --- STEP 1: USER ID ---
-        print("➡️ Entering User ID...")
+        print("➡️ Step 1: Entering User ID...")
         try:
-            user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
+            # Wait for User ID input to be interactive
+            user_id_field = wait.until(EC.element_to_be_clickable((By.ID, "userid")))
             user_id_field.clear()
             user_id_field.send_keys(config.ZERODHA_USER_ID)
-            time.sleep(1)
+            user_id_field.send_keys(Keys.ENTER)
+            time.sleep(1.5) # Allow DOM transition
         except Exception as e:
-            return None, f"Error at User ID: {str(e)}"
+            return None, f"Failed at User ID Step: {str(e)}"
 
         # --- STEP 2: PASSWORD ---
-        print("➡️ Entering Password...")
+        print("➡️ Step 2: Entering Password...")
         try:
-            try:
-                password_field = driver.find_element(By.ID, "password")
-            except:
-                user_id_field.send_keys(Keys.ENTER)
-                password_field = wait.until(EC.visibility_of_element_located((By.ID, "password")))
-            
+            # Wait for Password input
+            password_field = wait.until(EC.element_to_be_clickable((By.ID, "password")))
             password_field.clear()
             password_field.send_keys(config.ZERODHA_PASSWORD)
-            time.sleep(1) 
-            
-            # Click Login
-            submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-            driver.execute_script("arguments[0].click();", submit_btn)
-            
+            password_field.send_keys(Keys.ENTER)
+            time.sleep(2) # Allow network request
         except Exception as e:
-            return None, f"Error at Password: {str(e)}"
+            return None, f"Failed at Password Step: {str(e)}"
 
-        # --- STEP 3: WAIT FOR TOTP PAGE ---
-        print("⏳ Waiting for TOTP Page...")
-        time.sleep(3) 
-
-        # Check for errors
+        # --- STEP 3: TOTP ---
+        print("➡️ Step 3: Handling TOTP...")
         try:
-            err = driver.find_element(By.CSS_SELECTOR, ".su-message.error, .error-message")
-            if err.is_displayed():
-                return None, f"Login Failed (Password Step): {err.text}"
-        except: pass
+            # Wait for EITHER the TOTP input OR an error message
+            try:
+                # Check for explicit error message first (e.g., 'Invalid password')
+                error_msg = driver.find_elements(By.CSS_SELECTOR, ".su-message.error, .error-message")
+                if error_msg and error_msg[0].is_displayed():
+                    return None, f"Login Error: {error_msg[0].text}"
+            except: pass
 
-        # --- STEP 4: TOTP ---
-        print("➡️ Generating TOTP...")
-        if not config.TOTP_SECRET:
-            return None, "Error: TOTP_SECRET missing."
+            # Look for the TOTP input field (Type can vary, usually 'text' or 'number' inside the 2FA form)
+            # Zerodha 2FA input often has specific classes or structure
+            totp_input = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='text'], input[type='number'], input[placeholder='TOTP']")))
             
-        totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
-        print(f"   🔑 Generated TOTP Code: {totp_now}") 
-        
-        try:
-            # Find ANY visible input field
-            totp_input = None
-            inputs = driver.find_elements(By.TAG_NAME, "input")
+            if not config.TOTP_SECRET:
+                return None, "TOTP_SECRET is missing in config."
+                
+            totp_now = pyotp.TOTP(config.TOTP_SECRET).now()
+            print(f"   🔑 Generated TOTP: {totp_now}")
             
-            for inp in inputs:
-                if not inp.is_displayed(): continue
-                t = inp.get_attribute("type")
-                if t in ["text", "number", "tel", "password"]:
-                    totp_input = inp
-                    break
-            
-            if not totp_input:
-                return None, "Error: Could not find TOTP input box."
-
+            # Click first to ensure focus, then type
+            totp_input.click()
             totp_input.clear()
             totp_input.send_keys(totp_now)
-            time.sleep(1)
+            totp_input.send_keys(Keys.ENTER)
+            time.sleep(2)
             
-            # Submit
-            try:
-                continue_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-                driver.execute_script("arguments[0].click();", continue_btn)
-                print("   Clicked Continue Button.")
-            except:
-                totp_input.send_keys(Keys.ENTER)
-                print("   Hit Enter Key.")
-
         except Exception as e:
-            return None, f"Error Entering TOTP: {str(e)}"
+            # Check if it asked for 'App Code' instead of TOTP (User specific setting)
+            if "App Code" in driver.page_source:
+                return None, "Error: Zerodha is asking for Mobile App Code, but System is configured for TOTP."
+            return None, f"Failed at TOTP Step: {str(e)}"
 
-        # --- STEP 5: VERIFY SUCCESS (UPDATED) ---
-        print("⏳ Waiting for Success...")
-        
-        # We wait up to 15 seconds for EITHER:
-        # A) Dashboard Text (System Online / Trade) -> Means Flask handled callback
-        # B) request_token in URL -> Means Flask didn't handle it yet (rare)
+        # --- STEP 4: VERIFY SUCCESS ---
+        print("⏳ Waiting for Redirect/Dashboard...")
         
         start_time = time.time()
-        while time.time() - start_time < 15:
+        while time.time() - start_time < 20: # Wait up to 20 seconds
             current_url = driver.current_url
-            page_text = driver.find_element(By.TAG_NAME, "body").text
             
-            # CHECK 1: Did we reach the Dashboard? (Success!)
-            # Based on your logs, dashboard contains "System Online" or "WATCHLIST"
-            if "System Online" in page_text or "WATCHLIST" in page_text or "Trade" in page_text:
-                print("✅ Dashboard Detected! Login Complete via Callback.")
-                return "SKIP_SESSION", None # Special flag for main.py
-
-            # CHECK 2: Is there a request_token?
+            # Check 1: Request Token in URL (Successful Redirect)
             if "request_token=" in current_url:
                 parsed = urlparse(current_url)
                 request_token = parse_qs(parsed.query).get('request_token', [None])[0]
                 if request_token:
-                    print(f"✅ Token Captured: {request_token[:6]}...")
+                    print(f"✅ Success! Token Captured: {request_token[:6]}...")
                     return request_token, None
             
-            # CHECK 3: Did it fail?
-            if "Incorrect password" in page_text or "Invalid TOTP" in page_text:
-                return None, "Login Failed: Invalid Credentials detected on screen."
+            # Check 2: Dashboard Loaded directly (Session already active or callback handled)
+            page_source = driver.page_source
+            if "System Online" in page_source or "Positions" in page_source or "Holdings" in page_source:
+                print("✅ Success! Dashboard detected.")
+                return "SKIP_SESSION", None
                 
+            # Check 3: Error on screen
+            if "Incorrect password" in page_source or "Invalid TOTP" in page_source:
+                return None, "Login Failed: Invalid Credentials detected."
+
             time.sleep(1)
 
-        # Timeout Fallback
-        return None, "Login Timed Out. (Could not detect Dashboard or Token)"
+        return None, "Login Timed Out. Could not detect Success."
 
     except Exception as e:
-        print(f"❌ System Error: {e}")
+        print(f"❌ Critical Selenium Error: {e}")
         return None, str(e)
         
     finally:
         if driver:
-            driver.quit()
+            try:
+                driver.quit()
+            except: pass
+"""

@@ -6,7 +6,7 @@ function loadClosedTrades() {
         let totalWins = 0;
         let totalLosses = 0;
         let totalPotential = 0;
-        let totalCapital = 0; // Track Total Funds
+        let totalCapital = 0; 
 
         let filtered = trades.filter(t => t.exit_time && t.exit_time.startsWith(filterDate) && (filterType === 'ALL' || getTradeCategory(t) === filterType));
         if(filtered.length === 0) html = '<div class="text-center p-4 text-muted">No History for this Date/Filter</div>';
@@ -16,14 +16,14 @@ function loadClosedTrades() {
                 if(t.pnl > 0) totalWins += t.pnl;
                 else totalLosses += t.pnl;
                 
-                let invested = t.entry_price * t.quantity; // Cap Used per trade
+                let invested = t.entry_price * t.quantity; 
                 totalCapital += invested;
 
-                let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
+                let color = t.pnl >= 0 ? 'text-success' : 'text-danger';
                 let cat = getTradeCategory(t); 
-                let badge = getMarkBadge(cat);
+                let badge = getMarkBadge(cat); // Returns HTML string for badge
                 
-                // Potential Profit Logic
+                // --- Potential Profit Logic ---
                 let potHtml = '';
                 let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
 
@@ -36,67 +36,96 @@ function loadClosedTrades() {
                         totalPotential += pot; 
                         let potTag = '';
                         if (t.targets && t.targets.length >= 3) {
-                            if (mh >= t.targets[2]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">PTarget 3</span>';
-                            else if (mh >= t.targets[1]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">PTarget 2</span>';
-                            else if (mh >= t.targets[0]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">PTarget 1</span>';
+                            if (mh >= t.targets[2]) potTag = '<span class="badge border border-success text-success" style="font-size:0.6rem;">Pot. T3</span>';
+                            else if (mh >= t.targets[1]) potTag = '<span class="badge border border-success text-success" style="font-size:0.6rem;">Pot. T2</span>';
+                            else if (mh >= t.targets[0]) potTag = '<span class="badge border border-success text-success" style="font-size:0.6rem;">Pot. T1</span>';
                         }
-                        potHtml = `<br>
-                        <span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> 
-                        <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>
-                        ${potTag}`;
+                        
+                        // Mobile-First Potential Block
+                        potHtml = `
+                        <div class="mt-2 p-1 rounded bg-light border border-warning border-opacity-25 d-flex justify-content-between align-items-center" style="font-size:0.75rem;">
+                            <span class="text-muted">High: <b>${mh.toFixed(2)}</b></span>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="text-success fw-bold">Max: ₹${pot.toFixed(0)}</span>
+                                ${potTag}
+                            </div>
+                        </div>`;
                     }
                 }
 
+                // --- Status Tags ---
                 let statusTag = '';
-                if (t.status === 'SL_HIT') statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
+                if (t.status === 'SL_HIT') statusTag = '<span class="badge bg-danger" style="font-size:0.65rem;">Stop-Loss</span>';
                 else if (t.status === 'TARGET_HIT') {
                      let maxHit = 2; 
                      if (t.targets_hit_indices && t.targets_hit_indices.length > 0) maxHit = Math.max(...t.targets_hit_indices);
-                     if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 1 Hit</span>';
-                     else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
-                     else statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 3 Hit</span>';
-                } else if (t.status === 'COST_EXIT') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Cost Exit</span>';
-                else statusTag = `<span class="badge bg-secondary" style="font-size:0.7rem;">${t.status}</span>`;
+                     if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T1 Hit</span>';
+                     else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T2 Hit</span>';
+                     else statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>';
+                } else if (t.status === 'COST_EXIT') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Cost Exit</span>';
+                else statusTag = `<span class="badge bg-secondary" style="font-size:0.65rem;">${t.status}</span>`;
 
-                let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-xs btn-outline-primary" onclick="editSim('${t.id}')">✏️ Edit</button>` : '';
-                let delBtn = `<button class="btn btn-xs btn-outline-danger" onclick="deleteTrade('${t.id}')">🗑️</button>`;
+                // --- Actions ---
+                let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="editSim('${t.id}')">✏️</button>` : '';
+                let delBtn = `<button class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:0.75rem;" onclick="deleteTrade('${t.id}')">🗑️</button>`;
                 
-                // Displaying Entry, Exit/LTP, SL, and Targets
-                html += `<div class="trade-row">
-                    <div class="trade-info">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
-                            ${badge}
-                            ${statusTag}
+                // --- Mobile-First Card Design ---
+                html += `
+                <div class="card mb-2 shadow-sm border-0">
+                    <div class="card-body p-2">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div>
+                                <span class="fw-bold text-dark h6 m-0">${t.symbol}</span>
+                                <div class="mt-1 d-flex gap-1 align-items-center">
+                                    ${badge} ${statusTag}
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="fw-bold h6 m-0 ${color}">${t.pnl.toFixed(2)}</div>
+                                <small class="text-muted" style="font-size:0.7rem;">${t.exit_time.slice(11,16)}</small>
+                            </div>
                         </div>
-                        <div class="text-end">
-                             <span class="fw-bold ${color}" style="font-size:1rem;">${t.pnl.toFixed(2)}</span>
+
+                        <hr class="my-1 text-muted opacity-25">
+
+                        <div class="row g-0 text-center mt-2" style="font-size:0.75rem;">
+                            <div class="col-3 border-end">
+                                <div class="text-muted small">Qty</div>
+                                <div class="fw-bold text-dark">${t.quantity}</div>
+                            </div>
+                            <div class="col-3 border-end">
+                                <div class="text-muted small">Entry</div>
+                                <div class="fw-bold text-dark">${t.entry_price.toFixed(2)}</div>
+                            </div>
+                            <div class="col-3 border-end">
+                                <div class="text-muted small">Exit</div>
+                                <div class="fw-bold text-dark">${t.current_ltp ? t.current_ltp.toFixed(2) : t.exit_price.toFixed(2)}</div>
+                            </div>
+                            <div class="col-3">
+                                <div class="text-muted small">Fund</div>
+                                <div class="fw-bold text-dark">₹${(invested/1000).toFixed(1)}k</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="trade-details">
-                        <div class="d-flex justify-content-between">
-                            <span>Qty: <b>${t.quantity}</b></span>
-                            <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
-                            <span>LTP: <b>${t.current_ltp ? t.current_ltp.toFixed(2) : t.exit_price.toFixed(2)}</b></span>
+
+                        <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
+                            <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
+                            <span class="text-muted">Targets: ${t.targets[0].toFixed(0)} / ${t.targets[1].toFixed(0)} / ${t.targets[2].toFixed(0)}</span>
                         </div>
-                        <div class="d-flex justify-content-between mt-1" style="font-size:0.75rem;">
-                            <span class="text-danger">SL: <b>${t.sl.toFixed(1)}</b></span>
-                            <span class="text-muted">Targets: <b>${t.targets[0].toFixed(0)} / ${t.targets[1].toFixed(0)} / ${t.targets[2].toFixed(0)}</b></span>
-                        </div>
-                        <div class="mt-1">Cap: <b>₹${(invested/1000).toFixed(1)}k</b></div>
+
                         ${potHtml}
-                    </div>
-                    <div class="trade-actions">
-                        <span class="text-muted me-auto" style="font-size:0.75rem;">${t.exit_time.slice(11,16)}</span>
-                        ${editBtn}
-                        ${delBtn}
-                        <button class="btn btn-xs btn-outline-secondary" onclick="showLogs('${t.id}', 'closed')">Logs</button>
+
+                        <div class="d-flex justify-content-end gap-2 mt-2 pt-1 border-top border-light">
+                            ${editBtn}
+                            ${delBtn}
+                            <button class="btn btn-sm btn-light border text-muted py-0 px-2" style="font-size:0.75rem;" onclick="showLogs('${t.id}', 'closed')">📜 Logs</button>
+                        </div>
                     </div>
                 </div>`;
             });
         }
         $('#hist-container').html(html); 
         
+        // Update Summary Badges
         $('#day_pnl').text("₹ " + dayTotal.toFixed(2));
         if(dayTotal >= 0) $('#day_pnl').removeClass('bg-danger').addClass('bg-success'); else $('#day_pnl').removeClass('bg-success').addClass('bg-danger');
 

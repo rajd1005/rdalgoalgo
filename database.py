@@ -14,3 +14,8 @@ class TradeHistory(db.Model):
     # BigInteger to handle timestamp IDs safely
     id = db.Column(db.BigInteger, primary_key=True)
     data = db.Column(db.Text, nullable=False) # Stores JSON string
+
+class RiskState(db.Model):
+    # Stores persistent state for Profit Locking (High PnL, Global SL)
+    id = db.Column(db.String(10), primary_key=True) # "LIVE" or "PAPER"
+    data = db.Column(db.Text, nullable=False) # JSON string

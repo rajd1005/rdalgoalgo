@@ -175,3 +175,115 @@
         </div> 
     </div> 
 </div>
+
+<div class="modal fade" id="scenarioModal" tabindex="-1"> 
+    <div class="modal-dialog"> 
+        <div class="modal-content"> 
+            <div class="modal-header">
+                <h5 class="modal-title">🔮 What-If Scenario Analysis</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div> 
+            <div class="modal-body">
+                <p class="text-muted small">Run selected closed trades against a new set of logic to see how they would have performed.</p>
+                
+                <h6 class="text-primary fw-bold">1. Risk & Exit Logic</h6>
+                <div class="row g-2 mb-2">
+                     <div class="col-6">
+                        <label class="pos-grid-label">Trailing SL (Pts)</label>
+                        <input type="number" step="0.5" id="sc_trailing_sl" class="form-control fw-bold text-info" placeholder="0">
+                     </div>
+                     <div class="col-6">
+                        <label class="pos-grid-label">Trail Limit</label>
+                        <select id="sc_sl_to_entry" class="form-select fw-bold">
+                             <option value="0">Unlimited</option>
+                             <option value="1">Up-to Entry</option>
+                             <option value="2">Up-to T1</option>
+                             <option value="3">Up-to T2</option>
+                             <option value="4">Up-to T3</option>
+                        </select>
+                     </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="pos-grid-label">Exit Multiplier</label>
+                        <input type="number" id="sc_exit_mult" class="form-control border-info fw-bold text-center" value="1" min="1" max="10">
+                    </div>
+                    <div class="col-6">
+                         <label class="pos-grid-label">T1 Special</label>
+                         <div class="form-check border rounded p-2">
+                             <input class="form-check-input" type="checkbox" id="sc_trail_t1">
+                             <label class="form-check-label small fw-bold" for="sc_trail_t1">Trail to Cost on T1</label>
+                         </div>
+                    </div>
+                </div>
+
+                <h6 class="text-success fw-bold">2. Target Configuration (Ratio | Active | Lots)</h6>
+                <div class="input-group input-group-sm mb-1">
+                    <span class="input-group-text text-success fw-bold">T1</span>
+                    <input type="number" step="0.1" id="sc_r1" class="form-control text-center" value="0.5" placeholder="Ratio">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="sc_a1" checked></div>
+                    <input type="number" id="sc_l1" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="sc_f1"> <span style="font-size:0.6rem;">Full</span></div>
+                    <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="sc_c1"> <span style="font-size:0.6rem;">C</span></div>
+                </div>
+                <div class="input-group input-group-sm mb-1">
+                    <span class="input-group-text text-success fw-bold">T2</span>
+                    <input type="number" step="0.1" id="sc_r2" class="form-control text-center" value="1.0" placeholder="Ratio">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="sc_a2" checked></div>
+                    <input type="number" id="sc_l2" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="sc_f2"> <span style="font-size:0.6rem;">Full</span></div>
+                    <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="sc_c2"> <span style="font-size:0.6rem;">C</span></div>
+                </div>
+                <div class="input-group input-group-sm mb-3">
+                    <span class="input-group-text text-success fw-bold">T3</span>
+                    <input type="number" step="0.1" id="sc_r3" class="form-control text-center" value="1.5" placeholder="Ratio">
+                    <div class="input-group-text px-1"><input class="form-check-input mt-0" type="checkbox" id="sc_a3" checked></div>
+                    <input type="number" id="sc_l3" class="form-control px-1 text-center" placeholder="Lots">
+                    <div class="input-group-text px-1" title="Exit All"><input class="form-check-input mt-0" type="checkbox" id="sc_f3" checked> <span style="font-size:0.6rem;">Full</span></div>
+                    <div class="input-group-text px-1" title="Trail to Cost"><input class="form-check-input mt-0" type="checkbox" id="sc_c3"> <span style="font-size:0.6rem;">C</span></div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary w-100 fw-bold" onclick="runScenarioAnalysis()">🚀 Analyze Selected Trades</button>
+            </div> 
+        </div> 
+    </div> 
+</div>
+
+<div class="modal fade" id="analysisResultModal" tabindex="-1"> 
+    <div class="modal-dialog modal-lg"> 
+        <div class="modal-content"> 
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">📊 Scenario Results</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div> 
+            <div class="modal-body">
+                <div class="row text-center mb-3">
+                    <div class="col-6 border-end">
+                        <div class="text-muted small">Original P&L</div>
+                        <h4 id="res_orig_pnl" class="fw-bold">₹0</h4>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-muted small">New Scenario P&L</div>
+                        <h4 id="res_new_pnl" class="fw-bold">₹0</h4>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Status (Old)</th>
+                                <th>Status (New)</th>
+                                <th class="text-end">P&L (Diff)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="analysis_table_body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div> 
+    </div> 
+</div>

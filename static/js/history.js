@@ -6,6 +6,7 @@ function loadClosedTrades() {
         let totalWins = 0;
         let totalLosses = 0;
         let totalPotential = 0;
+        let totalCapital = 0; // Track Total Funds
 
         let filtered = trades.filter(t => t.exit_time && t.exit_time.startsWith(filterDate) && (filterType === 'ALL' || getTradeCategory(t) === filterType));
         if(filtered.length === 0) html = '<div class="text-center p-4 text-muted">No History for this Date/Filter</div>';
@@ -14,74 +15,53 @@ function loadClosedTrades() {
                 dayTotal += t.pnl; 
                 if(t.pnl > 0) totalWins += t.pnl;
                 else totalLosses += t.pnl;
+                
+                let invested = t.entry_price * t.quantity; // Cap Used per trade
+                totalCapital += invested;
 
                 let color = t.pnl >= 0 ? 'pnl-green' : 'pnl-red';
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
-                // --- Logic for Potential Profit & Potential Tags ---
+                // Potential Profit Logic
                 let potHtml = '';
-
-                // 1. Skip if it was a "Pure" Stop Loss hit (SL hit without touching any target)
                 let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
 
                 if (!isPureSL) {
                     let mh = t.made_high || t.entry_price;
-                    if(mh < t.exit_price) mh = t.exit_price; // Safety Check
-                    
+                    if(mh < t.exit_price) mh = t.exit_price; 
                     let pot = (mh - t.entry_price) * t.quantity;
                     
-                    // Show only if there is a positive potential profit
                     if(pot > 0) {
                         totalPotential += pot; 
-                        
-                        // --- NEW: Calculate Potential Target Hit ---
                         let potTag = '';
                         if (t.targets && t.targets.length >= 3) {
-                            if (mh >= t.targets[2]) {
-                                potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Pot. T3</span>';
-                            } else if (mh >= t.targets[1]) {
-                                potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Pot. T2</span>';
-                            } else if (mh >= t.targets[0]) {
-                                potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Pot. T1</span>';
-                            }
+                            if (mh >= t.targets[2]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Targets 3</span>';
+                            else if (mh >= t.targets[1]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Targets 2</span>';
+                            else if (mh >= t.targets[0]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Targets 1</span>';
                         }
-                        // ------------------------------------------
-
                         potHtml = `<br>
                         <span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> 
                         <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>
-                        ${potTag}`; 
+                        ${potTag}`;
                     }
                 }
-                // ---------------------------------------------------
 
-                // --- Live Status Tag Logic for Closed Trades (Updated) ---
                 let statusTag = '';
-                if (t.status === 'SL_HIT') {
-                     statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
-                } else if (t.status === 'TARGET_HIT') {
-                     // Try to determine which target was hit from indices
-                     let maxHit = 2; // Default to all (Target 3)
-                     if (t.targets_hit_indices && t.targets_hit_indices.length > 0) {
-                         maxHit = Math.max(...t.targets_hit_indices);
-                     }
-                     
+                if (t.status === 'SL_HIT') statusTag = '<span class="badge bg-danger" style="font-size:0.7rem;">Stop-Loss</span>';
+                else if (t.status === 'TARGET_HIT') {
+                     let maxHit = 2; 
+                     if (t.targets_hit_indices && t.targets_hit_indices.length > 0) maxHit = Math.max(...t.targets_hit_indices);
                      if (maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 1 Hit</span>';
                      else if (maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
                      else statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 3 Hit</span>';
+                } else if (t.status === 'COST_EXIT') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Cost Exit</span>';
+                else statusTag = `<span class="badge bg-secondary" style="font-size:0.7rem;">${t.status}</span>`;
 
-                } else if (t.status === 'COST_EXIT') {
-                     statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Cost Exit</span>';
-                } else {
-                     statusTag = `<span class="badge bg-secondary" style="font-size:0.7rem;">${t.status}</span>`;
-                }
-                // -----------------------------------------------
-
-                // Action Buttons
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-xs btn-outline-primary" onclick="editSim('${t.id}')">✏️ Edit</button>` : '';
                 let delBtn = `<button class="btn btn-xs btn-outline-danger" onclick="deleteTrade('${t.id}')">🗑️</button>`;
                 
+                // Displaying Entry, Exit/LTP, SL, and Targets
                 html += `<div class="trade-row">
                     <div class="trade-info">
                         <div class="d-flex align-items-center gap-2">
@@ -94,10 +74,16 @@ function loadClosedTrades() {
                         </div>
                     </div>
                     <div class="trade-details">
-                        <span class="text-uppercase fw-bold" style="font-size:0.7rem; color:#666;">${t.status}</span>
-                        <span>Q: <b>${t.quantity}</b></span>
-                        <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
-                        <span>Ext: <b>${t.exit_price.toFixed(2)}</b></span>
+                        <div class="d-flex justify-content-between">
+                            <span>Qty: <b>${t.quantity}</b></span>
+                            <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
+                            <span>LTP: <b>${t.current_ltp ? t.current_ltp.toFixed(2) : t.exit_price.toFixed(2)}</b></span>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1" style="font-size:0.75rem;">
+                            <span class="text-danger">SL: <b>${t.sl.toFixed(1)}</b></span>
+                            <span class="text-muted">Targets: <b>${t.targets[0].toFixed(0)} / ${t.targets[1].toFixed(0)} / ${t.targets[2].toFixed(0)}</b></span>
+                        </div>
+                        <div class="mt-1">Cap: <b>₹${(invested/1000).toFixed(1)}k</b></div>
                         ${potHtml}
                     </div>
                     <div class="trade-actions">
@@ -116,9 +102,8 @@ function loadClosedTrades() {
 
         $('#total_wins').text("Wins: ₹ " + totalWins.toFixed(2));
         $('#total_losses').text("Loss: ₹ " + totalLosses.toFixed(2));
-        
-        // Update New Potential Badge
-        $('#total_potential').text("Total Potential Profit: ₹ " + totalPotential.toFixed(2));
+        $('#total_potential').text("Max Potential: ₹ " + totalPotential.toFixed(2));
+        $('#total_cap_hist').text("Funds Used: ₹ " + (totalCapital/100000).toFixed(2) + " L");
     });
 }
 

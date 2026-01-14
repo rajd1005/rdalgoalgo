@@ -4,32 +4,24 @@ function updateData() {
     $.get('/api/indices', d => { 
         // 1. Zero Price Detection (Server Offline/Reconnecting)
         if (d.NIFTY === 0 || d.BANKNIFTY === 0) {
-            
-            // UI: Update Ticker with Loading Animation
             let spinner = '<span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true" style="width: 0.8rem; height: 0.8rem; border-width: 0.15em;"></span> <span class="text-warning small blink" style="font-size:0.75rem;">Wait...</span>';
             $('#n_lp').html(spinner); 
             $('#b_lp').html(spinner); 
             $('#s_lp').html(spinner);
 
-            // UI: Update Status Badge (Waiting for Server Loop)
             if ($('#status-badge').text().trim() !== "Manual Login") {
                 $('#status-badge').attr('class', 'badge bg-warning text-dark shadow-sm blink').html('<i class="fas fa-sync fa-spin"></i> Auto-Login...');
             }
 
-            // Poll Backend Status to Check for Failure (to show Manual Button)
             $.get('/api/status', statusData => {
                 if (statusData.state === 'FAILED') {
-                     // UI: Show Manual Login Button in Ticker Bar (Replaces Status Badge)
                      let btnHtml = `<a href="${statusData.login_url}" class="btn btn-sm btn-danger fw-bold shadow-sm py-0" style="font-size: 0.75rem;" target="_blank"><i class="fas fa-key"></i> Manual Login</a>`;
-                     
                      $('#status-badge').removeClass('bg-warning blink').addClass('bg-transparent p-0').html(btnHtml);
                 }
             });
-
-            return; // Stop processing further updates while offline
+            return; 
         }
 
-        // Restore Badge if it was in error/waiting state
         if ($('#status-badge').find('.fa-sync').length > 0 || $('#status-badge').find('.fa-key').length > 0) {
              $('#status-badge').attr('class', 'badge bg-success shadow-sm').html('<i class="fas fa-wifi"></i> Connected');
         }
@@ -39,7 +31,6 @@ function updateData() {
         $('#s_lp').text(d.SENSEX); 
     });
     
-    // Only proceed with other updates if we are online
     let currentSym = $('#sym').val();
     if(currentSym && $('#trade').is(':visible')) {
             let tVal = $('input[name="type"]:checked').val();
@@ -56,13 +47,22 @@ function updateData() {
     $.get('/api/positions', trades => {
         activeTradesList = trades; 
         let sumLive = 0, sumPaper = 0;
+        let capLive = 0, capPaper = 0; // Capital Variables
+
         trades.forEach(t => {
             let pnl = (t.status === 'PENDING') ? 0 : (t.current_ltp - t.entry_price) * t.quantity;
+            let invested = t.entry_price * t.quantity; // Capital Used
             let cat = getTradeCategory(t);
-            if(cat === 'LIVE') sumLive += pnl; else if(cat === 'PAPER' && !t.is_replay) sumPaper += pnl;
+            if(cat === 'LIVE') { sumLive += pnl; capLive += invested; }
+            else if(cat === 'PAPER' && !t.is_replay) { sumPaper += pnl; capPaper += invested; }
         });
+        
         $('#sum_live').text("₹ " + sumLive.toFixed(2)).attr('class', sumLive >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
         $('#sum_paper').text("₹ " + sumPaper.toFixed(2)).attr('class', sumPaper >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
+        
+        // Update Funds UI (in Lakhs)
+        $('#cap_live').text("₹ " + (capLive/100000).toFixed(2) + " L");
+        $('#cap_paper').text("₹ " + (capPaper/100000).toFixed(2) + " L");
 
         let filtered = trades.filter(t => filterType === 'ALL' || getTradeCategory(t) === filterType);
         let html = '';
@@ -70,17 +70,16 @@ function updateData() {
         else {
             filtered.forEach(t => {
                 let pnl = (t.current_ltp - t.entry_price) * t.quantity;
+                let invested = t.entry_price * t.quantity;
                 let color = pnl >= 0 ? 'pnl-green' : 'pnl-red';
                 if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
                 let cat = getTradeCategory(t); 
                 
-                // Badge Logic: Replay vs Paper vs Live
                 let badge = getMarkBadge(cat);
                 if(t.is_replay) badge = '<span class="badge bg-info text-dark" style="font-size:0.7rem;">REPLAY</span>';
 
                 let editBtn = `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>`;
                 
-                // --- Active Trade Status Tags (Updated) ---
                 let statusTag = '';
                 if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Pending</span>';
                 else {
@@ -94,7 +93,6 @@ function updateData() {
                     else statusTag = '<span class="badge bg-primary" style="font-size:0.7rem;">Active</span>';
                 }
                 
-                // Replay Time Indicator (Optional but helpful)
                 let timeTag = '';
                 if(t.is_replay && t.last_update_time) {
                     timeTag = `<br><span class="text-muted" style="font-size:0.65rem;">🕒 ${t.last_update_time.slice(11,19)}</span>`;
@@ -116,6 +114,7 @@ function updateData() {
                         <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
                         <span>LTP: <b class="text-primary">${t.current_ltp.toFixed(2)}</b></span>
                         <span class="text-danger">SL: <b>${t.sl.toFixed(1)}</b></span>
+                        <span class="text-muted ms-2" style="font-size:0.7rem;">Cap: <b>₹${(invested/1000).toFixed(1)}k</b></span>
                         ${timeTag}
                     </div>
                     <div class="trade-actions">
@@ -137,15 +136,12 @@ function openEditTradeModal(id) {
     $('#edit_sl').val(t.sl);
     $('#edit_trail').val(t.trailing_sl || 0);
     $('#edit_trail_mode').val(t.sl_to_entry || 0);
-    
-    // Load Exit Multiplier (or default to 1)
     $('#edit_exit_mult').val(t.exit_multiplier || 1);
     
-    // Default Controls if missing
     let defaults = [
         {enabled: true, lots: 0, trail_to_entry: false},
         {enabled: true, lots: 0, trail_to_entry: false},
-        {enabled: true, lots: 1000, trail_to_entry: false} // Default T3 exits all
+        {enabled: true, lots: 1000, trail_to_entry: false}
     ];
     let controls = t.target_controls || defaults;
 
@@ -173,13 +169,11 @@ function openEditTradeModal(id) {
     $('#lot_t3').val(l3 < 1000 && l3 > 0 ? l3 : '');
     $('#cost_t3').prop('checked', controls[2].trail_to_entry || false);
     
-    // Disable target inputs if they are already hit
     let hits = t.targets_hit_indices || [];
     $('#edit_t1').prop('disabled', hits.includes(0));
     $('#edit_t2').prop('disabled', hits.includes(1));
     $('#edit_t3').prop('disabled', hits.includes(2));
     
-    // Manage Position Setup
     let lot = t.lot_size || 1;
     $('#man_add_lots').attr('step', lot).attr('min', lot).val(lot).data('lot', lot);
     $('#man_exit_lots').attr('step', lot).attr('min', lot).val(lot).data('lot', lot);
@@ -229,10 +223,7 @@ function managePos(action) {
     if(!qty || qty <= 0 || qty % lotSize !== 0) { 
         alert(`Invalid Quantity. Must be multiple of ${lotSize}`); return; 
     }
-    
-    // Convert Quantity to Lots count for the backend
     let lots = qty / lotSize;
-    
     if(confirm(`${action === 'ADD' ? 'Add' : 'Exit'} ${qty} Qty (${lots} Lots)?`)) {
         let d = { id: $('#edit_trade_id').val(), action: action, lots: lots };
         $.ajax({

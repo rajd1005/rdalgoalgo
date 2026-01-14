@@ -36,9 +36,9 @@ function loadClosedTrades() {
                         totalPotential += pot; 
                         let potTag = '';
                         if (t.targets && t.targets.length >= 3) {
-                            if (mh >= t.targets[2]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Targets 3</span>';
-                            else if (mh >= t.targets[1]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Targets 2</span>';
-                            else if (mh >= t.targets[0]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">Targets 1</span>';
+                            if (mh >= t.targets[2]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">PTarget 3</span>';
+                            else if (mh >= t.targets[1]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">PTarget 2</span>';
+                            else if (mh >= t.targets[0]) potTag = '<span class="badge border border-success text-success ms-1" style="font-size:0.6rem;">PTarget 1</span>';
                         }
                         potHtml = `<br>
                         <span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> 

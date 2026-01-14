@@ -23,7 +23,7 @@ function loadClosedTrades() {
                 let cat = getTradeCategory(t); 
                 let badge = getMarkBadge(cat);
                 
-                // --- Potential Profit & Pot Tags Logic ---
+                // --- Potential Profit Logic ---
                 let potHtml = '';
                 let potTag = ''; 
                 let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
@@ -79,9 +79,30 @@ function loadClosedTrades() {
                     statusTag = `<span class="badge bg-secondary" style="font-size:0.65rem;">${rawStatus}</span>`;
                 }
 
-                // --- Time Formatting ---
-                let addedTime = t.entry_time ? t.entry_time.slice(11, 19) : '--:--:--';
-                let closedTime = t.exit_time ? t.exit_time.slice(11, 16) : '--:--';
+                // --- NEW TIME LOGIC ---
+                // 1. Added Time (Entry Time field)
+                let addedTime = t.entry_time ? t.entry_time.slice(11, 16) : '--:--';
+                
+                // 2. Active Time (Parse Logs)
+                let activeTime = '--:--';
+                if (t.logs && t.logs.length > 0) {
+                    // Check for explicit activation (Import or Limit Orders)
+                    let activationLog = t.logs.find(l => l.includes('Order ACTIVATED'));
+                    
+                    if (activationLog) {
+                        // Extract [YYYY-MM-DD HH:MM:SS]
+                        let match = activationLog.match(/\[(.*?)\]/);
+                        if (match && match[1]) {
+                            activeTime = match[1].slice(11, 16); // Extract HH:MM
+                        }
+                    } else {
+                        // Check if it was OPEN immediately (Market Order)
+                        let firstLog = t.logs[0] || "";
+                        if (firstLog.includes("Status: OPEN")) {
+                            activeTime = addedTime;
+                        }
+                    }
+                }
 
                 // --- Actions ---
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="editSim('${t.id}')">✏️</button>` : '';
@@ -100,8 +121,7 @@ function loadClosedTrades() {
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold h6 m-0 ${color}">${t.pnl.toFixed(2)}</div>
-                                <small class="text-muted" style="font-size:0.7rem;">Active: ${addedTime}</small>
-                            </div>
+                                </div>
                         </div>
 
                         <hr class="my-1 text-muted opacity-25">
@@ -125,13 +145,14 @@ function loadClosedTrades() {
                             </div>
                         </div>
 
-                        <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
-                            <span class="text-muted">Closed: <b>${closedTime}</b></span>
-                            <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
+                        <div class="d-flex justify-content-between align-items-center mt-2 px-1 bg-light rounded py-1" style="font-size:0.75rem;">
+                            <span class="text-muted">Added: <b>${addedTime}</b></span>
+                            <span class="text-primary">Active: <b>${activeTime}</b></span>
                         </div>
 
-                        <div class="mt-1 px-1" style="font-size:0.75rem;">
-                            <span class="text-muted">Targets: <b>${t.targets[0].toFixed(0)}</b> | <b>${t.targets[1].toFixed(0)}</b> | <b>${t.targets[2].toFixed(0)}</b></span>
+                        <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
+                             <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
+                             <span class="text-muted">T: ${t.targets[0].toFixed(0)} | ${t.targets[1].toFixed(0)} | ${t.targets[2].toFixed(0)}</span>
                         </div>
 
                         ${potHtml}

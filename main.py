@@ -43,6 +43,8 @@ def run_auto_login_process():
         token, error = auto_login.perform_auto_login(kite)
         gc.collect() # Cleanup memory after selenium usage
         
+        # REMOVED SKIP_SESSION Check to force token capture
+        
         if token:
             try:
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
@@ -65,7 +67,7 @@ def run_auto_login_process():
                     login_state = "FAILED"
                     login_error_msg = str(e)
         else:
-            # Check if the callback route successfully logged us in meanwhile
+            # FIX: Check if the callback route successfully logged us in meanwhile
             if bot_active:
                 print("✅ Auto-Login: Handled via Callback Route. System Online.")
                 login_state = "IDLE"
@@ -99,6 +101,7 @@ def background_monitor():
                     except Exception as e:
                         err = str(e)
                         # Detect session expiry or network issues
+                        # "Token is invalid" is the key error from Zerodha when session expires
                         if "Token is invalid" in err or "Network" in err or "No Access Token" in err or "access_token" in err:
                             print(f"⚠️ Connection Lost: {err}")
                             bot_active = False # This forces the logic below to run
@@ -278,32 +281,6 @@ def api_import_trade():
             data.get('exit_multiplier', 1), data.get('target_controls')
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-
-# --- NEW ROUTE: SCENARIO ANALYSIS ---
-@app.route('/api/analyze_scenario', methods=['POST'])
-def api_analyze_scenario():
-    if not bot_active: 
-        return jsonify({"status": "error", "message": "Bot not connected (Needed for History Data)"})
-    
-    data = request.json
-    trade_ids = data.get('trade_ids', []) # List of IDs to test
-    config = data.get('config', {}) # {trailing_sl, sl_to_entry, ratios, exit_multiplier...}
-    
-    # Load all history
-    all_history = strategy_manager.load_history()
-    # Filter only the trades user selected
-    # Ensure IDs are compared as correct types (int/string safety)
-    target_trades = [t for t in all_history if str(t['id']) in [str(x) for x in trade_ids]]
-    
-    if not target_trades:
-        return jsonify({"status": "error", "message": "No trades found matching IDs"})
-    
-    # Run the batch analysis
-    try:
-        results = strategy_manager.analyze_scenario_batch(kite, target_trades, config)
-        return jsonify({"status": "success", "results": results})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 

@@ -546,17 +546,21 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                          break 
 
             if current_qty == 0:
-                # --- NEW FIX: Post-Exit Scan ---
-                # Continue scanning the remaining history to find the True Max High
-                remaining_candles = hist_data[idx+1:]
-                if remaining_candles:
-                    try:
-                        max_rest = max([float(c['high']) for c in remaining_candles])
-                        if max_rest > highest_ltp:
-                            highest_ltp = max_rest
-                            logs.append(f"[{remaining_candles[-1]['date']}] ℹ️ Post-Exit High Detected: {highest_ltp}")
-                    except: pass
-                break 
+                # --- NEW CONDITION: Stop Scan if SL Hit + Targets Hit ---
+                # Check if we should skip the post-exit scan
+                skip_scan = (final_status == "SL_HIT" and len(targets_hit_indices) > 0)
+
+                if not skip_scan:
+                    # --- Post-Exit Scan (Only run if condition NOT met) ---
+                    remaining_candles = hist_data[idx+1:]
+                    if remaining_candles:
+                        try:
+                            max_rest = max([float(c['high']) for c in remaining_candles])
+                            if max_rest > highest_ltp:
+                                highest_ltp = max_rest
+                                logs.append(f"[{remaining_candles[-1]['date']}] ℹ️ Post-Exit High Detected: {highest_ltp}")
+                        except: pass
+                break
 
         # 4. Finalize & Save
         with TRADE_LOCK:

@@ -22,7 +22,7 @@ function loadClosedTrades() {
                 // Logic for Potential Profit Display
                 // Condition: Show ONLY if PNL > 0 (Profitable)
                 let potHtml = '';
-                if(t.pnl > 0) {
+                if(t.pnl >= 0) {
                     let mh = t.made_high || t.entry_price;
                     if(mh < t.exit_price) mh = t.exit_price; // Safety fix
                     let pot = (mh - t.entry_price) * t.quantity;

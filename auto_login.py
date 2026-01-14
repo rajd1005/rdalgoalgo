@@ -130,7 +130,7 @@ def perform_auto_login(kite_instance):
             if "Incorrect password" in driver.page_source or "Invalid TOTP" in driver.page_source:
                 return None, "Login Failed: Invalid Credentials detected."
 
-            time.sleep(1)
+            time.sleep(0.1)
 
         return None, "Login Timed Out. Could not detect Success."
 

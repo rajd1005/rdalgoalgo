@@ -104,7 +104,6 @@ def perform_auto_login(kite_instance):
             time.sleep(2)
             
         except Exception as e:
-            # Check if it asked for 'App Code' instead of TOTP (User specific setting)
             if "App Code" in driver.page_source:
                 return None, "Error: Zerodha is asking for Mobile App Code, but System is configured for TOTP."
             return None, f"Failed at TOTP Step: {str(e)}"
@@ -124,11 +123,7 @@ def perform_auto_login(kite_instance):
                     print(f"✅ Success! Token Captured: {request_token[:6]}...")
                     return request_token, None
             
-            # Check 2: Dashboard Loaded directly (Session already active or callback handled)
-            page_source = driver.page_source
-            if "System Online" in page_source or "Positions" in page_source or "Holdings" in page_source:
-                print("✅ Success! Dashboard detected.")
-                return "SKIP_SESSION", None
+            # Removed Check 2 (Dashboard Skip) to force token capture
                 
             # Check 3: Error on screen
             if "Incorrect password" in page_source or "Invalid TOTP" in page_source:

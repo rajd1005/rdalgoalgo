@@ -43,14 +43,9 @@ def run_auto_login_process():
         token, error = auto_login.perform_auto_login(kite)
         gc.collect() # Cleanup memory after selenium usage
         
-        if token == "SKIP_SESSION":
-            # Browser detected we are already logged in (dashboard visible)
-            print("✅ Auto-Login Verified: Session Active.")
-            bot_active = True
-            login_state = "IDLE"
-            return
-
-        if token and token != "SKIP_SESSION":
+        # REMOVED SKIP_SESSION Check to force token capture
+        
+        if token:
             try:
                 data = kite.generate_session(token, api_secret=config.API_SECRET)
                 kite.set_access_token(data["access_token"])
@@ -298,7 +293,7 @@ def place_trade():
         sl_points = float(request.form.get('sl_points', 0))
         trailing_sl = float(request.form.get('trailing_sl') or 0)
         sl_to_entry = int(request.form.get('sl_to_entry', 0))
-        exit_multiplayer = int(request.form.get('exit_multiplayer', 1))
+        exit_multiplier = int(request.form.get('exit_multiplier', 1))
         
         t1 = float(request.form.get('t1_price', 0))
         t2 = float(request.form.get('t2_price', 0))
@@ -324,7 +319,7 @@ def place_trade():
             flash("❌ Symbol Generation Failed")
             return redirect('/')
 
-        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplayer)
+        res = strategy_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplier)
         
         if res['status'] == 'success':
             flash(f"✅ Order Placed: {final_sym}")

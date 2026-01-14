@@ -20,19 +20,23 @@ function loadClosedTrades() {
                 let badge = getMarkBadge(cat);
                 
                 // Logic for Potential Profit Display
-                // Condition: Show ONLY if PNL > 0 (Profitable)
-                // Condition: Show for ALL Trades (Profit OR Loss)
                 let potHtml = '';
-                
-                // 1. Always calculate High & Potential
-                let mh = t.made_high || t.entry_price;
-                if(mh < t.exit_price) mh = t.exit_price; // Safety check
-                let pot = (mh - t.entry_price) * t.quantity;
-                
-                // 2. Only display if there was actually some potential profit (> 0)
-                if(pot > 0) {
-                    totalPotential += pot;
-                    potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
+
+                // Condition: Skip if SL Hit without touching Target 1
+                // (i.e., A "Pure" Stop Loss hit)
+                let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
+
+                if (!isPureSL) {
+                    let mh = t.made_high || t.entry_price;
+                    if(mh < t.exit_price) mh = t.exit_price; // Safety Check
+                    
+                    let pot = (mh - t.entry_price) * t.quantity;
+                    
+                    // Show only if there is a positive potential profit
+                    if(pot > 0) {
+                        totalPotential += pot; 
+                        potHtml = `<br><span class="text-primary" style="font-size:0.75rem;">High: <b>${mh.toFixed(2)}</b></span> <span class="text-success" style="font-size:0.75rem;">Max: <b>${pot.toFixed(0)}</b></span>`;
+                    }
                 }
 
                 // --- Live Status Tag Logic for Closed Trades (Updated) ---

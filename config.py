@@ -12,7 +12,10 @@ ZERODHA_USER_ID = os.getenv("ZERODHA_USER_ID")
 ZERODHA_PASSWORD = os.getenv("ZERODHA_PASSWORD")
 
 # Secure Admin Page Password
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    print("⚠️ WARNING: ADMIN_PASSWORD environment variable not set. Using default 'admin123'.")
+    ADMIN_PASSWORD = "admin123"
 
 # Flask Settings
 SECRET_KEY = "super_secret_algo_key_v3"

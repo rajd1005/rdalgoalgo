@@ -1,3 +1,4 @@
+import os
 import json
 import threading
 import time
@@ -38,11 +39,12 @@ def run_auto_login_process():
     login_error_msg = None
     
     try:
+        # Pass the kite instance to get the login URL
         token, error = auto_login.perform_auto_login(kite)
-        gc.collect() # Cleanup memory after heavy selenium usage
+        gc.collect() # Cleanup memory after selenium usage
         
         if token == "SKIP_SESSION":
-            # Browser detected we are already logged in or callback handled
+            # Browser detected we are already logged in (dashboard visible)
             print("✅ Auto-Login Verified: Session Active.")
             bot_active = True
             login_state = "IDLE"
@@ -61,10 +63,10 @@ def run_auto_login_process():
                 gc.collect()
                 print("✅ Session Generated Successfully & Instruments Fetched")
             except Exception as e:
-                # Specific check for token expiry during generation
+                # Specific check for token expiry during generation (e.g. reused token)
                 if "Token is invalid" in str(e):
-                    print("⚠️ Generated Token Expired. Retrying...")
-                    login_state = "FAILED" # Will trigger retry loop
+                    print("⚠️ Generated Token Expired or Invalid. Retrying...")
+                    login_state = "FAILED" 
                 else:
                     print(f"❌ Session Generation Error: {e}")
                     login_state = "FAILED"
@@ -99,9 +101,10 @@ def background_monitor():
                     except Exception as e:
                         err = str(e)
                         # Detect session expiry or network issues
+                        # "Token is invalid" is the key error from Zerodha when session expires
                         if "Token is invalid" in err or "Network" in err or "No Access Token" in err or "access_token" in err:
                             print(f"⚠️ Connection Lost: {err}")
-                            bot_active = False # Triggers re-login logic below
+                            bot_active = False # This forces the logic below to run
                         else:
                             print(f"⚠️ Risk Loop Warning: {err}")
 
@@ -112,9 +115,10 @@ def background_monitor():
                         run_auto_login_process()
                     
                     elif login_state == "FAILED":
+                        # Wait 60s before trying again to avoid spamming
                         print("⚠️ Auto-Login previously failed. Retrying in 60s...")
                         time.sleep(60)
-                        login_state = "IDLE" # Reset state to try again
+                        login_state = "IDLE" # Reset state to trigger retry
                         
             except Exception as e:
                 print(f"❌ Monitor Loop Critical Error: {e}")
@@ -261,7 +265,6 @@ def api_panic_exit():
         return jsonify({"status": "success"})
     return jsonify({"status": "error", "message": "Failed to execute panic mode"})
 
-# --- IMPORT TRADE ROUTE ---
 @app.route('/api/import_trade', methods=['POST'])
 def api_import_trade():
     if not bot_active: return jsonify({"status": "error", "message": "Bot not connected"})
@@ -313,7 +316,7 @@ def place_trade():
             enabled = request.form.get(f't{i}_active') == 'on'
             lots = int(request.form.get(f't{i}_lots') or 0)
             trail_cost = request.form.get(f't{i}_cost') == 'on'
-            if i == 3 and lots == 0: lots = 1000 # Default full exit for T3 if 0
+            if i == 3 and lots == 0: lots = 1000 
             target_controls.append({'enabled': enabled, 'lots': lots, 'trail_to_entry': trail_cost})
         
         final_sym = smart_trader.get_exact_symbol(sym, request.form.get('expiry'), request.form.get('strike', 0), type_)
@@ -354,4 +357,3 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=config.PORT, threaded=True)
-"""

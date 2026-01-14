@@ -36,6 +36,7 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
                     let conf = modeSettings.targets[i];
                     $(`#imp_${k}_active`).prop('checked', conf.active);
                     $(`#imp_${k}_full`).prop('checked', conf.full);
+                    $(`#imp_${k}_cost`).prop('checked', conf.trail_to_entry || false);
                     if(conf.full) $(`#imp_${k}_lots`).val(1000);
                     else $(`#imp_${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
                 });
@@ -52,6 +53,14 @@ function loadDetails(symId, expId, typeSelector, qtyId, slId) {
                     let conf = modeSettings.targets[i];
                     $(`#${k}_active`).prop('checked', conf.active);
                     $(`#${k}_full`).prop('checked', conf.full);
+                    $(`#${k}_cost`).prop('checked', conf.trail_to_entry || false); // Use name attribute in tab_trade, but here selecting by name or checkbox logic
+                    // In tab_trade.html: <input ... name="t1_cost">. Let's fix select by attribute if id missing, but tab_trade has no IDs for cost.
+                    // Actually tab_trade.html above DOESN'T have IDs for cost checkboxes, only names. 
+                    // Let's assume we update tab_trade to allow selection or select by name.
+                    // The updated tab_trade.html provided above DOES NOT have IDs for t1_cost etc, only names.
+                    // So we must select by name:
+                    $(`input[name="${k}_cost"]`).prop('checked', conf.trail_to_entry || false);
+                    
                     if(conf.full) $(`#${k}_lots`).val(1000);
                     else $(`#${k}_lots`).val(conf.lots > 0 ? conf.lots : '');
                 });

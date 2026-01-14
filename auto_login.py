@@ -126,7 +126,8 @@ def perform_auto_login(kite_instance):
             # Removed Check 2 (Dashboard Skip) to force token capture
                 
             # Check 3: Error on screen
-            if "Incorrect password" in page_source or "Invalid TOTP" in page_source:
+            # FIX: Use driver.page_source instead of just page_source
+            if "Incorrect password" in driver.page_source or "Invalid TOTP" in driver.page_source:
                 return None, "Login Failed: Invalid Credentials detected."
 
             time.sleep(1)

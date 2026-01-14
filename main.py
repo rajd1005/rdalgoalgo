@@ -67,9 +67,14 @@ def run_auto_login_process():
                     login_state = "FAILED"
                     login_error_msg = str(e)
         else:
-            print(f"❌ Auto-Login Failed: {error}")
-            login_state = "FAILED"
-            login_error_msg = error
+            # FIX: Check if the callback route successfully logged us in meanwhile
+            if bot_active:
+                print("✅ Auto-Login: Handled via Callback Route. System Online.")
+                login_state = "IDLE"
+            else:
+                print(f"❌ Auto-Login Failed: {error}")
+                login_state = "FAILED"
+                login_error_msg = error
             
     except Exception as e:
         print(f"❌ Critical Session Error: {e}")

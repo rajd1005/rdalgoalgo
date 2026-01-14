@@ -47,11 +47,11 @@ function updateData() {
     $.get('/api/positions', trades => {
         activeTradesList = trades; 
         let sumLive = 0, sumPaper = 0;
-        let capLive = 0, capPaper = 0; // Capital Variables
+        let capLive = 0, capPaper = 0; 
 
         trades.forEach(t => {
             let pnl = (t.status === 'PENDING') ? 0 : (t.current_ltp - t.entry_price) * t.quantity;
-            let invested = t.entry_price * t.quantity; // Capital Used
+            let invested = t.entry_price * t.quantity; 
             let cat = getTradeCategory(t);
             if(cat === 'LIVE') { sumLive += pnl; capLive += invested; }
             else if(cat === 'PAPER' && !t.is_replay) { sumPaper += pnl; capPaper += invested; }
@@ -60,7 +60,6 @@ function updateData() {
         $('#sum_live').text("₹ " + sumLive.toFixed(2)).attr('class', sumLive >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
         $('#sum_paper').text("₹ " + sumPaper.toFixed(2)).attr('class', sumPaper >= 0 ? 'fw-bold text-success' : 'fw-bold text-danger');
         
-        // Update Funds UI (in Lakhs)
         $('#cap_live').text("₹ " + (capLive/100000).toFixed(2) + " L");
         $('#cap_paper').text("₹ " + (capPaper/100000).toFixed(2) + " L");
 
@@ -71,56 +70,129 @@ function updateData() {
             filtered.forEach(t => {
                 let pnl = (t.current_ltp - t.entry_price) * t.quantity;
                 let invested = t.entry_price * t.quantity;
-                let color = pnl >= 0 ? 'pnl-green' : 'pnl-red';
+                let color = pnl >= 0 ? 'text-success' : 'text-danger';
                 if (t.status === 'PENDING') { pnl = 0; color = 'text-warning'; }
+                
                 let cat = getTradeCategory(t); 
-                
                 let badge = getMarkBadge(cat);
-                if(t.is_replay) badge = '<span class="badge bg-info text-dark" style="font-size:0.7rem;">REPLAY</span>';
+                if(t.is_replay) badge = '<span class="badge bg-info text-dark" style="font-size:0.65rem;">REPLAY</span>';
 
-                let editBtn = `<button class="btn btn-xs btn-outline-primary" onclick="openEditTradeModal('${t.id}')">✏️ Edit</button>`;
-                
+                // --- Status Tag Logic ---
                 let statusTag = '';
-                if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;">Pending</span>';
+                if(t.status === 'PENDING') statusTag = '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Pending</span>';
                 else {
                     let hits = t.targets_hit_indices || [];
                     let maxHit = -1;
                     if(hits.length > 0) maxHit = Math.max(...hits);
                     
-                    if(maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 1 Hit</span>';
-                    else if(maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 2 Hit</span>';
-                    else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.7rem;">Target 3 Hit</span>';
-                    else statusTag = '<span class="badge bg-primary" style="font-size:0.7rem;">Active</span>';
-                }
-                
-                let timeTag = '';
-                if(t.is_replay && t.last_update_time) {
-                    timeTag = `<br><span class="text-muted" style="font-size:0.65rem;">🕒 ${t.last_update_time.slice(11,19)}</span>`;
+                    if(maxHit === 0) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T1 Hit</span>';
+                    else if(maxHit === 1) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T2 Hit</span>';
+                    else if(maxHit === 2) statusTag = '<span class="badge bg-success" style="font-size:0.65rem;">T3 Hit</span>';
+                    else statusTag = '<span class="badge bg-primary" style="font-size:0.65rem;">Active</span>';
                 }
 
-                html += `<div class="trade-row">
-                    <div class="trade-info">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="fw-bold text-dark" style="font-size:0.9rem;">${t.symbol}</span>
-                            ${badge}
-                            ${statusTag}
+                // --- TIME LOGIC (Added / Active / Duration) ---
+                // 1. Added Time
+                let addedTimeStr = t.entry_time ? t.entry_time.slice(11, 16) : '--:--';
+                let addedDateObj = t.entry_time ? new Date(t.entry_time) : null;
+                
+                // 2. Active Time & Duration
+                let activeTimeStr = '--:--';
+                let waitDuration = '';
+
+                if (t.logs && t.logs.length > 0) {
+                    let activationLog = t.logs.find(l => l.includes('Order ACTIVATED'));
+                    
+                    if (activationLog) {
+                        let match = activationLog.match(/\[(.*?)\]/);
+                        if (match && match[1]) {
+                            activeTimeStr = match[1].slice(11, 16);
+                            
+                            let activeDateObj = new Date(match[1]);
+                            if(addedDateObj && activeDateObj) {
+                                let diff = activeDateObj - addedDateObj;
+                                if(diff > 0) {
+                                    let totalSecs = Math.floor(diff / 1000);
+                                    let m = Math.floor(totalSecs / 60);
+                                    let s = totalSecs % 60;
+                                    waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(${m}m ${s}s)</span>`;
+                                }
+                            }
+                        }
+                    } else {
+                        // Check if it was OPEN immediately (Market Order)
+                        let firstLog = t.logs[0] || "";
+                        if (firstLog.includes("Status: OPEN")) {
+                            activeTimeStr = addedTimeStr;
+                            waitDuration = `<span class="text-muted ms-1" style="font-size:0.65rem;">(Instant)</span>`;
+                        }
+                    }
+                }
+                
+                // Replay Simulation Time Indicator (if applicable)
+                if(t.is_replay && t.last_update_time) {
+                    activeTimeStr = t.last_update_time.slice(11, 16); // Show Simulation Clock
+                    waitDuration = '<span class="text-info ms-1" style="font-size:0.65rem;">(Sim)</span>';
+                }
+
+                // --- Actions ---
+                let editBtn = `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="openEditTradeModal('${t.id}')">✏️</button>`;
+                
+                // --- Mobile-First Card Design ---
+                html += `
+                <div class="card mb-2 shadow-sm border-0">
+                    <div class="card-body p-2">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div>
+                                <span class="fw-bold text-dark h6 m-0">${t.symbol}</span>
+                                <div class="mt-1 d-flex gap-1 align-items-center flex-wrap">
+                                    ${badge} ${statusTag}
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="fw-bold h6 m-0 ${color}">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</div>
+                            </div>
                         </div>
-                        <div class="text-end">
-                             <span class="fw-bold ${color}" style="font-size:1rem;">${t.status==='PENDING'?'PENDING':pnl.toFixed(2)}</span>
+
+                        <hr class="my-1 text-muted opacity-25">
+
+                        <div class="row g-0 text-center mt-2" style="font-size:0.75rem;">
+                            <div class="col-3 border-end">
+                                <div class="text-muted small">Qty</div>
+                                <div class="fw-bold text-dark">${t.quantity}</div>
+                            </div>
+                            <div class="col-3 border-end">
+                                <div class="text-muted small">Entry</div>
+                                <div class="fw-bold text-dark">${t.entry_price.toFixed(2)}</div>
+                            </div>
+                            <div class="col-3 border-end">
+                                <div class="text-muted small">LTP</div>
+                                <div class="fw-bold text-dark">${t.current_ltp.toFixed(2)}</div>
+                            </div>
+                            <div class="col-3">
+                                <div class="text-muted small">Fund</div>
+                                <div class="fw-bold text-dark">₹${(invested/1000).toFixed(1)}k</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="trade-details">
-                        <span>Qty: <b class="text-dark">${t.quantity}</b></span>
-                        <span>Ent: <b>${t.entry_price.toFixed(2)}</b></span>
-                        <span>LTP: <b class="text-primary">${t.current_ltp.toFixed(2)}</b></span>
-                        <span class="text-danger">SL: <b>${t.sl.toFixed(1)}</b></span>
-                        <span class="text-muted ms-2" style="font-size:0.7rem;">Cap: <b>₹${(invested/1000).toFixed(1)}k</b></span>
-                        ${timeTag}
-                    </div>
-                    <div class="trade-actions">
-                        ${editBtn}
-                        <button class="btn btn-xs btn-outline-secondary" onclick="showLogs('${t.id}', 'active')">Logs</button>
-                        <a href="/close_trade/${t.id}" class="btn btn-xs btn-dark fw-bold">${t.status==='PENDING'?'Cancel':'Exit'}</a>
+
+                        <div class="d-flex justify-content-between align-items-center mt-2 px-1 bg-light rounded py-1" style="font-size:0.75rem;">
+                            <span class="text-muted">Added: <b>${addedTimeStr}</b></span>
+                            <div class="d-flex align-items-center">
+                                <span class="text-primary">Active: <b>${activeTimeStr}</b></span>
+                                ${waitDuration}
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
+                             <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
+                             <span class="text-muted">T: ${t.targets[0].toFixed(0)} | ${t.targets[1].toFixed(0)} | ${t.targets[2].toFixed(0)}</span>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2 mt-2 pt-1 border-top border-light">
+                            ${editBtn}
+                            <button class="btn btn-sm btn-light border text-muted py-0 px-2" style="font-size:0.75rem;" onclick="showLogs('${t.id}', 'active')">📜 Logs</button>
+                            <a href="/close_trade/${t.id}" class="btn btn-sm btn-dark fw-bold py-0 px-2" style="font-size:0.75rem;">${t.status==='PENDING'?'Cancel':'Exit'}</a>
+                        </div>
                     </div>
                 </div>`;
             });

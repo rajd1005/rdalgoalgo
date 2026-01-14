@@ -106,3 +106,140 @@ body { background-color: #f0f2f5; font-family: 'Segoe UI', sans-serif; padding-b
         width: 95%;
     }
 }
+/* Global Dashboard Styling */
+body {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f4f6f9;
+    font-size: 0.9rem;
+}
+
+/* --- Card & Container Styles --- */
+.custom-card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border: 1px solid #e9ecef;
+    margin-bottom: 15px;
+    overflow: hidden;
+}
+
+.card-head {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    padding: 10px 15px;
+    font-weight: 600;
+    color: #495057;
+}
+
+/* --- Trade Cards (History/Positions) --- */
+.trade-card {
+    transition: all 0.2s ease-in-out;
+    border: 1px solid #e9ecef;
+}
+
+.trade-card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+}
+
+/* Highlight Selected Card for Analysis */
+.trade-card input[type="checkbox"]:checked ~ .flex-grow-1 {
+    opacity: 1;
+}
+
+/* Ensure the checkbox area is clickable */
+.form-check-input {
+    cursor: pointer;
+}
+
+/* --- Modal & Form Styling --- */
+.pos-grid-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #6c757d;
+    margin-bottom: 2px;
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.modal-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.modal-title {
+    font-weight: 700;
+    color: #343a40;
+}
+
+/* Scrollable Table Fixes */
+.sl-table th, .sl-table td {
+    font-size: 0.8rem;
+    vertical-align: middle;
+}
+
+/* Input Group Text sizing */
+.input-group-text {
+    font-size: 0.8rem;
+    font-weight: 600;
+    background-color: #f8f9fa;
+}
+
+/* Scenario Analysis Table */
+#analysis_table_body td {
+    vertical-align: middle;
+}
+
+/* --- Navigation & Tabs --- */
+.nav-btn {
+    border: none;
+    background: transparent;
+    color: #6c757d;
+    font-weight: 600;
+    padding: 10px 15px;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s;
+}
+
+.nav-btn.active {
+    color: #0d6efd;
+    border-bottom: 3px solid #0d6efd;
+}
+
+.dashboard-tab {
+    display: none; /* Hidden by default, JS toggles this */
+    animation: fadeIn 0.3s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- Badge & Text Utilities --- */
+.badge {
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.text-xs {
+    font-size: 0.7rem;
+}
+
+/* Responsive Tweaks */
+@media (max-width: 576px) {
+    .container-fluid {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+    
+    .card-body {
+        padding: 10px;
+    }
+    
+    .btn-group-check label {
+        font-size: 0.8rem;
+        padding: 4px 8px;
+    }
+}

@@ -79,26 +79,9 @@ function loadClosedTrades() {
                     statusTag = `<span class="badge bg-secondary" style="font-size:0.65rem;">${rawStatus}</span>`;
                 }
 
-                // --- Time & Duration Logic ---
+                // --- Time Formatting ---
                 let addedTime = t.entry_time ? t.entry_time.slice(11, 19) : '--:--:--';
-                
-                // Calculate Duration (Active Time)
-                let durationStr = '--';
-                if (t.entry_time && t.exit_time) {
-                    let start = new Date(t.entry_time);
-                    let end = new Date(t.exit_time);
-                    let diffMs = end - start;
-                    if (!isNaN(diffMs) && diffMs >= 0) {
-                        let diffSecs = Math.floor(diffMs / 1000);
-                        let hrs = Math.floor(diffSecs / 3600);
-                        let mins = Math.floor((diffSecs % 3600) / 60);
-                        let secs = diffSecs % 60;
-                        
-                        if (hrs > 0) durationStr = `${hrs}h ${mins}m`;
-                        else if (mins > 0) durationStr = `${mins}m ${secs}s`;
-                        else durationStr = `${secs}s`;
-                    }
-                }
+                let closedTime = t.exit_time ? t.exit_time.slice(11, 16) : '--:--';
 
                 // --- Actions ---
                 let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="editSim('${t.id}')">✏️</button>` : '';
@@ -117,7 +100,7 @@ function loadClosedTrades() {
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold h6 m-0 ${color}">${t.pnl.toFixed(2)}</div>
-                                <small class="text-muted" style="font-size:0.7rem;">Active: ${durationStr}</small>
+                                <small class="text-muted" style="font-size:0.7rem;">Active: ${addedTime}</small>
                             </div>
                         </div>
 
@@ -143,7 +126,7 @@ function loadClosedTrades() {
                         </div>
 
                         <div class="d-flex justify-content-between align-items-center mt-2 px-1" style="font-size:0.75rem;">
-                            <span class="text-muted">Added: <b>${addedTime}</b></span>
+                            <span class="text-muted">Closed: <b>${closedTime}</b></span>
                             <span class="text-danger fw-bold">SL: ${t.sl.toFixed(1)}</span>
                         </div>
 

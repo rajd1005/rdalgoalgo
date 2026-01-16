@@ -51,45 +51,54 @@ def send_eod_report(mode):
             
             # --- CUSTOM STATUS DISPLAY LOGIC ---
             display_status = raw_status
+            is_direct_sl = False # Flag to suppress potential
             
             # 1. Check for "Time_Exit" (Not active trade)
-            # Logic: If status is NOT_ACTIVE, OR if it says TIME_EXIT but P/L is 0 (Pending trade forced closed)
             if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
                 display_status = "Not Active"
                 cnt_not_active += 1
+                is_direct_sl = True # Also suppress potential for inactive
             
             # 2. Check for "SL (Without going T1)"
             elif raw_status == "SL_HIT":
                 if not t.get('targets_hit_indices'): # No targets were hit
                     display_status = "Stop-Loss"
                     cnt_direct_sl += 1
+                    is_direct_sl = True # Suppress potential for Direct SL
                 else:
                     display_status = "SL Hit (After Target)"
             
             # Use made_high if available, else exit price, else entry
             made_high = t.get('made_high', t.get('exit_price', entry))
             
+            # --- FIX: Suppress Potential for Direct SL ---
+            if is_direct_sl:
+                made_high = entry # Reset high to entry for display
+                max_pot_val = 0.0
+                pot_target = "None"
+            else:
+                # Max Potential Calculation
+                max_pot_val = (made_high - entry) * qty
+                if max_pot_val < 0: max_pot_val = 0
+                
+                # Potential Target Logic
+                pot_target = "None"
+                if len(targets) >= 3:
+                    if made_high >= targets[2]: pot_target = "T3 ✅"
+                    elif made_high >= targets[1]: pot_target = "T2 ✅"
+                    elif made_high >= targets[0]: pot_target = "T1 ✅"
+
             total_pnl += pnl
             if pnl >= 0: 
                 total_wins += pnl
             else: 
                 total_loss += pnl
             
+            total_max_potential += max_pot_val
+            
             # Funds Used
             invested = entry * qty
             total_funds_used += invested
-            
-            # Max Potential Calculation
-            max_pot_val = (made_high - entry) * qty
-            if max_pot_val < 0: max_pot_val = 0
-            total_max_potential += max_pot_val
-            
-            # Potential Target Logic
-            pot_target = "None"
-            if len(targets) >= 3:
-                if made_high >= targets[2]: pot_target = "T3 ✅"
-                elif made_high >= targets[1]: pot_target = "T2 ✅"
-                elif made_high >= targets[0]: pot_target = "T1 ✅"
             
             msg_details += (
                 f"\n🔹 <b>{symbol}</b>\n"
@@ -158,24 +167,34 @@ def send_manual_trade_report(trade_id):
         
         # --- CUSTOM STATUS DISPLAY LOGIC ---
         display_status = raw_status
+        is_direct_sl = False
+
         if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
             display_status = "Not Active"
+            is_direct_sl = True
         elif raw_status == "SL_HIT" and not trade.get('targets_hit_indices'):
             display_status = "Stop-Loss"
+            is_direct_sl = True
         
         # Use made_high if available, else exit price, else entry
         made_high = trade.get('made_high', trade.get('exit_price', entry))
         
-        # Max Potential
-        max_pot_val = (made_high - entry) * qty
-        if max_pot_val < 0: max_pot_val = 0
-        
-        # Potential Target Logic
-        pot_target = "None"
-        if len(targets) >= 3:
-            if made_high >= targets[2]: pot_target = "T3 ✅"
-            elif made_high >= targets[1]: pot_target = "T2 ✅"
-            elif made_high >= targets[0]: pot_target = "T1 ✅"
+        # --- FIX: Suppress Potential for Direct SL ---
+        if is_direct_sl:
+            made_high = entry 
+            max_pot_val = 0.0
+            pot_target = "None"
+        else:
+            # Max Potential
+            max_pot_val = (made_high - entry) * qty
+            if max_pot_val < 0: max_pot_val = 0
+            
+            # Potential Target Logic
+            pot_target = "None"
+            if len(targets) >= 3:
+                if made_high >= targets[2]: pot_target = "T3 ✅"
+                elif made_high >= targets[1]: pot_target = "T2 ✅"
+                elif made_high >= targets[0]: pot_target = "T1 ✅"
 
         msg = (
             f"🔹 <b>TRADE STATUS: {symbol}</b>\n"
@@ -224,11 +243,15 @@ def send_manual_summary(mode):
             made_high = t.get('made_high', t.get('exit_price', entry))
             raw_status = t.get('status', 'CLOSED')
 
+            is_direct_sl = False
+
             # Counters
             if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
                 cnt_not_active += 1
+                is_direct_sl = True
             elif raw_status == "SL_HIT" and not t.get('targets_hit_indices'):
                 cnt_direct_sl += 1
+                is_direct_sl = True
 
             total_pnl += pnl
             if pnl >= 0: total_wins += pnl
@@ -236,9 +259,11 @@ def send_manual_summary(mode):
             
             total_funds_used += (entry * qty)
             
-            max_pot_val = (made_high - entry) * qty
-            if max_pot_val < 0: max_pot_val = 0
-            total_max_potential += max_pot_val
+            # --- FIX: Suppress Potential in Summary too ---
+            if not is_direct_sl:
+                max_pot_val = (made_high - entry) * qty
+                if max_pot_val < 0: max_pot_val = 0
+                total_max_potential += max_pot_val
 
         msg_summary = (
             f"📈 <b>{mode} - MANUAL SUMMARY</b>\n\n"

@@ -9,16 +9,29 @@ instrument_dump = None
 
 def fetch_instruments(kite):
     global instrument_dump
-    if instrument_dump is not None: return
+    # If already loaded, skip (unless forced, but logic here assumes once is enough per session)
+    if instrument_dump is not None and not instrument_dump.empty: 
+        return
 
     print("📥 Downloading Instrument List...")
     try:
-        instrument_dump = pd.DataFrame(kite.instruments())
-        instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry']).dt.strftime('%Y-%m-%d')
-        instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry']).dt.date
-        print("✅ Instruments Downloaded Successfully.")
+        # Fetch and convert to DataFrame
+        instruments = kite.instruments()
+        if not instruments:
+            print("⚠️ Warning: Kite returned empty instrument list.")
+            return
+
+        instrument_dump = pd.DataFrame(instruments)
+        
+        # Ensure columns exist before processing
+        if 'expiry' in instrument_dump.columns:
+            instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.strftime('%Y-%m-%d')
+            instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.date
+        
+        print(f"✅ Instruments Downloaded Successfully. Count: {len(instrument_dump)}")
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
+        instrument_dump = None
 
 def get_indices_ltp(kite):
     try:
@@ -63,8 +76,12 @@ def get_display_name(tradingsymbol):
             data = row.iloc[0]
             name = data['name']
             inst_type = data['instrument_type']
-            expiry_dt = data['expiry_date'] 
-            expiry_str = expiry_dt.strftime('%d %b').upper()
+            # Safely handle expiry
+            if 'expiry_date' in data and pd.notnull(data['expiry_date']):
+                expiry_dt = data['expiry_date'] 
+                expiry_str = expiry_dt.strftime('%d %b').upper()
+            else:
+                expiry_str = ""
             
             if inst_type in ["CE", "PE"]:
                 strike = int(data['strike'])
@@ -79,33 +96,45 @@ def get_display_name(tradingsymbol):
 
 def search_symbols(kite, keyword, allowed_exchanges=None):
     global instrument_dump
-    if instrument_dump is None: return []
+    
+    # --- FIX 1: Auto-fetch if missing ---
+    if instrument_dump is None: 
+        fetch_instruments(kite)
+        if instrument_dump is None: return [] # Still failed
+
     k = keyword.upper()
     
-    if allowed_exchanges is None:
+    # --- FIX 2: Handle Empty List or None ---
+    if not allowed_exchanges: # Catches None AND empty list []
         allowed_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
-    mask = (instrument_dump['exchange'].isin(allowed_exchanges)) & (instrument_dump['name'].str.startswith(k))
-    matches = instrument_dump[mask]
-    
-    if matches.empty: return []
-        
-    unique_matches = matches.drop_duplicates(subset=['name', 'exchange']).head(10)
-    items_to_quote = [f"{row['exchange']}:{row['tradingsymbol']}" for _, row in unique_matches.iterrows()]
-    
-    quotes = {}
+    # Filter
     try:
-        if items_to_quote: quotes = kite.quote(items_to_quote)
-    except Exception as e:
-        print(f"Search Quote Error: {e}")
-    
-    results = []
-    for _, row in unique_matches.iterrows():
-        key = f"{row['exchange']}:{row['tradingsymbol']}"
-        ltp = quotes.get(key, {}).get('last_price', 0)
-        results.append(f"{row['name']} ({row['exchange']}) : {ltp}")
+        mask = (instrument_dump['exchange'].isin(allowed_exchanges)) & (instrument_dump['name'].str.startswith(k, na=False))
+        matches = instrument_dump[mask]
         
-    return results
+        if matches.empty: return []
+            
+        unique_matches = matches.drop_duplicates(subset=['name', 'exchange']).head(10)
+        items_to_quote = [f"{row['exchange']}:{row['tradingsymbol']}" for _, row in unique_matches.iterrows()]
+        
+        quotes = {}
+        try:
+            if items_to_quote: quotes = kite.quote(items_to_quote)
+        except Exception as e:
+            print(f"Search Quote Error: {e}")
+            # Continue even if quoting fails (will show LTP 0)
+        
+        results = []
+        for _, row in unique_matches.iterrows():
+            key = f"{row['exchange']}:{row['tradingsymbol']}"
+            ltp = quotes.get(key, {}).get('last_price', 0)
+            results.append(f"{row['name']} ({row['exchange']}) : {ltp}")
+            
+        return results
+    except Exception as e:
+        print(f"Search Logic Error: {e}")
+        return []
 
 def adjust_cds_lot_size(symbol, lot_size):
     s = symbol.upper()
@@ -128,6 +157,7 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     clean = get_zerodha_symbol(symbol)
     today = datetime.now(IST).date()
     
+    # Filter by name
     rows = instrument_dump[instrument_dump['name'] == clean]
     if rows.empty: return {}
 
@@ -156,11 +186,12 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     if ltp == 0:
         try:
             fut_exch = 'NFO' if exchange_to_use == 'NSE' else ('BFO' if exchange_to_use == 'BSE' else exchange_to_use)
-            futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today) & (rows['exchange'] == fut_exch)]
-            if not futs_all.empty:
-                near_fut = futs_all.sort_values('expiry_date').iloc[0]
-                fut_sym = f"{near_fut['exchange']}:{near_fut['tradingsymbol']}"
-                ltp = kite.quote(fut_sym)[fut_sym]['last_price']
+            if 'expiry_date' in rows.columns:
+                futs_all = rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today) & (rows['exchange'] == fut_exch)]
+                if not futs_all.empty:
+                    near_fut = futs_all.sort_values('expiry_date').iloc[0]
+                    fut_sym = f"{near_fut['exchange']}:{near_fut['tradingsymbol']}"
+                    ltp = kite.quote(fut_sym)[fut_sym]['last_price']
         except: pass
 
     lot = 1
@@ -171,8 +202,12 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
             if ex == 'CDS': lot = adjust_cds_lot_size(clean, lot)
             break
             
-    f_exp = sorted(rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
-    o_exp = sorted(rows[(rows['instrument_type'].isin(['CE', 'PE'])) & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
+    f_exp = []
+    o_exp = []
+    
+    if 'expiry_str' in rows.columns and 'expiry_date' in rows.columns:
+        f_exp = sorted(rows[(rows['instrument_type'] == 'FUT') & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
+        o_exp = sorted(rows[(rows['instrument_type'].isin(['CE', 'PE'])) & (rows['expiry_date'] >= today)]['expiry_str'].unique().tolist())
     
     return {"symbol": clean, "ltp": ltp, "lot_size": lot, "fut_expiries": f_exp, "opt_expiries": o_exp}
 
@@ -180,6 +215,10 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
     global instrument_dump
     if instrument_dump is None: return []
     clean = get_zerodha_symbol(symbol)
+    
+    # Ensure columns exist
+    if 'expiry_str' not in instrument_dump.columns: return []
+    
     c = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
     if c.empty: return []
     
@@ -202,6 +241,8 @@ def get_exact_symbol(symbol, expiry, strike, option_type):
     if option_type == "EQ": return symbol
     clean = get_zerodha_symbol(symbol)
     
+    if 'expiry_str' not in instrument_dump.columns: return None
+
     if option_type == "FUT":
         mask = (instrument_dump['name'] == clean) & (instrument_dump['expiry_str'] == expiry) & (instrument_dump['instrument_type'] == "FUT")
     else:
@@ -241,7 +282,6 @@ def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
         data = kite.historical_data(token, from_date, to_date, interval)
         
         # CLEANUP: Convert datetime objects to Strings for JSON serialization
-        # This is critical for the Replay feature to save data in the DB
         clean_data = []
         for candle in data:
             c = candle.copy()

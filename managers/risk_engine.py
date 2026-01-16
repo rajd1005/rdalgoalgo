@@ -192,10 +192,16 @@ def update_risk_engine(kite):
                 if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
                     current_high = t.get('highest_ltp', 0)
                     
-                    # --- High Made Logic ---
-                    if ltp > current_high:
-                        t['highest_ltp'] = ltp
-                        t['made_high'] = ltp
+                    # Update LTP always for visibility
+                   t['current_ltp'] = ltp 
+
+                # Only update High if broken
+                if ltp > current_high:
+               t['made_high'] = ltp
+
+               # Always save to update the UI
+               db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+               history_updated = True
                         
                         # --- TELEGRAM NOTIFICATION: HIGH MADE ---
                         # Correct logic: Check if T3 hit OR Price > T3

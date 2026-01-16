@@ -4,7 +4,7 @@ import threading
 import time
 import gc 
 import requests
-from flask import Flask, render_template, request, redirect, flash, jsonify
+from flask import Flask, render_template, request, redirect, flash, jsonify, url_for
 from kiteconnect import KiteConnect
 import config
 # --- REFACTORED IMPORTS ---
@@ -271,7 +271,7 @@ def api_panic_exit():
         return jsonify({"status": "success"})
     return jsonify({"status": "error", "message": "Failed to execute panic mode"})
 
-# --- NEW: ROUTES FOR MANUAL TELEGRAM REPORTS (Added Here) ---
+# --- ROUTES FOR TELEGRAM REPORTS ---
 
 @app.route('/api/manual_trade_report', methods=['POST'])
 def api_manual_trade_report():
@@ -296,6 +296,18 @@ def api_manual_summary():
     mode = request.json.get('mode', 'PAPER')
     # Calls the new function we added to risk_engine.py
     result = risk_engine.send_manual_summary(mode)
+    return jsonify(result)
+
+# --- NEW: Route for "Final Trade Status" Button ---
+@app.route('/api/manual_trade_status', methods=['POST'])
+def api_manual_trade_status():
+    """
+    Triggered by the 'Final Trade Status' button.
+    Sends the detailed status list of all trades to Telegram.
+    """
+    mode = request.json.get('mode', 'PAPER')
+    # Calls the new function we added to risk_engine.py
+    result = risk_engine.send_manual_trade_status(mode)
     return jsonify(result)
 
 # -------------------------------------------------------------

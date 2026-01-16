@@ -47,12 +47,14 @@ def send_eod_report(mode):
             targets = t.get('targets', [])
             raw_status = t.get('status', 'CLOSED')
             qty = t.get('quantity', 0)
+            pnl = t.get('pnl', 0)
             
-            # --- CUSTOM STATUS LOGIC ---
+            # --- CUSTOM STATUS DISPLAY LOGIC ---
             display_status = raw_status
             
             # 1. Check for "Time_Exit" (Not active trade)
-            if raw_status == "NOT_ACTIVE":
+            # Logic: If status is NOT_ACTIVE, OR if it says TIME_EXIT but P/L is 0 (Pending trade forced closed)
+            if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
                 display_status = "Not Active"
                 cnt_not_active += 1
             
@@ -67,8 +69,6 @@ def send_eod_report(mode):
             # Use made_high if available, else exit price, else entry
             made_high = t.get('made_high', t.get('exit_price', entry))
             
-            # P/L Calculation
-            pnl = t.get('pnl', 0)
             total_pnl += pnl
             if pnl >= 0: 
                 total_wins += pnl
@@ -96,7 +96,7 @@ def send_eod_report(mode):
                 f"Entry: {entry}\n"
                 f"SL: {sl}\n"
                 f"Targets: {targets}\n"
-                f"Status: {display_status}\n" # <--- Updated Status
+                f"Status: {display_status}\n" 
                 f"High Made: {made_high}\n"
                 f"Potential Target: {pot_target}\n"
                 f"Max Potential: {max_pot_val:.2f}\n"
@@ -116,8 +116,8 @@ def send_eod_report(mode):
             f"🚀 Max Potential: ₹ {total_max_potential:.2f}\n"
             f"💼 Funds Used: ₹ {total_funds_used:.2f}\n"
             f"📊 Total Trades: {len(todays_trades)}\n"
-            f"🚫 Not Active: {cnt_not_active}\n" # <--- Added
-            f"🛑 Direct SL: {cnt_direct_sl}"     # <--- Added
+            f"🚫 Not Active: {cnt_not_active}\n" 
+            f"🛑 Direct SL: {cnt_direct_sl}"     
         )
         
         # Send Summary Report
@@ -154,10 +154,11 @@ def send_manual_trade_report(trade_id):
         targets = trade.get('targets', [])
         raw_status = trade.get('status', 'UNKNOWN')
         qty = trade.get('quantity', 0)
+        pnl = trade.get('pnl', 0)
         
-        # --- CUSTOM STATUS LOGIC ---
+        # --- CUSTOM STATUS DISPLAY LOGIC ---
         display_status = raw_status
-        if raw_status == "NOT_ACTIVE":
+        if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
             display_status = "Not Active"
         elif raw_status == "SL_HIT" and not trade.get('targets_hit_indices'):
             display_status = "Stop-Loss"
@@ -198,8 +199,7 @@ def send_manual_summary(mode):
     Sends the Aggregate Summary for the current day.
     """
     try:
-        # This function reuses the logic, but for manual calls we often want just the summary.
-        # However, to include the new counts (Not Active/Direct SL), we need to calculate them here too.
+        # This function reuses the logic to include the new counts
         today_str = datetime.now(IST).strftime("%Y-%m-%d")
         history = load_history()
         
@@ -225,7 +225,7 @@ def send_manual_summary(mode):
             raw_status = t.get('status', 'CLOSED')
 
             # Counters
-            if raw_status == "NOT_ACTIVE":
+            if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
                 cnt_not_active += 1
             elif raw_status == "SL_HIT" and not t.get('targets_hit_indices'):
                 cnt_direct_sl += 1

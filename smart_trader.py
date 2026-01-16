@@ -10,8 +10,9 @@ symbol_map = {} # FAST LOOKUP CACHE
 
 def fetch_instruments(kite):
     global instrument_dump, symbol_map
-    # If already loaded, skip
-    if instrument_dump is not None and not instrument_dump.empty: 
+    
+    # If already loaded and map exists, skip
+    if instrument_dump is not None and not instrument_dump.empty and symbol_map: 
         return
 
     print("📥 Downloading Instrument List...")
@@ -28,14 +29,33 @@ def fetch_instruments(kite):
             instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.strftime('%Y-%m-%d')
             instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.date
         
-        # --- CRITICAL OPTIMIZATION: Create Hash Map for O(1) Lookups ---
+        # --- CRITICAL FIX: Handle Duplicates for Hash Map ---
         print("⚡ Building Fast Lookup Cache...")
-        symbol_map = instrument_dump.set_index('tradingsymbol').to_dict('index')
+        
+        # Create a copy to sort and deduplicate without affecting the main search dump
+        temp_df = instrument_dump.copy()
+        
+        # prioritize exchanges: NFO > MCX > CDS > NSE > BSE
+        # This ensures 'RELIANCE' maps to NSE, not BSE
+        exchange_priority = {'NFO': 0, 'MCX': 1, 'CDS': 2, 'NSE': 3, 'BSE': 4, 'BFO': 5}
+        temp_df['priority'] = temp_df['exchange'].map(exchange_priority).fillna(99)
+        
+        # Sort by priority so the "best" exchange comes first
+        temp_df.sort_values('priority', inplace=True)
+        
+        # Drop duplicates on tradingsymbol, keeping the first (highest priority)
+        unique_symbols = temp_df.drop_duplicates(subset=['tradingsymbol'])
+        
+        # NOW it is safe to set index
+        symbol_map = unique_symbols.set_index('tradingsymbol').to_dict('index')
         
         print(f"✅ Instruments Downloaded & Indexed. Count: {len(instrument_dump)}")
+        
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
-        instrument_dump = None
+        # Do not reset to None here if partial data exists, to prevent infinite loops
+        if instrument_dump is None:
+             instrument_dump = pd.DataFrame()
         symbol_map = {}
 
 def get_indices_ltp(kite):
@@ -72,6 +92,7 @@ def get_lot_size(tradingsymbol):
 
 def get_display_name(tradingsymbol):
     global symbol_map
+    # Attempt to load if missing (with safety check inside fetch)
     if not symbol_map:
         return tradingsymbol
         
@@ -84,13 +105,11 @@ def get_display_name(tradingsymbol):
             
             # Handle expiry safely
             expiry_str = ""
-            if 'expiry_date' in data and pd.notnull(data['expiry_date']):
-                # data['expiry_date'] might be a pandas Timestamp or date object
+            if 'expiry_date' in data:
                 ed = data['expiry_date']
-                if hasattr(ed, 'strftime'):
-                    expiry_str = ed.strftime('%d %b').upper()
-                else:
-                    expiry_str = str(ed)
+                if pd.notnull(ed):
+                    if hasattr(ed, 'strftime'): expiry_str = ed.strftime('%d %b').upper()
+                    else: expiry_str = str(ed)
 
             if inst_type in ["CE", "PE"]:
                 strike = int(data['strike'])
@@ -106,9 +125,9 @@ def get_display_name(tradingsymbol):
 def search_symbols(kite, keyword, allowed_exchanges=None):
     global instrument_dump
     
-    if instrument_dump is None: 
+    if instrument_dump is None or instrument_dump.empty: 
         fetch_instruments(kite)
-        if instrument_dump is None: return []
+        if instrument_dump is None or instrument_dump.empty: return []
 
     k = keyword.upper()
     if not allowed_exchanges: 
@@ -149,8 +168,8 @@ def adjust_cds_lot_size(symbol, lot_size):
 
 def get_symbol_details(kite, symbol, preferred_exchange=None):
     global instrument_dump
-    if instrument_dump is None: fetch_instruments(kite)
-    if instrument_dump is None: return {}
+    if instrument_dump is None or instrument_dump.empty: fetch_instruments(kite)
+    if instrument_dump is None or instrument_dump.empty: return {}
     
     if "(" in symbol and ")" in symbol:
         try:
@@ -216,7 +235,7 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
 
 def get_chain_data(symbol, expiry_date, option_type, ltp):
     global instrument_dump
-    if instrument_dump is None: return []
+    if instrument_dump is None or instrument_dump.empty: return []
     clean = get_zerodha_symbol(symbol)
     
     if 'expiry_str' not in instrument_dump.columns: return []
@@ -239,7 +258,7 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
 
 def get_exact_symbol(symbol, expiry, strike, option_type):
     global instrument_dump
-    if instrument_dump is None: return None
+    if instrument_dump is None or instrument_dump.empty: return None
     if option_type == "EQ": return symbol
     clean = get_zerodha_symbol(symbol)
     
@@ -265,7 +284,7 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         # Optimized lookup using map first
         if symbol_map and ts in symbol_map:
             exch = symbol_map[ts]['exchange']
-        elif instrument_dump is not None:
+        elif instrument_dump is not None and not instrument_dump.empty:
              row = instrument_dump[instrument_dump['tradingsymbol'] == ts]
              if not row.empty: exch = row.iloc[0]['exchange']
              
@@ -275,7 +294,7 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
 # --- NEW FUNCTIONS FOR IMPORT/BACKTEST ---
 def get_instrument_token(tradingsymbol, exchange):
     global instrument_dump
-    if instrument_dump is None: return None
+    if instrument_dump is None or instrument_dump.empty: return None
     try:
         row = instrument_dump[(instrument_dump['tradingsymbol'] == tradingsymbol) & (instrument_dump['exchange'] == exchange)]
         if not row.empty:

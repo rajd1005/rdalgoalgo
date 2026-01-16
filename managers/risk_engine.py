@@ -33,17 +33,36 @@ def send_eod_report(mode):
         total_loss = 0.0
         total_funds_used = 0.0
         total_max_potential = 0.0
+        
+        # Counters for specific request
+        cnt_not_active = 0
+        cnt_direct_sl = 0
 
         for t in todays_trades:
             raw_symbol = t.get('symbol', 'Unknown')
-            # --- FORMAT SYMBOL ---
             symbol = smart_trader.get_telegram_symbol(raw_symbol)
             
             entry = t.get('entry_price', 0)
             sl = t.get('sl', 0)
             targets = t.get('targets', [])
-            status = t.get('status', 'CLOSED')
+            raw_status = t.get('status', 'CLOSED')
             qty = t.get('quantity', 0)
+            
+            # --- CUSTOM STATUS LOGIC ---
+            display_status = raw_status
+            
+            # 1. Check for "Time_Exit" (Not active trade)
+            if raw_status == "NOT_ACTIVE":
+                display_status = "Not Active"
+                cnt_not_active += 1
+            
+            # 2. Check for "SL (Without going T1)"
+            elif raw_status == "SL_HIT":
+                if not t.get('targets_hit_indices'): # No targets were hit
+                    display_status = "Stop-Loss"
+                    cnt_direct_sl += 1
+                else:
+                    display_status = "SL Hit (After Target)"
             
             # Use made_high if available, else exit price, else entry
             made_high = t.get('made_high', t.get('exit_price', entry))
@@ -77,7 +96,7 @@ def send_eod_report(mode):
                 f"Entry: {entry}\n"
                 f"SL: {sl}\n"
                 f"Targets: {targets}\n"
-                f"Status: {status}\n"
+                f"Status: {display_status}\n" # <--- Updated Status
                 f"High Made: {made_high}\n"
                 f"Potential Target: {pot_target}\n"
                 f"Max Potential: {max_pot_val:.2f}\n"
@@ -96,7 +115,9 @@ def send_eod_report(mode):
             f"🔴 Total Loss: ₹ {total_loss:.2f}\n"
             f"🚀 Max Potential: ₹ {total_max_potential:.2f}\n"
             f"💼 Funds Used: ₹ {total_funds_used:.2f}\n"
-            f"📊 Total Trades: {len(todays_trades)}"
+            f"📊 Total Trades: {len(todays_trades)}\n"
+            f"🚫 Not Active: {cnt_not_active}\n" # <--- Added
+            f"🛑 Direct SL: {cnt_direct_sl}"     # <--- Added
         )
         
         # Send Summary Report
@@ -109,7 +130,7 @@ def send_eod_report(mode):
 
 def send_manual_trade_report(trade_id):
     """
-    Sends a detailed status report for a SINGLE specific trade (1st Notification Type).
+    Sends a detailed status report for a SINGLE specific trade.
     """
     try:
         # Look in History first
@@ -126,14 +147,20 @@ def send_manual_trade_report(trade_id):
 
         # Construct Message
         raw_symbol = trade.get('symbol', 'Unknown')
-        # --- FORMAT SYMBOL ---
         symbol = smart_trader.get_telegram_symbol(raw_symbol)
         
         entry = trade.get('entry_price', 0)
         sl = trade.get('sl', 0)
         targets = trade.get('targets', [])
-        status = trade.get('status', 'UNKNOWN')
+        raw_status = trade.get('status', 'UNKNOWN')
         qty = trade.get('quantity', 0)
+        
+        # --- CUSTOM STATUS LOGIC ---
+        display_status = raw_status
+        if raw_status == "NOT_ACTIVE":
+            display_status = "Not Active"
+        elif raw_status == "SL_HIT" and not trade.get('targets_hit_indices'):
+            display_status = "Stop-Loss"
         
         # Use made_high if available, else exit price, else entry
         made_high = trade.get('made_high', trade.get('exit_price', entry))
@@ -154,7 +181,7 @@ def send_manual_trade_report(trade_id):
             f"Entry: {entry}\n"
             f"SL: {sl}\n"
             f"Targets: {targets}\n"
-            f"Status: {status}\n"
+            f"Status: {display_status}\n"
             f"High Made: {made_high}\n"
             f"Potential Target: {pot_target}\n"
             f"Max Potential: {max_pot_val:.2f}"
@@ -168,13 +195,14 @@ def send_manual_trade_report(trade_id):
 
 def send_manual_summary(mode):
     """
-    Sends the Aggregate Summary for the current day (2nd Notification Type).
+    Sends the Aggregate Summary for the current day.
     """
     try:
+        # This function reuses the logic, but for manual calls we often want just the summary.
+        # However, to include the new counts (Not Active/Direct SL), we need to calculate them here too.
         today_str = datetime.now(IST).strftime("%Y-%m-%d")
         history = load_history()
         
-        # Filter for Today's trades in the specific Mode
         todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
         
         if not todays_trades:
@@ -185,12 +213,22 @@ def send_manual_summary(mode):
         total_loss = 0.0
         total_funds_used = 0.0
         total_max_potential = 0.0
+        
+        cnt_not_active = 0
+        cnt_direct_sl = 0
 
         for t in todays_trades:
             entry = t.get('entry_price', 0)
             qty = t.get('quantity', 0)
             pnl = t.get('pnl', 0)
             made_high = t.get('made_high', t.get('exit_price', entry))
+            raw_status = t.get('status', 'CLOSED')
+
+            # Counters
+            if raw_status == "NOT_ACTIVE":
+                cnt_not_active += 1
+            elif raw_status == "SL_HIT" and not t.get('targets_hit_indices'):
+                cnt_direct_sl += 1
 
             total_pnl += pnl
             if pnl >= 0: total_wins += pnl
@@ -210,7 +248,9 @@ def send_manual_summary(mode):
             f"🔴 Total Loss: ₹ {total_loss:.2f}\n"
             f"🚀 Max Potential: ₹ {total_max_potential:.2f}\n"
             f"💼 Funds Used: ₹ {total_funds_used:.2f}\n"
-            f"📊 Total Trades: {len(todays_trades)}"
+            f"📊 Total Trades: {len(todays_trades)}\n"
+            f"🚫 Not Active: {cnt_not_active}\n"
+            f"🛑 Direct SL: {cnt_direct_sl}"
         )
         
         telegram_bot.send_message(msg_summary)
@@ -239,18 +279,23 @@ def check_global_exit_conditions(kite, mode, mode_settings):
             if now >= exit_dt and (now - exit_dt).seconds < 120:
                  active_mode = [t for t in trades if t['mode'] == mode]
                  
-                 # Logic: If active trades exist, close them. 
-                 # Even if no active trades, we might want to send the report if it's EOD.
-                 
                  if active_mode:
                      for t in active_mode:
+                         # Determine if it's ACTIVE or PENDING
+                         exit_reason = "TIME_EXIT"
+                         exit_price = t.get('current_ltp', 0)
+                         
+                         if t['status'] == 'PENDING':
+                             exit_reason = "NOT_ACTIVE"
+                             exit_price = t['entry_price'] # Force 0 PnL for pending
+                         
                          if t['mode'] == "LIVE" and t['status'] != 'PENDING':
                             manage_broker_sl(kite, t, cancel_completely=True)
                             try: 
                                 kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                             except: pass
                          
-                         move_to_history(t, "TIME_EXIT", t.get('current_ltp', 0))
+                         move_to_history(t, exit_reason, exit_price)
                      
                      # Save remaining trades (those not in the current mode)
                      remaining = [t for t in trades if t['mode'] != mode]

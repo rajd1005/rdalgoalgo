@@ -140,6 +140,9 @@ function renderClosedTrades(trades) {
             let editBtn = (t.order_type === 'SIMULATION') ? `<button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="editSim('${t.id}')">✏️</button>` : '';
             let delBtn = `<button class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:0.75rem;" onclick="deleteTrade('${t.id}')">🗑️</button>`;
             let simLogBtn = `<button id="btn-sim-log-${t.id}" class="btn btn-sm btn-light border text-primary py-0 px-2" style="${btnStyle} font-size:0.75rem;" onclick="showSimLogs('${t.id}')">🧪 Logs</button>`;
+            
+            // NEW: Telegram Button
+            let telegramBtn = `<button class="btn btn-sm btn-outline-info py-0 px-2" style="font-size:0.75rem;" title="Send Trade Status to Telegram" onclick="sendTradeReport('${t.id}')">📢</button>`;
 
             html += `
             <div class="card mb-2 shadow-sm border-0" id="card-${t.id}">
@@ -191,7 +194,7 @@ function renderClosedTrades(trades) {
                     </div>
                     ${potHtml}
                     <div class="d-flex justify-content-end gap-2 mt-2 pt-1 border-top border-light">
-                        ${editBtn} ${simLogBtn} ${delBtn}
+                        ${editBtn} ${simLogBtn} ${telegramBtn} ${delBtn}
                         <button class="btn btn-sm btn-light border text-muted py-0 px-2" style="font-size:0.75rem;" onclick="showLogs('${t.id}', 'closed')">📜 Logs</button>
                     </div>
                 </div>
@@ -247,6 +250,41 @@ function showSimLogs(id) {
     if(!data || !data.logs || data.logs.length === 0) return alert("No simulation logs found.");
     $('#logModalBody').html(data.logs.join('<br>'));
     $('#logModal').modal('show');
+}
+
+// --- NEW: Telegram Notification Functions ---
+
+function sendTradeReport(tradeId) {
+    if(!confirm("Send detailed status of this trade to Telegram?")) return;
+    
+    $.ajax({
+        type: "POST",
+        url: '/api/manual_trade_report',
+        data: JSON.stringify({ trade_id: tradeId }),
+        contentType: "application/json",
+        success: function(res) {
+            if(res.status === 'success') alert("✅ Trade Report Sent!");
+            else alert("❌ Error: " + res.message);
+        }
+    });
+}
+
+function sendManualSummary() {
+    let mode = $('#hist_filter').val();
+    if(mode === 'ALL') mode = 'PAPER'; // Default fallback if ALL is selected
+    
+    if(!confirm(`Send ${mode} Daily Summary to Telegram?`)) return;
+
+    $.ajax({
+        type: "POST",
+        url: '/api/manual_summary',
+        data: JSON.stringify({ mode: mode }),
+        contentType: "application/json",
+        success: function(res) {
+            if(res.status === 'success') alert("✅ Summary Sent!");
+            else alert("❌ Error: " + res.message);
+        }
+    });
 }
 
 // --- SCENARIO ANALYSIS LOGIC ---

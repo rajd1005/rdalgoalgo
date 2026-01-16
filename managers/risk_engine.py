@@ -35,7 +35,10 @@ def send_eod_report(mode):
         total_max_potential = 0.0
 
         for t in todays_trades:
-            symbol = t.get('symbol', 'Unknown')
+            raw_symbol = t.get('symbol', 'Unknown')
+            # --- FORMAT SYMBOL ---
+            symbol = smart_trader.get_telegram_symbol(raw_symbol)
+            
             entry = t.get('entry_price', 0)
             sl = t.get('sl', 0)
             targets = t.get('targets', [])
@@ -122,7 +125,10 @@ def send_manual_trade_report(trade_id):
             return {"status": "error", "message": "Trade not found"}
 
         # Construct Message
-        symbol = trade.get('symbol', 'Unknown')
+        raw_symbol = trade.get('symbol', 'Unknown')
+        # --- FORMAT SYMBOL ---
+        symbol = smart_trader.get_telegram_symbol(raw_symbol)
+        
         entry = trade.get('entry_price', 0)
         sl = trade.get('sl', 0)
         targets = trade.get('targets', [])
@@ -235,7 +241,6 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                  
                  # Logic: If active trades exist, close them. 
                  # Even if no active trades, we might want to send the report if it's EOD.
-                 # Here we trigger if we enter the time window.
                  
                  if active_mode:
                      for t in active_mode:

@@ -1,5 +1,4 @@
 // --- GLOBAL VARIABLES (Shared across all files) ---
-// Use 'var' to prevent "Identifier has already been declared" errors
 var settings = { 
     exchanges: ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO'],
     watchlist: [],
@@ -16,6 +15,16 @@ var allClosedTrades = [];
 var curLTP = 0;
 
 // --- HELPER FUNCTIONS ---
+
+// Debounce Function (Prevents rapid-fire API calls)
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+    };
+}
 
 function normalizeSymbol(s) {
     if(!s) return "";
@@ -55,7 +64,8 @@ function showLogs(tradeId, type) {
 }
 
 function bindSearch(id, listId) { 
-    $(id).on('input', function() { 
+    // Apply Debounce (Wait 300ms after last keystroke)
+    $(id).on('input', debounce(function() { 
         let val = this.value;
         if(val.length > 2) {
             $.get('/api/search', {q: val}, function(d) { 
@@ -63,7 +73,7 @@ function bindSearch(id, listId) {
                 d.forEach(s => $(listId).append(`<option value="${s}">`)); 
             }); 
         }
-    }); 
+    }, 300)); 
 }
 
 function showToast(msg, type='info') {

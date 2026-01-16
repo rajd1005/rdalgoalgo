@@ -1,5 +1,6 @@
 // Global cache and data storage
 var simResultsCache = {}; 
+var allClosedTrades = []; // Global variable to store trades for simulation
 
 // 1. Core Rendering Function (Accepts data from Sync Loop)
 function renderClosedTrades(trades) {

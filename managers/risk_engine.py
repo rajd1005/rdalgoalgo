@@ -51,29 +51,29 @@ def send_eod_report(mode):
             
             # --- CUSTOM STATUS DISPLAY LOGIC ---
             display_status = raw_status
-            is_direct_sl = False # Flag to suppress potential
+            is_direct_sl = False 
             
             # 1. Check for "Time_Exit" (Not active trade)
             if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
                 display_status = "Not Active"
                 cnt_not_active += 1
-                is_direct_sl = True # Also suppress potential for inactive
+                is_direct_sl = True 
             
             # 2. Check for "SL (Without going T1)"
             elif raw_status == "SL_HIT":
                 if not t.get('targets_hit_indices'): # No targets were hit
                     display_status = "Stop-Loss"
                     cnt_direct_sl += 1
-                    is_direct_sl = True # Suppress potential for Direct SL
+                    is_direct_sl = True 
                 else:
                     display_status = "SL Hit (After Target)"
             
             # Use made_high if available, else exit price, else entry
             made_high = t.get('made_high', t.get('exit_price', entry))
             
-            # --- FIX: Suppress Potential for Direct SL ---
+            # Suppress Potential for Direct SL
             if is_direct_sl:
-                made_high = entry # Reset high to entry for display
+                made_high = entry 
                 max_pot_val = 0.0
                 pot_target = "None"
             else:
@@ -136,6 +136,82 @@ def send_eod_report(mode):
         print(f"Error generating EOD report: {e}")
 
 # --- NEW: Manual Report Helpers (Triggered by Button) ---
+
+def send_manual_trade_status(mode):
+    """
+    Sends the detailed 'Final Trade Status' report for all trades of the day (Manual Trigger).
+    """
+    try:
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        history = load_history()
+        
+        # Filter for Today's trades in the specific Mode
+        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
+        
+        if not todays_trades:
+            return {"status": "error", "message": "No trades found for today."}
+
+        msg_details = f"📊 <b>{mode} - FINAL TRADE STATUS (MANUAL)</b>\n"
+        
+        for t in todays_trades:
+            raw_symbol = t.get('symbol', 'Unknown')
+            symbol = smart_trader.get_telegram_symbol(raw_symbol)
+            
+            entry = t.get('entry_price', 0)
+            sl = t.get('sl', 0)
+            targets = t.get('targets', [])
+            raw_status = t.get('status', 'CLOSED')
+            qty = t.get('quantity', 0)
+            pnl = t.get('pnl', 0)
+            
+            # --- CUSTOM STATUS DISPLAY LOGIC ---
+            display_status = raw_status
+            is_direct_sl = False 
+            
+            if raw_status == "NOT_ACTIVE" or (raw_status == "TIME_EXIT" and pnl == 0):
+                display_status = "Not Active"
+                is_direct_sl = True
+            elif raw_status == "SL_HIT":
+                if not t.get('targets_hit_indices'):
+                    display_status = "Stop-Loss"
+                    is_direct_sl = True
+                else:
+                    display_status = "SL Hit (After Target)"
+            
+            made_high = t.get('made_high', t.get('exit_price', entry))
+            
+            # Suppress Potential for Direct SL
+            if is_direct_sl:
+                made_high = entry 
+                max_pot_val = 0.0
+                pot_target = "None"
+            else:
+                max_pot_val = (made_high - entry) * qty
+                if max_pot_val < 0: max_pot_val = 0
+                
+                pot_target = "None"
+                if len(targets) >= 3:
+                    if made_high >= targets[2]: pot_target = "T3 ✅"
+                    elif made_high >= targets[1]: pot_target = "T2 ✅"
+                    elif made_high >= targets[0]: pot_target = "T1 ✅"
+            
+            msg_details += (
+                f"\n🔹 <b>{symbol}</b>\n"
+                f"Entry: {entry}\n"
+                f"SL: {sl}\n"
+                f"Targets: {targets}\n"
+                f"Status: {display_status}\n" 
+                f"High Made: {made_high}\n"
+                f"Potential Target: {pot_target}\n"
+                f"Max Potential: {max_pot_val:.2f}\n"
+                f"----------------"
+            )
+
+        telegram_bot.send_message(msg_details)
+        return {"status": "success"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 def send_manual_trade_report(trade_id):
     """

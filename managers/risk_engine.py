@@ -8,6 +8,94 @@ from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
 
+# --- NEW HELPER FUNCTION FOR REPORTS ---
+def send_eod_report(mode):
+    """
+    Generates and sends the End-of-Day summary for a specific mode.
+    """
+    try:
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        history = load_history()
+        
+        # Filter for Today's trades in the specific Mode (LIVE/PAPER)
+        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
+        
+        if not todays_trades:
+            return
+
+        # --- MESSAGE 1: INDIVIDUAL TRADE STATS ---
+        msg_1 = f"📊 <b>{mode} - FINAL TRADE REPORT</b>\n"
+        
+        total_pnl = 0
+        total_wins_val = 0
+        total_loss_val = 0
+        total_funds_used = 0
+        total_max_potential = 0
+
+        for t in todays_trades:
+            symbol = t.get('symbol', 'Unknown')
+            entry = t.get('entry_price', 0)
+            sl = t.get('sl', 0)
+            targets = t.get('targets', [])
+            status = t.get('status', 'CLOSED')
+            qty = t.get('quantity', 0)
+            made_high = t.get('made_high', entry)
+            
+            # Calculations
+            pnl = t.get('pnl', 0)
+            total_pnl += pnl
+            if pnl >= 0: total_wins_val += pnl
+            else: total_loss_val += pnl
+            
+            invested = entry * qty
+            total_funds_used += invested
+            
+            # Potential Analysis
+            max_pot_val = (made_high - entry) * qty
+            if max_pot_val < 0: max_pot_val = 0
+            total_max_potential += max_pot_val
+            
+            # Determine Potential Target Hit
+            pot_target = "None"
+            if len(targets) >= 3:
+                if made_high >= targets[2]: pot_target = "T3 ✅"
+                elif made_high >= targets[1]: pot_target = "T2 ✅"
+                elif made_high >= targets[0]: pot_target = "T1 ✅"
+            
+            # Append to Message 1
+            msg_1 += (
+                f"\n🔹 <b>{symbol}</b>\n"
+                f"Entry: {entry}\n"
+                f"SL: {sl}\n"
+                f"Targets: {targets}\n"
+                f"Status: {status}\n"
+                f"High Made: {made_high}\n"
+                f"Pot. Target: {pot_target}\n"
+                f"Max Potential: {max_pot_val:.2f}\n"
+                f"----------------"
+            )
+
+        # Send Message 1 (Split if too long, usually Telegram handles 4096 chars)
+        telegram_bot.send_message(msg_1)
+
+        # --- MESSAGE 2: AGGREGATE SUMMARY ---
+        msg_2 = (
+            f"📈 <b>{mode} - DAY SUMMARY</b>\n\n"
+            f"💰 <b>Total P/L: ₹ {total_pnl:.2f}</b>\n"
+            f"----------------\n"
+            f"🟢 Total Wins: ₹ {total_wins_val:.2f}\n"
+            f"🔴 Total Loss: ₹ {total_loss_val:.2f}\n"
+            f"🚀 Max Potential: ₹ {total_max_potential:.2f}\n"
+            f"💼 Funds Used: ₹ {total_funds_used:.2f}\n"
+            f"📊 Total Trades: {len(todays_trades)}"
+        )
+        
+        telegram_bot.send_message(msg_2)
+
+    except Exception as e:
+        print(f"Error generating report: {e}")
+
+# --- MODIFIED EXIT CONDITION FUNCTION ---
 def check_global_exit_conditions(kite, mode, mode_settings):
     """
     Checks and executes global risk rules:
@@ -27,6 +115,9 @@ def check_global_exit_conditions(kite, mode, mode_settings):
             # Trigger within 2 minutes of the time
             if now >= exit_dt and (now - exit_dt).seconds < 120:
                  active_mode = [t for t in trades if t['mode'] == mode]
+                 
+                 # Only trigger if we actually have trades to close OR if you want it to run once per day regardless
+                 # Current logic: runs if active trades exist.
                  if active_mode:
                      for t in active_mode:
                          if t['mode'] == "LIVE" and t['status'] != 'PENDING':
@@ -40,6 +131,10 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                      # Save remaining trades (those not in the current mode)
                      remaining = [t for t in trades if t['mode'] != mode]
                      save_trades(remaining)
+                     
+                     # --- TRIGGER REPORTS HERE ---
+                     send_eod_report(mode)
+                     
                      return
         except Exception as e: 
             print(f"Time Check Error: {e}")
@@ -101,6 +196,7 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                     state['active'] = False
                     save_risk_state(mode, state)
 
+# --- Keep update_risk_engine as is ---
 def update_risk_engine(kite):
     """
     The main monitoring loop called by the background thread.
@@ -108,11 +204,13 @@ def update_risk_engine(kite):
     """
     # Check Global Conditions first
     current_settings = settings.load_settings()
+    # Passes mode explicitly so report generates for the correct one
     check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
     check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
 
     with TRADE_LOCK:
         active_trades = load_trades()
+        # ... (Rest of update_risk_engine remains exactly the same as your original file)
         
         # Load Today's Closed Trades for Missed Opportunity Tracking
         history = load_history()
@@ -311,8 +409,7 @@ def update_risk_engine(kite):
                     else:
                         active_list.append(t)
             except Exception as e:
-                # SAFETY CATCH: If this specific trade fails, log it and keep it in the list.
-                # This ensures the loop continues for other trades and the UI doesn't freeze.
+                # SAFETY CATCH
                 print(f"Error processing trade {t.get('symbol', 'UNKNOWN')}: {e}")
                 active_list.append(t)
         

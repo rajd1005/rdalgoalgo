@@ -8,10 +8,12 @@ from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
 
-# --- NEW HELPER FUNCTION FOR REPORTS ---
+# --- NEW: End of Day Report Helper ---
 def send_eod_report(mode):
     """
-    Generates and sends the End-of-Day summary for a specific mode.
+    Generates and sends two Telegram reports:
+    1. Individual Trade Status (Entries, Exits, Highs, Potentials)
+    2. Aggregate Summary (Total P/L, Funds, Wins/Losses)
     """
     try:
         today_str = datetime.now(IST).strftime("%Y-%m-%d")
@@ -23,14 +25,14 @@ def send_eod_report(mode):
         if not todays_trades:
             return
 
-        # --- MESSAGE 1: INDIVIDUAL TRADE STATS ---
-        msg_1 = f"📊 <b>{mode} - FINAL TRADE REPORT</b>\n"
+        # --- REPORT 1: INDIVIDUAL TRADE DETAILS ---
+        msg_details = f"📊 <b>{mode} - FINAL TRADE STATUS</b>\n"
         
-        total_pnl = 0
-        total_wins_val = 0
-        total_loss_val = 0
-        total_funds_used = 0
-        total_max_potential = 0
+        total_pnl = 0.0
+        total_wins = 0.0
+        total_loss = 0.0
+        total_funds_used = 0.0
+        total_max_potential = 0.0
 
         for t in todays_trades:
             symbol = t.get('symbol', 'Unknown')
@@ -39,63 +41,67 @@ def send_eod_report(mode):
             targets = t.get('targets', [])
             status = t.get('status', 'CLOSED')
             qty = t.get('quantity', 0)
-            made_high = t.get('made_high', entry)
             
-            # Calculations
+            # Use made_high if available, else exit price, else entry
+            made_high = t.get('made_high', t.get('exit_price', entry))
+            
+            # P/L Calculation
             pnl = t.get('pnl', 0)
             total_pnl += pnl
-            if pnl >= 0: total_wins_val += pnl
-            else: total_loss_val += pnl
+            if pnl >= 0: 
+                total_wins += pnl
+            else: 
+                total_loss += pnl
             
+            # Funds Used
             invested = entry * qty
             total_funds_used += invested
             
-            # Potential Analysis
+            # Max Potential Calculation
             max_pot_val = (made_high - entry) * qty
             if max_pot_val < 0: max_pot_val = 0
             total_max_potential += max_pot_val
             
-            # Determine Potential Target Hit
+            # Potential Target Logic
             pot_target = "None"
             if len(targets) >= 3:
                 if made_high >= targets[2]: pot_target = "T3 ✅"
                 elif made_high >= targets[1]: pot_target = "T2 ✅"
                 elif made_high >= targets[0]: pot_target = "T1 ✅"
             
-            # Append to Message 1
-            msg_1 += (
+            msg_details += (
                 f"\n🔹 <b>{symbol}</b>\n"
                 f"Entry: {entry}\n"
                 f"SL: {sl}\n"
                 f"Targets: {targets}\n"
                 f"Status: {status}\n"
                 f"High Made: {made_high}\n"
-                f"Pot. Target: {pot_target}\n"
+                f"Potential Target: {pot_target}\n"
                 f"Max Potential: {max_pot_val:.2f}\n"
                 f"----------------"
             )
 
-        # Send Message 1 (Split if too long, usually Telegram handles 4096 chars)
-        telegram_bot.send_message(msg_1)
+        # Send Detailed Report
+        telegram_bot.send_message(msg_details)
 
-        # --- MESSAGE 2: AGGREGATE SUMMARY ---
-        msg_2 = (
-            f"📈 <b>{mode} - DAY SUMMARY</b>\n\n"
+        # --- REPORT 2: AGGREGATE SUMMARY ---
+        msg_summary = (
+            f"📈 <b>{mode} - EOD SUMMARY</b>\n\n"
             f"💰 <b>Total P/L: ₹ {total_pnl:.2f}</b>\n"
             f"----------------\n"
-            f"🟢 Total Wins: ₹ {total_wins_val:.2f}\n"
-            f"🔴 Total Loss: ₹ {total_loss_val:.2f}\n"
+            f"🟢 Total Wins: ₹ {total_wins:.2f}\n"
+            f"🔴 Total Loss: ₹ {total_loss:.2f}\n"
             f"🚀 Max Potential: ₹ {total_max_potential:.2f}\n"
             f"💼 Funds Used: ₹ {total_funds_used:.2f}\n"
             f"📊 Total Trades: {len(todays_trades)}"
         )
         
-        telegram_bot.send_message(msg_2)
+        # Send Summary Report
+        telegram_bot.send_message(msg_summary)
 
     except Exception as e:
-        print(f"Error generating report: {e}")
+        print(f"Error generating EOD report: {e}")
 
-# --- MODIFIED EXIT CONDITION FUNCTION ---
 def check_global_exit_conditions(kite, mode, mode_settings):
     """
     Checks and executes global risk rules:
@@ -116,8 +122,10 @@ def check_global_exit_conditions(kite, mode, mode_settings):
             if now >= exit_dt and (now - exit_dt).seconds < 120:
                  active_mode = [t for t in trades if t['mode'] == mode]
                  
-                 # Only trigger if we actually have trades to close OR if you want it to run once per day regardless
-                 # Current logic: runs if active trades exist.
+                 # Logic: If active trades exist, close them. 
+                 # Even if no active trades, we might want to send the report if it's EOD.
+                 # Here we trigger if we enter the time window.
+                 
                  if active_mode:
                      for t in active_mode:
                          if t['mode'] == "LIVE" and t['status'] != 'PENDING':
@@ -132,7 +140,7 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                      remaining = [t for t in trades if t['mode'] != mode]
                      save_trades(remaining)
                      
-                     # --- TRIGGER REPORTS HERE ---
+                     # --- TRIGGER EOD REPORT ---
                      send_eod_report(mode)
                      
                      return
@@ -196,7 +204,6 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                     state['active'] = False
                     save_risk_state(mode, state)
 
-# --- Keep update_risk_engine as is ---
 def update_risk_engine(kite):
     """
     The main monitoring loop called by the background thread.
@@ -204,13 +211,11 @@ def update_risk_engine(kite):
     """
     # Check Global Conditions first
     current_settings = settings.load_settings()
-    # Passes mode explicitly so report generates for the correct one
     check_global_exit_conditions(kite, "PAPER", current_settings['modes']['PAPER'])
     check_global_exit_conditions(kite, "LIVE", current_settings['modes']['LIVE'])
 
     with TRADE_LOCK:
         active_trades = load_trades()
-        # ... (Rest of update_risk_engine remains exactly the same as your original file)
         
         # Load Today's Closed Trades for Missed Opportunity Tracking
         history = load_history()

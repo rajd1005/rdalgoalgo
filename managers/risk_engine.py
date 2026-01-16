@@ -192,16 +192,10 @@ def update_risk_engine(kite):
                 if t['status'] in ['OPEN', 'PROMOTED_LIVE']:
                     current_high = t.get('highest_ltp', 0)
                     
-                    # Update LTP always for visibility
-                   t['current_ltp'] = ltp 
-
-                # Only update High if broken
-                if ltp > current_high:
-               t['made_high'] = ltp
-
-               # Always save to update the UI
-               db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
-               history_updated = True
+                    # --- High Made Logic ---
+                    if ltp > current_high:
+                        t['highest_ltp'] = ltp
+                        t['made_high'] = ltp
                         
                         # --- TELEGRAM NOTIFICATION: HIGH MADE ---
                         # Correct logic: Check if T3 hit OR Price > T3
@@ -338,20 +332,23 @@ def update_risk_engine(kite):
                 if inst_key in live_prices:
                     ltp = live_prices[inst_key]['last_price']
                     
+                    # --- FIX: Update LTP Always for Visibility ---
+                    t['current_ltp'] = ltp
+
                     # Check if current price is higher than the recorded high
                     current_high = t.get('made_high', t['entry_price'])
                     if ltp > current_high:
                         t['made_high'] = ltp
-                        t['current_ltp'] = ltp # Update LTP for UI visualization
-                        
-                        # Direct DB merge for efficiency (updating historical record)
-                        db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
-                        history_updated = True
                         
                         # --- NOTIFICATION: High Made on Closed Trade ---
                         try:
                             telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
                         except: pass
+                        
+                    # Direct DB merge for efficiency (updating historical record)
+                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                    history_updated = True
+                    
         except Exception as e:
             print(f"Error in History Tracker: {e}")
         

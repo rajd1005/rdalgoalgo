@@ -14,7 +14,6 @@ def check_global_exit_conditions(kite, mode, mode_settings):
     1. Universal Square-off Time (e.g., 15:25)
     2. Profit Locking (Global PnL Trailing)
     """
-    # This function modifies trades, so it must use lock internally
     with TRADE_LOCK:
         trades = load_trades()
         now = datetime.now(IST)
@@ -149,7 +148,7 @@ def update_risk_engine(kite):
                      
                 ltp = live_prices[inst_key]['last_price']
                 
-                # CRITICAL FIX: Update LTP immediately so UI sees it, even if errors occur later
+                # CRITICAL: Always update LTP first, before any logic that might fail
                 if t.get('current_ltp') != ltp:
                     t['current_ltp'] = ltp
                     updated = True
@@ -199,7 +198,7 @@ def update_risk_engine(kite):
                         t['made_high'] = ltp
                         
                         # --- TELEGRAM NOTIFICATION: HIGH MADE ---
-                        # Check if T3 is hit (Index 2 in list) OR if current price is above T3
+                        # Correct logic: Check if T3 hit OR Price > T3
                         has_crossed_t3 = False
                         if 2 in t.get('targets_hit_indices', []):
                             has_crossed_t3 = True
@@ -312,11 +311,12 @@ def update_risk_engine(kite):
                     else:
                         active_list.append(t)
             except Exception as e:
-                # SAFETY CATCH: If this specific trade fails, log it and keep it in the list
-                # This ensures the loop continues for other trades and the UI doesn't freeze
+                # SAFETY CATCH: If this specific trade fails, log it and keep it in the list.
+                # This ensures the loop continues for other trades and the UI doesn't freeze.
                 print(f"Error processing trade {t.get('symbol', 'UNKNOWN')}: {e}")
                 active_list.append(t)
         
+        # Save Active Trades if updated
         if updated: 
             save_trades(active_list)
 
@@ -336,7 +336,7 @@ def update_risk_engine(kite):
                     current_high = t.get('made_high', t['entry_price'])
                     if ltp > current_high:
                         t['made_high'] = ltp
-                        t['current_ltp'] = ltp # Update for UI
+                        t['current_ltp'] = ltp # Update LTP for UI visualization
                         
                         # Direct DB merge for efficiency (updating historical record)
                         db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))

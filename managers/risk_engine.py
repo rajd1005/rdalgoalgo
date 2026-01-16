@@ -8,7 +8,7 @@ from managers.common import IST, log_event
 from managers.broker_ops import manage_broker_sl, move_to_history
 from managers.telegram_manager import bot as telegram_bot
 
-# --- NEW: End of Day Report Helper ---
+# --- NEW: End of Day Report Helper (Automated) ---
 def send_eod_report(mode):
     """
     Generates and sends two Telegram reports:
@@ -101,6 +101,117 @@ def send_eod_report(mode):
 
     except Exception as e:
         print(f"Error generating EOD report: {e}")
+
+# --- NEW: Manual Report Helpers (Triggered by Button) ---
+
+def send_manual_trade_report(trade_id):
+    """
+    Sends a detailed status report for a SINGLE specific trade (1st Notification Type).
+    """
+    try:
+        # Look in History first
+        history = load_history()
+        trade = next((t for t in history if str(t['id']) == str(trade_id)), None)
+        
+        # If not in history, check Active trades
+        if not trade:
+            active = load_trades()
+            trade = next((t for t in active if str(t['id']) == str(trade_id)), None)
+            
+        if not trade:
+            return {"status": "error", "message": "Trade not found"}
+
+        # Construct Message
+        symbol = trade.get('symbol', 'Unknown')
+        entry = trade.get('entry_price', 0)
+        sl = trade.get('sl', 0)
+        targets = trade.get('targets', [])
+        status = trade.get('status', 'UNKNOWN')
+        qty = trade.get('quantity', 0)
+        
+        # Use made_high if available, else exit price, else entry
+        made_high = trade.get('made_high', trade.get('exit_price', entry))
+        
+        # Max Potential
+        max_pot_val = (made_high - entry) * qty
+        if max_pot_val < 0: max_pot_val = 0
+        
+        # Potential Target Logic
+        pot_target = "None"
+        if len(targets) >= 3:
+            if made_high >= targets[2]: pot_target = "T3 ✅"
+            elif made_high >= targets[1]: pot_target = "T2 ✅"
+            elif made_high >= targets[0]: pot_target = "T1 ✅"
+
+        msg = (
+            f"🔹 <b>TRADE STATUS: {symbol}</b>\n"
+            f"Entry: {entry}\n"
+            f"SL: {sl}\n"
+            f"Targets: {targets}\n"
+            f"Status: {status}\n"
+            f"High Made: {made_high}\n"
+            f"Potential Target: {pot_target}\n"
+            f"Max Potential: {max_pot_val:.2f}"
+        )
+        
+        telegram_bot.send_message(msg)
+        return {"status": "success"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def send_manual_summary(mode):
+    """
+    Sends the Aggregate Summary for the current day (2nd Notification Type).
+    """
+    try:
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        history = load_history()
+        
+        # Filter for Today's trades in the specific Mode
+        todays_trades = [t for t in history if t.get('exit_time') and t['exit_time'].startswith(today_str) and t['mode'] == mode]
+        
+        if not todays_trades:
+            return {"status": "error", "message": "No trades found for today."}
+
+        total_pnl = 0.0
+        total_wins = 0.0
+        total_loss = 0.0
+        total_funds_used = 0.0
+        total_max_potential = 0.0
+
+        for t in todays_trades:
+            entry = t.get('entry_price', 0)
+            qty = t.get('quantity', 0)
+            pnl = t.get('pnl', 0)
+            made_high = t.get('made_high', t.get('exit_price', entry))
+
+            total_pnl += pnl
+            if pnl >= 0: total_wins += pnl
+            else: total_loss += pnl
+            
+            total_funds_used += (entry * qty)
+            
+            max_pot_val = (made_high - entry) * qty
+            if max_pot_val < 0: max_pot_val = 0
+            total_max_potential += max_pot_val
+
+        msg_summary = (
+            f"📈 <b>{mode} - MANUAL SUMMARY</b>\n\n"
+            f"💰 <b>Total P/L: ₹ {total_pnl:.2f}</b>\n"
+            f"----------------\n"
+            f"🟢 Total Wins: ₹ {total_wins:.2f}\n"
+            f"🔴 Total Loss: ₹ {total_loss:.2f}\n"
+            f"🚀 Max Potential: ₹ {total_max_potential:.2f}\n"
+            f"💼 Funds Used: ₹ {total_funds_used:.2f}\n"
+            f"📊 Total Trades: {len(todays_trades)}"
+        )
+        
+        telegram_bot.send_message(msg_summary)
+        return {"status": "success"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 def check_global_exit_conditions(kite, mode, mode_settings):
     """

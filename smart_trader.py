@@ -6,16 +6,16 @@ import pytz
 IST = pytz.timezone('Asia/Kolkata')
 
 instrument_dump = None 
+symbol_map = {} # FAST LOOKUP CACHE
 
 def fetch_instruments(kite):
-    global instrument_dump
-    # If already loaded, skip (unless forced, but logic here assumes once is enough per session)
+    global instrument_dump, symbol_map
+    # If already loaded, skip
     if instrument_dump is not None and not instrument_dump.empty: 
         return
 
     print("📥 Downloading Instrument List...")
     try:
-        # Fetch and convert to DataFrame
         instruments = kite.instruments()
         if not instruments:
             print("⚠️ Warning: Kite returned empty instrument list.")
@@ -23,15 +23,20 @@ def fetch_instruments(kite):
 
         instrument_dump = pd.DataFrame(instruments)
         
-        # Ensure columns exist before processing
+        # Optimize Dates
         if 'expiry' in instrument_dump.columns:
             instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.strftime('%Y-%m-%d')
             instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.date
         
-        print(f"✅ Instruments Downloaded Successfully. Count: {len(instrument_dump)}")
+        # --- CRITICAL OPTIMIZATION: Create Hash Map for O(1) Lookups ---
+        print("⚡ Building Fast Lookup Cache...")
+        symbol_map = instrument_dump.set_index('tradingsymbol').to_dict('index')
+        
+        print(f"✅ Instruments Downloaded & Indexed. Count: {len(instrument_dump)}")
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
         instrument_dump = None
+        symbol_map = {}
 
 def get_indices_ltp(kite):
     try:
@@ -56,33 +61,37 @@ def get_zerodha_symbol(common_name):
     return u
 
 def get_lot_size(tradingsymbol):
-    global instrument_dump
-    if instrument_dump is None: return 1
-    try:
-        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
-        if not row.empty:
-            return int(row.iloc[0]['lot_size'])
-    except: pass
+    global symbol_map
+    if not symbol_map: return 1
+    
+    # Fast Lookup
+    data = symbol_map.get(tradingsymbol)
+    if data:
+        return int(data.get('lot_size', 1))
     return 1
 
 def get_display_name(tradingsymbol):
-    global instrument_dump
-    if instrument_dump is None:
+    global symbol_map
+    if not symbol_map:
         return tradingsymbol
         
     try:
-        row = instrument_dump[instrument_dump['tradingsymbol'] == tradingsymbol]
-        if not row.empty:
-            data = row.iloc[0]
+        # Fast Lookup
+        data = symbol_map.get(tradingsymbol)
+        if data:
             name = data['name']
             inst_type = data['instrument_type']
-            # Safely handle expiry
-            if 'expiry_date' in data and pd.notnull(data['expiry_date']):
-                expiry_dt = data['expiry_date'] 
-                expiry_str = expiry_dt.strftime('%d %b').upper()
-            else:
-                expiry_str = ""
             
+            # Handle expiry safely
+            expiry_str = ""
+            if 'expiry_date' in data and pd.notnull(data['expiry_date']):
+                # data['expiry_date'] might be a pandas Timestamp or date object
+                ed = data['expiry_date']
+                if hasattr(ed, 'strftime'):
+                    expiry_str = ed.strftime('%d %b').upper()
+                else:
+                    expiry_str = str(ed)
+
             if inst_type in ["CE", "PE"]:
                 strike = int(data['strike'])
                 return f"{name} {strike} {inst_type} {expiry_str}"
@@ -97,19 +106,16 @@ def get_display_name(tradingsymbol):
 def search_symbols(kite, keyword, allowed_exchanges=None):
     global instrument_dump
     
-    # --- FIX 1: Auto-fetch if missing ---
     if instrument_dump is None: 
         fetch_instruments(kite)
-        if instrument_dump is None: return [] # Still failed
+        if instrument_dump is None: return []
 
     k = keyword.upper()
-    
-    # --- FIX 2: Handle Empty List or None ---
-    if not allowed_exchanges: # Catches None AND empty list []
+    if not allowed_exchanges: 
         allowed_exchanges = ['NSE', 'NFO', 'MCX', 'CDS', 'BSE', 'BFO']
     
-    # Filter
     try:
+        # Filter Logic
         mask = (instrument_dump['exchange'].isin(allowed_exchanges)) & (instrument_dump['name'].str.startswith(k, na=False))
         matches = instrument_dump[mask]
         
@@ -121,9 +127,7 @@ def search_symbols(kite, keyword, allowed_exchanges=None):
         quotes = {}
         try:
             if items_to_quote: quotes = kite.quote(items_to_quote)
-        except Exception as e:
-            print(f"Search Quote Error: {e}")
-            # Continue even if quoting fails (will show LTP 0)
+        except: pass
         
         results = []
         for _, row in unique_matches.iterrows():
@@ -157,7 +161,6 @@ def get_symbol_details(kite, symbol, preferred_exchange=None):
     clean = get_zerodha_symbol(symbol)
     today = datetime.now(IST).date()
     
-    # Filter by name
     rows = instrument_dump[instrument_dump['name'] == clean]
     if rows.empty: return {}
 
@@ -216,7 +219,6 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
     if instrument_dump is None: return []
     clean = get_zerodha_symbol(symbol)
     
-    # Ensure columns exist
     if 'expiry_str' not in instrument_dump.columns: return []
     
     c = instrument_dump[(instrument_dump['name'] == clean) & (instrument_dump['expiry_str'] == expiry_date) & (instrument_dump['instrument_type'] == option_type)]
@@ -257,11 +259,16 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
     ts = get_exact_symbol(symbol, expiry, strike, inst_type)
     if not ts: return 0
     try:
-        global instrument_dump
+        global instrument_dump, symbol_map
         exch = "NFO"
-        if instrument_dump is not None:
+        
+        # Optimized lookup using map first
+        if symbol_map and ts in symbol_map:
+            exch = symbol_map[ts]['exchange']
+        elif instrument_dump is not None:
              row = instrument_dump[instrument_dump['tradingsymbol'] == ts]
              if not row.empty: exch = row.iloc[0]['exchange']
+             
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
 
@@ -278,17 +285,13 @@ def get_instrument_token(tradingsymbol, exchange):
 
 def fetch_historical_data(kite, token, from_date, to_date, interval='minute'):
     try:
-        # Fetch Data
         data = kite.historical_data(token, from_date, to_date, interval)
-        
-        # CLEANUP: Convert datetime objects to Strings for JSON serialization
         clean_data = []
         for candle in data:
             c = candle.copy()
             if 'date' in c and hasattr(c['date'], 'strftime'):
                 c['date'] = c['date'].strftime('%Y-%m-%d %H:%M:%S')
             clean_data.append(c)
-            
         return clean_data
     except Exception as e:
         print(f"History Fetch Error: {e}")

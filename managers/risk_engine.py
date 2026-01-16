@@ -192,15 +192,15 @@ def update_risk_engine(kite):
                     t['made_high'] = ltp
                     
                     # --- TELEGRAM NOTIFICATION: HIGH MADE ---
-# Check if T3 is hit (Index 2 in list) OR if current price is above T3
-has_crossed_t3 = False
-if 2 in t.get('targets_hit_indices', []):
-    has_crossed_t3 = True
-elif len(t['targets']) > 2 and ltp >= t['targets'][2]:
-    has_crossed_t3 = True
+                    # Check if T3 is hit (Index 2 in list) OR if current price is above T3
+                    has_crossed_t3 = False
+                    if 2 in t.get('targets_hit_indices', []):
+                        has_crossed_t3 = True
+                    elif len(t['targets']) > 2 and ltp >= t['targets'][2]:
+                        has_crossed_t3 = True
 
-if has_crossed_t3:
-     telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
+                    if has_crossed_t3:
+                         telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
                 
                 # --- Step Trailing Logic ---
                 if t.get('trailing_sl', 0) > 0:

@@ -62,9 +62,12 @@ function renderClosedTrades(trades) {
             // --- Potential Profit Logic ---
             let potHtml = '';
             let potTag = ''; 
-            let isPureSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
+            
+            // Logic: Suppress potential for Direct SL or Not Active
+            let isDirectSL = (t.status === 'SL_HIT' && (!t.targets_hit_indices || t.targets_hit_indices.length === 0));
+            let isNotActive = (t.status === 'NOT_ACTIVE' || (t.status === 'TIME_EXIT' && t.pnl === 0));
 
-            if (!isPureSL) {
+            if (!isDirectSL && !isNotActive) {
                 let mh = t.made_high || t.entry_price;
                 if(mh < t.exit_price) mh = t.exit_price; 
                 let pot = (mh - t.entry_price) * t.quantity;
@@ -89,7 +92,9 @@ function renderClosedTrades(trades) {
             let statusTag = '';
             let rawStatus = t.status || '';
             
-            if (rawStatus === 'SL_HIT') statusTag = '<span class="badge bg-danger" style="font-size:0.65rem;">Stop-Loss</span>';
+            if (isNotActive) statusTag = '<span class="badge bg-secondary opacity-50" style="font-size:0.65rem;">Not Active</span>';
+            else if (isDirectSL) statusTag = '<span class="badge bg-danger" style="font-size:0.65rem;">Stop-Loss</span>';
+            else if (rawStatus === 'SL_HIT') statusTag = '<span class="badge bg-danger" style="font-size:0.65rem;">SL (After Tgt)</span>';
             else if (rawStatus.includes('TARGET')) {
                     let maxHit = -1;
                     if (t.targets_hit_indices && t.targets_hit_indices.length > 0) maxHit = Math.max(...t.targets_hit_indices);
@@ -141,7 +146,6 @@ function renderClosedTrades(trades) {
             let delBtn = `<button class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:0.75rem;" onclick="deleteTrade('${t.id}')">🗑️</button>`;
             let simLogBtn = `<button id="btn-sim-log-${t.id}" class="btn btn-sm btn-light border text-primary py-0 px-2" style="${btnStyle} font-size:0.75rem;" onclick="showSimLogs('${t.id}')">🧪 Logs</button>`;
             
-            // NEW: Telegram Button
             let telegramBtn = `<button class="btn btn-sm btn-outline-info py-0 px-2" style="font-size:0.75rem;" title="Send Trade Status to Telegram" onclick="sendTradeReport('${t.id}')">📢</button>`;
 
             html += `
@@ -271,9 +275,9 @@ function sendTradeReport(tradeId) {
 
 function sendManualSummary() {
     let mode = $('#hist_filter').val();
-    if(mode === 'ALL') mode = 'PAPER'; // Default fallback if ALL is selected
+    if(mode === 'ALL') mode = 'PAPER'; 
     
-    if(!confirm(`Send ${mode} Daily Summary to Telegram?`)) return;
+    if(!confirm(`Send ${mode} Daily P/L Summary to Telegram?`)) return;
 
     $.ajax({
         type: "POST",
@@ -282,6 +286,25 @@ function sendManualSummary() {
         contentType: "application/json",
         success: function(res) {
             if(res.status === 'success') alert("✅ Summary Sent!");
+            else alert("❌ Error: " + res.message);
+        }
+    });
+}
+
+// --- NEW: Send Final Trade Status List ---
+function sendManualTradeStatus() {
+    let mode = $('#hist_filter').val();
+    if(mode === 'ALL') mode = 'PAPER'; 
+    
+    if(!confirm(`Send ${mode} Final Trade Status List to Telegram?`)) return;
+
+    $.ajax({
+        type: "POST",
+        url: '/api/manual_trade_status',
+        data: JSON.stringify({ mode: mode }),
+        contentType: "application/json",
+        success: function(res) {
+            if(res.status === 'success') alert("✅ Status List Sent!");
             else alert("❌ Error: " + res.message);
         }
     });

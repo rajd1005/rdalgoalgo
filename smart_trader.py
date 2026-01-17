@@ -10,9 +10,13 @@ instrument_dump = None
 symbol_map = {} # FAST LOOKUP CACHE
 
 def fetch_instruments(kite):
+    """
+    Downloads the master instrument list, optimizes dates, and builds a fast lookup map.
+    Prioritizes specific exchanges (NFO > MCX > NSE) to handle duplicate symbols.
+    """
     global instrument_dump, symbol_map
     
-    # If already loaded and map exists, skip
+    # If already loaded and map exists, skip to save bandwidth
     if instrument_dump is not None and not instrument_dump.empty and symbol_map: 
         return
 
@@ -36,7 +40,7 @@ def fetch_instruments(kite):
         # Create a copy to sort and deduplicate without affecting the main search dump
         temp_df = instrument_dump.copy()
         
-        # prioritize exchanges: NFO > MCX > CDS > NSE > BSE
+        # Prioritize exchanges: NFO > MCX > CDS > NSE > BSE
         # This ensures 'RELIANCE' maps to NSE, not BSE
         exchange_priority = {'NFO': 0, 'MCX': 1, 'CDS': 2, 'NSE': 3, 'BSE': 4, 'BFO': 5}
         temp_df['priority'] = temp_df['exchange'].map(exchange_priority).fillna(99)
@@ -54,10 +58,58 @@ def fetch_instruments(kite):
         
     except Exception as e:
         print(f"❌ Failed to fetch instruments: {e}")
-        # Do not reset to None here if partial data exists, to prevent infinite loops
+        # Do not reset to None here if partial data exists
         if instrument_dump is None:
              instrument_dump = pd.DataFrame()
         symbol_map = {}
+
+def get_exchange_name(symbol):
+    """
+    Determines the exchange (NSE, NFO, MCX) for a given symbol.
+    """
+    global symbol_map, instrument_dump
+    
+    # 1. Check if symbol already has exchange prefix (e.g. "NSE:RELIANCE")
+    if ":" in symbol:
+        return symbol.split(":")[0]
+
+    # 2. Fast Lookup via Map
+    if symbol_map and symbol in symbol_map:
+        return symbol_map[symbol]['exchange']
+        
+    # 3. Fallback Heuristics (if map not ready)
+    if "NIFTY" in symbol or "BANKNIFTY" in symbol:
+        if any(x in symbol for x in ["FUT", "CE", "PE"]): 
+            return "NFO"
+            
+    # Default to NSE if unable to determine
+    return "NSE"
+
+def get_ltp(kite, symbol):
+    """
+    Fetches the Last Traded Price (LTP) with automatic exchange detection.
+    """
+    try:
+        # 1. If symbol already has exchange (e.g., NSE:RELIANCE), try directly
+        if ":" in symbol:
+            quote = kite.quote(symbol)
+            if quote and symbol in quote:
+                return quote[symbol]['last_price']
+
+        # 2. Determine Exchange
+        exch = get_exchange_name(symbol)
+        
+        # 3. Fetch Quote with constructed format
+        full_sym = f"{exch}:{symbol}"
+        quote = kite.quote(full_sym)
+        
+        if quote and full_sym in quote:
+            return quote[full_sym]['last_price']
+            
+        return 0
+    except Exception as e:
+        print(f"⚠️ Error fetching LTP for {symbol}: {e}")
+        return 0
 
 def get_indices_ltp(kite):
     try:
@@ -93,7 +145,7 @@ def get_lot_size(tradingsymbol):
 
 def get_display_name(tradingsymbol):
     global symbol_map
-    # Attempt to load if missing (with safety check inside fetch)
+    # Attempt to load if missing
     if not symbol_map:
         return tradingsymbol
         

@@ -1,8 +1,8 @@
 import time
 import smart_trader
 from managers.persistence import TRADE_LOCK, load_trades, save_trades
-from managers.common import get_time_str, log_event, get_exchange
-from managers.broker_ops import manage_broker_sl, move_to_history
+from managers.common import get_time_str, log_event
+from managers import broker_ops
 from managers.telegram_manager import bot as telegram_bot
 
 def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplier=1):
@@ -10,151 +10,164 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
     Creates a new trade (Live or Paper). 
     Handles initial broker orders (if Live), calculates targets, and saves the trade to the DB.
     """
-    with TRADE_LOCK:
-        trades = load_trades()
-        current_ts = int(time.time())
-        
-        # Duplicate Trade Check (same symbol & qty within 5 seconds)
-        for t in trades:
-            if t['symbol'] == specific_symbol and t['quantity'] == quantity and (current_ts - t['id']) < 5:
-                 return {"status": "error", "message": "Duplicate Trade Blocked"}
+    try:
+        with TRADE_LOCK:
+            trades = load_trades()
+            current_ts = int(time.time())
+            
+            # Duplicate Trade Check (same symbol & qty within 5 seconds)
+            for t in trades:
+                if t['symbol'] == specific_symbol and t['quantity'] == quantity and (current_ts - t['id']) < 5:
+                     return {"status": "error", "message": "Duplicate Trade Blocked"}
 
-        exchange = get_exchange(specific_symbol)
-        current_ltp = 0.0
-        try: 
-            current_ltp = kite.quote(f"{exchange}:{specific_symbol}")[f"{exchange}:{specific_symbol}"]["last_price"]
-        except: 
-            return {"status": "error", "message": "Failed to fetch Live Price"}
+            # --- FIX: ROBUST EXCHANGE & LTP DETECTION ---
+            # 1. Detect Exchange (e.g., NSE, NFO)
+            exchange = smart_trader.get_exchange_name(specific_symbol)
+            
+            # 2. Fetch LTP using the safe function
+            current_ltp = smart_trader.get_ltp(kite, specific_symbol)
+            
+            if current_ltp == 0:
+                return {"status": "error", "message": f"Could not fetch LTP for Symbol: {specific_symbol}"}
 
-        # Determine Entry Status
-        status = "OPEN"
-        entry_price = current_ltp
-        trigger_dir = "BELOW"
-        
-        if order_type == "LIMIT":
-            entry_price = float(limit_price)
-            status = "PENDING"
-            trigger_dir = "ABOVE" if entry_price >= current_ltp else "BELOW"
+            # Determine Entry Status
+            status = "OPEN"
+            entry_price = current_ltp
+            trigger_dir = "BELOW"
+            
+            if order_type == "LIMIT":
+                entry_price = float(limit_price)
+                status = "PENDING"
+                trigger_dir = "ABOVE" if entry_price >= current_ltp else "BELOW"
 
-        logs = []
-        sl_order_id = None
-        
-        # Execute Live Order if Mode is LIVE and Status is OPEN (Market Order)
-        if mode == "LIVE" and status == "OPEN":
-            try:
-                # 1. Place Entry Order
-                kite.place_order(
-                    variety=kite.VARIETY_REGULAR, 
-                    tradingsymbol=specific_symbol, 
-                    exchange=exchange, 
-                    transaction_type=kite.TRANSACTION_TYPE_BUY, 
-                    quantity=quantity, 
-                    order_type=kite.ORDER_TYPE_MARKET, 
-                    product=kite.PRODUCT_MIS
-                )
-                
-                # 2. Place Broker SL-M Order
-                sl_trigger = entry_price - sl_points 
+            logs = []
+            sl_order_id = None
+            
+            # Execute Live Order if Mode is LIVE and Status is OPEN (Market Order)
+            if mode == "LIVE" and status == "OPEN":
                 try:
-                    sl_order_id = kite.place_order(
-                        variety=kite.VARIETY_REGULAR, 
-                        tradingsymbol=specific_symbol, 
+                    # 1. Place Entry Order (Using wrapper)
+                    order_id = broker_ops.place_order(
+                        kite,
+                        symbol=specific_symbol,
                         exchange=exchange, 
-                        transaction_type=kite.TRANSACTION_TYPE_SELL, 
+                        transaction_type=kite.TRANSACTION_TYPE_BUY, 
                         quantity=quantity, 
-                        order_type=kite.ORDER_TYPE_SL_M, 
-                        product=kite.PRODUCT_MIS, 
-                        trigger_price=sl_trigger
+                        order_type=kite.ORDER_TYPE_MARKET, 
+                        product=kite.PRODUCT_MIS,
+                        tag="RD_ENTRY"
                     )
-                    logs.append(f"[{get_time_str()}] Broker SL Placed: ID {sl_order_id}")
-                except Exception as sl_e: 
-                    logs.append(f"[{get_time_str()}] Broker SL FAILED: {sl_e}")
-            except Exception as e: 
-                return {"status": "error", "message": f"Broker Rejected: {e}"}
+                    
+                    if not order_id:
+                         return {"status": "error", "message": "Broker Rejected Entry Order"}
 
-        # Calculate Targets
-        # Use custom targets if provided (valid T1 > 0), else calculate ratio-based defaults
-        targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
-        
-        if not target_controls: 
-            target_controls = [
-                {'enabled': True, 'lots': 0, 'trail_to_entry': False}, 
-                {'enabled': True, 'lots': 0, 'trail_to_entry': False}, 
-                {'enabled': True, 'lots': 1000, 'trail_to_entry': False}
-            ]
-        
-        lot_size = smart_trader.get_lot_size(specific_symbol)
-        
-        # Auto-Match Trailing Logic (-1 sets trail equal to SL risk)
-        final_trailing_sl = float(trailing_sl) if trailing_sl else 0
-        if final_trailing_sl == -1.0: 
-            final_trailing_sl = float(sl_points)
+                    # 2. Place Broker SL-M Order (Using wrapper)
+                    sl_trigger = entry_price - sl_points 
+                    try:
+                        sl_order_id = broker_ops.place_order(
+                            kite, 
+                            symbol=specific_symbol, 
+                            exchange=exchange, 
+                            transaction_type=kite.TRANSACTION_TYPE_SELL, 
+                            quantity=quantity, 
+                            order_type=kite.ORDER_TYPE_SL_M, 
+                            product=kite.PRODUCT_MIS, 
+                            trigger_price=sl_trigger,
+                            tag="RD_SL"
+                        )
+                        logs.append(f"[{get_time_str()}] Broker SL Placed: ID {sl_order_id}")
+                    except Exception as sl_e: 
+                        logs.append(f"[{get_time_str()}] Broker SL FAILED: {sl_e}")
 
-        # Exit Multiplier Logic: Split quantity and recalculate targets if > 1
-        if exit_multiplier > 1:
-            # Determine the furthest valid target or default to 1:2
-            valid_targets = [x for x in custom_targets if x > 0]
-            final_goal = max(valid_targets) if valid_targets else (entry_price + (sl_points * 2))
+                except Exception as e: 
+                    return {"status": "error", "message": f"Broker Rejected: {e}"}
+
+            # Calculate Targets
+            # Use custom targets if provided (valid T1 > 0), else calculate ratio-based defaults
+            targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
             
-            dist = final_goal - entry_price
-            new_targets = []
-            new_controls = []
+            if not target_controls: 
+                target_controls = [
+                    {'enabled': True, 'lots': 0, 'trail_to_entry': False}, 
+                    {'enabled': True, 'lots': 0, 'trail_to_entry': False}, 
+                    {'enabled': True, 'lots': 1000, 'trail_to_entry': False}
+                ]
             
-            base_lots = (quantity // lot_size) // exit_multiplier
-            rem = (quantity // lot_size) % exit_multiplier
+            lot_size = smart_trader.get_lot_size(specific_symbol)
             
-            for i in range(1, exit_multiplier + 1):
-                fraction = i / exit_multiplier
-                t_price = entry_price + (dist * fraction)
-                new_targets.append(round(t_price, 2))
+            # Auto-Match Trailing Logic (-1 sets trail equal to SL risk)
+            final_trailing_sl = float(trailing_sl) if trailing_sl else 0
+            if final_trailing_sl == -1.0: 
+                final_trailing_sl = float(sl_points)
+
+            # Exit Multiplier Logic: Split quantity and recalculate targets if > 1
+            if exit_multiplier > 1:
+                # Determine the furthest valid target or default to 1:2
+                valid_targets = [x for x in custom_targets if x > 0]
+                final_goal = max(valid_targets) if valid_targets else (entry_price + (sl_points * 2))
                 
-                lots_here = base_lots + (rem if i == exit_multiplier else 0)
-                new_controls.append({'enabled': True, 'lots': int(lots_here), 'trail_to_entry': False})
-            
-            # Fill remaining slots up to 3 (system expects list of 3)
-            while len(new_targets) < 3: 
-                new_targets.append(0)
-                new_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
-            
-            targets = new_targets
-            target_controls = new_controls
+                dist = final_goal - entry_price
+                new_targets = []
+                new_controls = []
+                
+                base_lots = (quantity // lot_size) // exit_multiplier
+                rem = (quantity // lot_size) % exit_multiplier
+                
+                for i in range(1, exit_multiplier + 1):
+                    fraction = i / exit_multiplier
+                    t_price = entry_price + (dist * fraction)
+                    new_targets.append(round(t_price, 2))
+                    
+                    lots_here = base_lots + (rem if i == exit_multiplier else 0)
+                    new_controls.append({'enabled': True, 'lots': int(lots_here), 'trail_to_entry': False})
+                
+                # Fill remaining slots up to 3 (system expects list of 3)
+                while len(new_targets) < 3: 
+                    new_targets.append(0)
+                    new_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
+                
+                targets = new_targets
+                target_controls = new_controls
 
-        logs.insert(0, f"[{get_time_str()}] Trade Added. Status: {status}")
-        
-        record = {
-            "id": int(time.time()), 
-            "entry_time": get_time_str(), 
-            "symbol": specific_symbol, 
-            "exchange": exchange,
-            "mode": mode, 
-            "order_type": order_type, 
-            "status": status, 
-            "entry_price": entry_price, 
-            "quantity": quantity,
-            "sl": entry_price - sl_points, 
-            "targets": targets, 
-            "target_controls": target_controls,
-            "lot_size": lot_size, 
-            "trailing_sl": final_trailing_sl, 
-            "sl_to_entry": int(sl_to_entry),
-            "exit_multiplier": int(exit_multiplier), 
-            "sl_order_id": sl_order_id,
-            "targets_hit_indices": [], 
-            "highest_ltp": entry_price, 
-            "made_high": entry_price, 
-            "current_ltp": current_ltp, 
-            "trigger_dir": trigger_dir, 
-            "logs": logs
-        }
-        
-        # --- SEND TELEGRAM NOTIFICATION ---
-        msg_id = telegram_bot.notify_trade_event(record, "NEW_TRADE")
-        if msg_id:
-            record['telegram_msg_id'] = msg_id
-        
-        trades.append(record)
-        save_trades(trades)
-        return {"status": "success", "trade": record}
+            logs.insert(0, f"[{get_time_str()}] Trade Added. Status: {status}")
+            
+            record = {
+                "id": int(time.time()), 
+                "entry_time": get_time_str(), 
+                "symbol": specific_symbol, 
+                "exchange": exchange,
+                "mode": mode, 
+                "order_type": order_type, 
+                "status": status, 
+                "entry_price": entry_price, 
+                "quantity": quantity,
+                "sl": entry_price - sl_points, 
+                "targets": targets, 
+                "target_controls": target_controls,
+                "lot_size": lot_size, 
+                "trailing_sl": final_trailing_sl, 
+                "sl_to_entry": int(sl_to_entry),
+                "exit_multiplier": int(exit_multiplier), 
+                "sl_order_id": sl_order_id,
+                "targets_hit_indices": [], 
+                "highest_ltp": entry_price, 
+                "made_high": entry_price, 
+                "current_ltp": current_ltp, 
+                "trigger_dir": trigger_dir, 
+                "logs": logs
+            }
+            
+            # --- SEND TELEGRAM NOTIFICATION ---
+            msg_id = telegram_bot.notify_trade_event(record, "NEW_TRADE")
+            if msg_id:
+                record['telegram_msg_id'] = msg_id
+            
+            trades.append(record)
+            save_trades(trades)
+            return {"status": "success", "trade": record}
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_price=None, target_controls=None, sl_to_entry=0, exit_multiplier=1):
     """
@@ -190,8 +203,8 @@ def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_pr
                 # Modify Broker SL if Live
                 if t['mode'] == 'LIVE' and t.get('sl_order_id'):
                     try:
-                        kite.modify_order(
-                            variety=kite.VARIETY_REGULAR, 
+                        broker_ops.modify_order(
+                            kite, 
                             order_id=t['sl_order_id'], 
                             trigger_price=t['sl']
                         )
@@ -259,12 +272,7 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
         for t in trades:
             if str(t['id']) == str(trade_id):
                 qty_delta = lots_count * lot_size
-                ltp = t.get('current_ltp', 0)
-                
-                if ltp == 0: 
-                    try: 
-                        ltp = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]['last_price']
-                    except: pass
+                ltp = smart_trader.get_ltp(kite, t['symbol'])
                 
                 # --- ADD LOTS ---
                 if action == 'ADD':
@@ -277,19 +285,20 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                     if t['mode'] == 'LIVE':
                         try:
                             # Place Market Buy
-                            kite.place_order(
-                                variety=kite.VARIETY_REGULAR, 
-                                tradingsymbol=t['symbol'], 
+                            broker_ops.place_order(
+                                kite, 
+                                symbol=t['symbol'], 
                                 exchange=t['exchange'], 
                                 transaction_type=kite.TRANSACTION_TYPE_BUY, 
                                 quantity=qty_delta, 
                                 order_type=kite.ORDER_TYPE_MARKET, 
-                                product=kite.PRODUCT_MIS
+                                product=kite.PRODUCT_MIS,
+                                tag="RD_ADD"
                             )
                             # Update Broker SL Quantity
                             if t.get('sl_order_id'): 
-                                kite.modify_order(
-                                    variety=kite.VARIETY_REGULAR, 
+                                broker_ops.modify_order(
+                                    kite, 
                                     order_id=t['sl_order_id'], 
                                     quantity=new_total
                                 )
@@ -302,7 +311,7 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                     if t['quantity'] > qty_delta:
                         # 1. Reduce Broker SL Qty First
                         if t['mode'] == 'LIVE': 
-                            manage_broker_sl(kite, t, qty_delta)
+                            broker_ops.manage_broker_sl(kite, t, qty_delta)
                         
                         t['quantity'] -= qty_delta
                         log_event(t, f"Partial Exit {qty_delta} Qty @ {ltp}")
@@ -310,14 +319,15 @@ def manage_trade_position(kite, trade_id, action, lot_size, lots_count):
                         # 2. Place Sell Order
                         if t['mode'] == 'LIVE':
                             try: 
-                                kite.place_order(
-                                    variety=kite.VARIETY_REGULAR, 
-                                    tradingsymbol=t['symbol'], 
+                                broker_ops.place_order(
+                                    kite, 
+                                    symbol=t['symbol'], 
                                     exchange=t['exchange'], 
                                     transaction_type=kite.TRANSACTION_TYPE_SELL, 
                                     quantity=qty_delta, 
                                     order_type=kite.ORDER_TYPE_MARKET, 
-                                    product=kite.PRODUCT_MIS
+                                    product=kite.PRODUCT_MIS,
+                                    tag="RD_EXIT_PART"
                                 )
                             except Exception as e: 
                                 log_event(t, f"Broker Fail (Exit): {e}")
@@ -342,27 +352,29 @@ def promote_to_live(kite, trade_id):
             if t['id'] == int(trade_id) and t['mode'] == "PAPER":
                 try:
                     # 1. Place Buy Order
-                    kite.place_order(
-                        variety=kite.VARIETY_REGULAR, 
-                        tradingsymbol=t['symbol'], 
+                    broker_ops.place_order(
+                        kite, 
+                        symbol=t['symbol'], 
                         exchange=t['exchange'], 
                         transaction_type=kite.TRANSACTION_TYPE_BUY, 
                         quantity=t['quantity'], 
                         order_type=kite.ORDER_TYPE_MARKET, 
-                        product=kite.PRODUCT_MIS
+                        product=kite.PRODUCT_MIS,
+                        tag="RD_PROMOTE"
                     )
                     
                     # 2. Place SL Order
                     try:
-                        sl_id = kite.place_order(
-                            variety=kite.VARIETY_REGULAR, 
-                            tradingsymbol=t['symbol'], 
+                        sl_id = broker_ops.place_order(
+                            kite, 
+                            symbol=t['symbol'], 
                             exchange=t['exchange'], 
                             transaction_type=kite.TRANSACTION_TYPE_SELL, 
                             quantity=t['quantity'], 
                             order_type=kite.ORDER_TYPE_SL_M, 
                             product=kite.PRODUCT_MIS, 
-                            trigger_price=t['sl']
+                            trigger_price=t['sl'],
+                            tag="RD_SL"
                         )
                         t['sl_order_id'] = sl_id
                     except: 
@@ -400,7 +412,7 @@ def close_trade_manual(kite, trade_id):
                 
                 # Fetch fresh LTP if possible
                 try: 
-                    exit_p = kite.quote(f"{t['exchange']}:{t['symbol']}")[f"{t['exchange']}:{t['symbol']}"]['last_price']
+                    exit_p = smart_trader.get_ltp(kite, t['symbol'])
                 except: pass
                 
                 # --- NEW: Handle Pending Cancellations ---
@@ -412,20 +424,21 @@ def close_trade_manual(kite, trade_id):
                 
                 # Handle Live Execution
                 if t['mode'] == "LIVE" and t['status'] != "PENDING":
-                    manage_broker_sl(kite, t, cancel_completely=True)
+                    broker_ops.manage_broker_sl(kite, t, cancel_completely=True)
                     try: 
-                        kite.place_order(
-                            variety=kite.VARIETY_REGULAR, 
-                            tradingsymbol=t['symbol'], 
+                        broker_ops.place_order(
+                            kite, 
+                            symbol=t['symbol'], 
                             exchange=t['exchange'], 
                             transaction_type=kite.TRANSACTION_TYPE_SELL, 
                             quantity=t['quantity'], 
                             order_type=kite.ORDER_TYPE_MARKET, 
-                            product=kite.PRODUCT_MIS
+                            product=kite.PRODUCT_MIS,
+                            tag="RD_MANUAL_EXIT"
                         )
                     except: pass
                 
-                move_to_history(t, exit_reason, exit_p)
+                broker_ops.move_to_history(t, exit_reason, exit_p)
             else:
                 active_list.append(t)
         

@@ -140,6 +140,23 @@
                             <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BSE" id="exch_BSE"><label class="form-check-label" for="exch_BSE">BSE</label></div>
                             <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="BFO" id="exch_BFO"><label class="form-check-label" for="exch_BFO">BFO</label></div>
                         </div>
+                        
+                        <h6 class="mb-2 text-warning border-top pt-2">Default Broadcast Channels</h6>
+                        <p class="small text-muted mb-2">Select which channels are checked by default on the Trade Panel.</p>
+                        <div class="d-flex gap-3 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="def_vip">
+                                <label class="form-check-label fw-bold small" for="def_vip">VIP</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="def_free">
+                                <label class="form-check-label fw-bold small" for="def_free">Free</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="def_z2h">
+                                <label class="form-check-label fw-bold small" for="def_z2h">Z2H</label>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="tab-pane fade" id="tab-paper">
@@ -296,18 +313,44 @@
                             <label class="pos-grid-label">Bot Token (From BotFather)</label>
                             <input type="text" id="tg_bot_token" class="form-control" placeholder="e.g. 123456:AbCdEf...">
                         </div>
-                        <div class="mb-3">
-                            <label class="pos-grid-label">Trade Channel ID (Default)</label>
-                            <input type="text" id="tg_channel_id" class="form-control" placeholder="e.g. -10012345678">
-                            <small class="text-muted">For Trade Alerts (Buy/Sell/SL/Target)</small>
+                        
+                        <h6 class="text-secondary border-bottom pb-1 mb-2 mt-3" style="font-size:0.8rem;">1. Main Channel (All Updates)</h6>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="pos-grid-label">Trade Channel ID</label>
+                                <input type="text" id="tg_channel_id" class="form-control" placeholder="-100...">
+                            </div>
+                            <div class="col-6">
+                                <label class="pos-grid-label">System Channel ID</label>
+                                <input type="text" id="tg_system_channel_id" class="form-control" placeholder="Optional">
+                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label class="pos-grid-label">System Channel ID (Optional)</label>
-                            <input type="text" id="tg_system_channel_id" class="form-control" placeholder="e.g. -100987654321">
-                            <small class="text-muted">For System Alerts (Startup, Login, Errors). Leave empty to use Trade Channel.</small>
+
+                        <h6 class="text-secondary border-bottom pb-1 mb-2 mt-3" style="font-size:0.8rem;">2. Additional Channels (New / Active / Update Only)</h6>
+                        
+                        <div class="mb-2">
+                            <label class="pos-grid-label text-warning">⭐ VIP Channel ID</label>
+                            <input type="text" id="tg_vip_channel_id" class="form-control" placeholder="-100...">
                         </div>
+                        
+                        <div class="mb-2">
+                            <label class="pos-grid-label text-success">🆓 Free Channel ID</label>
+                            <input type="text" id="tg_free_channel_id" class="form-control" placeholder="-100...">
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-8">
+                                <label class="pos-grid-label text-info">🚀 ZeroToHero ID</label>
+                                <input type="text" id="tg_z2h_channel_id" class="form-control" placeholder="-100...">
+                            </div>
+                            <div class="col-4">
+                                <label class="pos-grid-label text-info">Name</label>
+                                <input type="text" id="tg_z2h_channel_name" class="form-control" placeholder="Zero To Hero">
+                            </div>
+                        </div>
+
                         <hr>
-                        <button class="btn btn-outline-primary w-100" onclick="testTelegram()">📩 Send Test Message</button>
+                        <button class="btn btn-outline-primary w-100" onclick="testTelegram()">📩 Send Test Message (To Main)</button>
                     </div>
 
                 </div>

@@ -1,26 +1,49 @@
 import time
+import copy
 import smart_trader
 from managers.persistence import TRADE_LOCK, load_trades, save_trades
 from managers.common import get_time_str, log_event
 from managers import broker_ops
 from managers.telegram_manager import bot as telegram_bot
 
-def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplier=1):
+def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom_targets, order_type, limit_price=0, target_controls=None, trailing_sl=0, sl_to_entry=0, exit_multiplier=1, target_channels=None, risk_ratios=None):
     """
     Creates a new trade (Live or Paper). 
     Handles initial broker orders (if Live), calculates targets, and saves the trade to the DB.
+    Accepts 'target_channels' list (e.g., ['main', 'vip']) to filter notifications.
+    Now accepts 'risk_ratios' (list of 3 floats) to override default [0.5, 1, 2] target calculation.
+    INCLUDES DEBUG LOGGING.
     """
+    print(f"\n[DEBUG] --- START CREATE TRADE ({mode}) ---")
+    print(f"[DEBUG] Symbol: {specific_symbol}, Qty: {quantity}")
+    
     try:
         with TRADE_LOCK:
             trades = load_trades()
             current_ts = int(time.time())
             
-            # Duplicate Trade Check (same symbol & qty within 5 seconds)
+            # --- FIX: ROBUST DUPLICATE CHECK ---
             for t in trades:
+                # 1. If Modes are different (e.g. Paper vs Live), it is NOT a duplicate. Skip check.
+                if t.get('mode') != mode:
+                    continue
+                
+                # 2. Check strict duplicates within the same mode
                 if t['symbol'] == specific_symbol and t['quantity'] == quantity and (current_ts - t['id']) < 5:
+                     print(f"[DEBUG] Duplicate Blocked: {specific_symbol}")
                      return {"status": "error", "message": "Duplicate Trade Blocked"}
 
-            # --- FIX: ROBUST EXCHANGE & LTP DETECTION ---
+            # --- FIX: UNIQUE ID GENERATION ---
+            # Ensure new_id is always greater than the max existing ID to prevent overwrites
+            new_id = current_ts
+            existing_ids = [t['id'] for t in trades]
+            if existing_ids:
+                max_id = max(existing_ids)
+                if new_id <= max_id:
+                    new_id = max_id + 1
+            
+            print(f"[DEBUG] Generated New ID: {new_id}")
+
             # 1. Detect Exchange (e.g., NSE, NFO)
             exchange = smart_trader.get_exchange_name(specific_symbol)
             
@@ -28,6 +51,7 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
             current_ltp = smart_trader.get_ltp(kite, specific_symbol)
             
             if current_ltp == 0:
+                print(f"[DEBUG] Error: LTP 0")
                 return {"status": "error", "message": f"Could not fetch LTP for Symbol: {specific_symbol}"}
 
             # Determine Entry Status
@@ -80,14 +104,21 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
                         logs.append(f"[{get_time_str()}] Broker SL FAILED: {sl_e}")
 
                 except Exception as e: 
+                    print(f"[DEBUG] Broker Error: {e}")
                     return {"status": "error", "message": f"Broker Rejected: {e}"}
 
             # Calculate Targets
             # Use custom targets if provided (valid T1 > 0), else calculate ratio-based defaults
-            targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in [0.5, 1.0, 2.0]]
+            # [UPDATED] Use dynamic risk ratios if provided, otherwise default to [0.5, 1.0, 2.0]
+            use_ratios = risk_ratios if risk_ratios else [0.5, 1.0, 2.0]
+            targets = custom_targets if len(custom_targets) == 3 and custom_targets[0] > 0 else [entry_price + (sl_points * x) for x in use_ratios]
             
-            if not target_controls: 
-                target_controls = [
+            # Deep copy to prevent Shadow mode shared reference issues
+            final_target_controls = []
+            if target_controls:
+                final_target_controls = copy.deepcopy(target_controls)
+            else:
+                final_target_controls = [
                     {'enabled': True, 'lots': 0, 'trail_to_entry': False}, 
                     {'enabled': True, 'lots': 0, 'trail_to_entry': False}, 
                     {'enabled': True, 'lots': 1000, 'trail_to_entry': False}
@@ -127,12 +158,12 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
                     new_controls.append({'enabled': False, 'lots': 0, 'trail_to_entry': False})
                 
                 targets = new_targets
-                target_controls = new_controls
+                final_target_controls = new_controls
 
             logs.insert(0, f"[{get_time_str()}] Trade Added. Status: {status}")
             
             record = {
-                "id": int(time.time()), 
+                "id": new_id, # <--- USE THE UNIQUE ID
                 "entry_time": get_time_str(), 
                 "symbol": specific_symbol, 
                 "exchange": exchange,
@@ -143,7 +174,8 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
                 "quantity": quantity,
                 "sl": entry_price - sl_points, 
                 "targets": targets, 
-                "target_controls": target_controls,
+                "target_controls": final_target_controls, 
+                "target_channels": target_channels, 
                 "lot_size": lot_size, 
                 "trailing_sl": final_trailing_sl, 
                 "sl_to_entry": int(sl_to_entry),
@@ -158,15 +190,23 @@ def create_trade_direct(kite, mode, specific_symbol, quantity, sl_points, custom
             }
             
             # --- SEND TELEGRAM NOTIFICATION ---
-            msg_id = telegram_bot.notify_trade_event(record, "NEW_TRADE")
-            if msg_id:
-                record['telegram_msg_id'] = msg_id
+            msg_ids = telegram_bot.notify_trade_event(record, "NEW_TRADE")
+            if msg_ids:
+                record['telegram_msg_ids'] = msg_ids
+                if isinstance(msg_ids, dict):
+                    record['telegram_msg_id'] = msg_ids.get('main')
+                else:
+                    record['telegram_msg_id'] = msg_ids
             
+            print(f"[DEBUG] Appending trade to list. Previous count: {len(trades)}")
             trades.append(record)
+            print(f"[DEBUG] Saving list. New count: {len(trades)}")
             save_trades(trades)
+            print(f"[DEBUG] Trade Creation Successful.")
             return {"status": "success", "trade": record}
             
     except Exception as e:
+        print(f"[DEBUG] EXCEPTION in Create Trade: {e}")
         return {"status": "error", "message": str(e)}
 
 def update_trade_protection(kite, trade_id, sl, targets, trailing_sl=0, entry_price=None, target_controls=None, sl_to_entry=0, exit_multiplier=1):

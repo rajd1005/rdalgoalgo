@@ -14,7 +14,7 @@ from managers.telegram_manager import bot as telegram_bot
 # --------------------------
 import smart_trader
 import settings
-from database import db
+from database import db, AppSetting
 import auto_login 
 
 app = Flask(__name__)
@@ -387,7 +387,7 @@ def api_import_trade():
             data.get('exit_multiplier', 1), data.get('target_controls')
         )
         
-        # --- SEQUENTIAL TELEGRAM SENDER ---
+        # --- SEQUENTIAL TELEGRAM SENDER (UPDATED) ---
         queue = result.get('notification_queue', [])
         trade_ref = result.get('trade_ref', {})
         
@@ -395,33 +395,43 @@ def api_import_trade():
             def send_seq_notifications():
                 # Wrap thread in app_context to access DB
                 with app.app_context():
-                    # 1. Send Initial "NEW_TRADE" message to get a Thread ID
-                    msg_id = telegram_bot.notify_trade_event(trade_ref, "NEW_TRADE")
+                    # 1. Send Initial "NEW_TRADE" message -> Returns Dict of IDs (e.g. {'main': 1, 'vip': 2})
+                    msg_ids = telegram_bot.notify_trade_event(trade_ref, "NEW_TRADE")
                     
-                    if msg_id:
+                    if msg_ids:
                         from managers.persistence import load_trades, save_trades, save_to_history_db
                         
                         trade_id = trade_ref['id']
                         updated_ref = False
+                        
+                        # Handle Structure: If dict, save dict. If int (legacy), wrap it.
+                        if isinstance(msg_ids, dict):
+                            ids_dict = msg_ids
+                            main_id = msg_ids.get('main')
+                        else:
+                            ids_dict = {'main': msg_ids}
+                            main_id = msg_ids
                         
                         # Try updating Active Trades
                         trades = load_trades()
                         for t in trades:
                             # Robust comparison: Convert both to strings
                             if str(t['id']) == str(trade_id):
-                                t['telegram_msg_id'] = msg_id
+                                t['telegram_msg_ids'] = ids_dict
+                                t['telegram_msg_id'] = main_id # Legacy fallback
                                 save_trades(trades)
                                 updated_ref = True
                                 break
                         
                         # If not active (e.g., trade closed immediately), update History
                         if not updated_ref:
-                            # Add the msg_id to the trade_ref and save to DB
-                            trade_ref['telegram_msg_id'] = msg_id
+                            trade_ref['telegram_msg_ids'] = ids_dict
+                            trade_ref['telegram_msg_id'] = main_id
                             save_to_history_db(trade_ref)
                             
-                        # Update local ref for the loop
-                        trade_ref['telegram_msg_id'] = msg_id
+                        # Update local ref so subsequent events know where to reply
+                        trade_ref['telegram_msg_ids'] = ids_dict
+                        trade_ref['telegram_msg_id'] = main_id
                     
                     # 2. Process the rest of the queue
                     for item in queue:
@@ -436,11 +446,11 @@ def api_import_trade():
                         
                         # --- CRITICAL FIX: INJECT ID IF MISSING ---
                         # The replay engine often creates snapshot objects without IDs.
-                        # We must inject the original Trade ID so TelegramManager saves the msg ID to DB.
                         if 'id' not in t_obj:
                             t_obj['id'] = trade_ref['id']
                         
-                        # Ensure threading works by injecting the thread ID
+                        # Inject IDs so manager knows where to reply for all channels
+                        t_obj['telegram_msg_ids'] = trade_ref.get('telegram_msg_ids')
                         t_obj['telegram_msg_id'] = trade_ref.get('telegram_msg_id')
                         
                         telegram_bot.notify_trade_event(t_obj, evt, dat)
@@ -518,10 +528,18 @@ def api_sync():
 def place_trade():
     if not bot_active: return redirect('/')
     try:
+        # --- DEBUG LOG: INCOMING REQUEST ---
+        raw_mode = request.form['mode']
+        print(f"\n[DEBUG MAIN] Received Trade Request. RAW Mode: '{raw_mode}'")
+        
+        # --- FIX: Clean Mode Input ---
+        mode_input = raw_mode.strip().upper()
+        print(f"[DEBUG MAIN] Cleaned Mode: '{mode_input}'")
+        
         sym = request.form['index']
         type_ = request.form['type']
-        mode = request.form['mode']
-        qty = int(request.form['qty'])
+        # mode_input defined above
+        input_qty = int(request.form['qty'])
         order_type = request.form['order_type']
         
         limit_price = float(request.form.get('limit_price') or 0)
@@ -533,11 +551,16 @@ def place_trade():
         t1 = float(request.form.get('t1_price', 0))
         t2 = float(request.form.get('t2_price', 0))
         t3 = float(request.form.get('t3_price', 0))
+
+        # --- TELEGRAM BROADCAST CHANNELS ---
+        target_channels = ['main'] # Main is mandatory
+        if request.form.get('pub_vip'): target_channels.append('vip')
+        if request.form.get('pub_free'): target_channels.append('free')
+        if request.form.get('pub_z2h'): target_channels.append('z2h')
         
-        can_trade, reason = common.can_place_order(mode)
-        if not can_trade:
-            flash(f"⛔ Trade Blocked: {reason}")
-            return redirect('/')
+        # --- PREPARE TRADE FUNCTION ARGS ---
+        can_trade, reason = common.can_place_order("LIVE" if mode_input == "LIVE" else "PAPER")
+        # Note: Shadow mode checks both inside execution block
         
         custom_targets = [t1, t2, t3] if t1 > 0 else []
         
@@ -554,14 +577,151 @@ def place_trade():
             flash("❌ Symbol Generation Failed")
             return redirect('/')
 
-        res = trade_manager.create_trade_direct(kite, mode, final_sym, qty, sl_points, custom_targets, order_type, limit_price, target_controls, trailing_sl, sl_to_entry, exit_multiplier)
+        # --- EXECUTION LOGIC (SHADOW MODE IMPLEMENTATION) ---
         
-        if res['status'] == 'success':
-            flash(f"✅ Order Placed: {final_sym}")
+        # Load settings to get multipliers
+        app_settings = settings.load_settings()
+        
+        # Helper to execute trade with optional overrides
+        def execute(ex_mode, ex_qty, ex_channels, overrides=None):
+            # Default to form values
+            use_sl_points = sl_points
+            use_target_controls = target_controls
+            use_custom_targets = custom_targets # Default to form prices
+            use_ratios = None
+            
+            # Apply Overrides if provided (from Global Settings)
+            if overrides:
+                use_trail = float(overrides.get('trailing_sl', trailing_sl))
+                use_sl_entry = int(overrides.get('sl_to_entry', sl_to_entry))
+                use_exit_mult = int(overrides.get('exit_multiplier', exit_multiplier))
+                
+                # New: Symbol SL Override
+                if 'sl_points' in overrides: use_sl_points = float(overrides['sl_points'])
+                
+                # New: Target Controls Override
+                if 'target_controls' in overrides: use_target_controls = overrides['target_controls']
+                
+                # New: Ratios Override
+                if 'ratios' in overrides: use_ratios = overrides['ratios']
+                
+                # New: Custom Targets Override (Important to clear form prices)
+                if 'custom_targets' in overrides: use_custom_targets = overrides['custom_targets']
+            else:
+                use_trail = trailing_sl
+                use_sl_entry = sl_to_entry
+                use_exit_mult = exit_multiplier
+            
+            print(f"[DEBUG MAIN] Executing Helper: Mode={ex_mode}, Qty={ex_qty}, Trail={use_trail}, Mult={use_exit_mult}")
+            
+            return trade_manager.create_trade_direct(
+                kite, ex_mode, final_sym, ex_qty, use_sl_points, use_custom_targets, 
+                order_type, limit_price, use_target_controls, 
+                use_trail, use_sl_entry, use_exit_mult, 
+                target_channels=ex_channels,
+                risk_ratios=use_ratios
+            )
+
+        if mode_input == "SHADOW":
+            print("[DEBUG MAIN] Entering SHADOW Logic Block...")
+            
+            # 1. Check Live Feasibility
+            can_live, reason = common.can_place_order("LIVE")
+            if not can_live:
+                flash(f"❌ Shadow Blocked: LIVE Mode is Disabled/Blocked ({reason})")
+                return redirect('/')
+
+            # 2. Execute LIVE
+            live_conf = app_settings['modes']['LIVE']
+            live_mult = live_conf.get('qty_mult', 1)
+            live_qty = input_qty * live_mult
+            
+            # --- FETCH GLOBAL SETTINGS ---
+            
+            # A. Symbol SL Override
+            clean_sym = sym.split(':')[0].strip().upper() # e.g. NIFTY
+            live_sl_points = sl_points # Default to form
+            if 'symbol_sl' in live_conf and clean_sym in live_conf['symbol_sl']:
+                live_sl_points = float(live_conf['symbol_sl'][clean_sym])
+
+            # B. Target Controls & Ratios
+            # Construct target controls from Global Settings structure
+            live_controls = []
+            global_targets = live_conf.get('targets', []) # Assuming list of 3 dicts in settings
+            # Default fallback if settings empty
+            defaults = [{'active': True, 'lots': 0, 'full': False, 'trail_to_entry': False}] * 3
+            
+            for i in range(3):
+                t_conf = global_targets[i] if i < len(global_targets) else defaults[i]
+                # Logic: If 'full' is true, lots=1000, else use specific lots
+                t_lots = 1000 if t_conf.get('full') else int(t_conf.get('lots', 0))
+                
+                live_controls.append({
+                    'enabled': t_conf.get('active', True),
+                    'lots': t_lots,
+                    'trail_to_entry': t_conf.get('trail_to_entry', False) # "Cost" logic
+                })
+
+            live_ratios = live_conf.get('ratios', [0.5, 1.0, 2.0])
+
+            # [CRITICAL UPDATE] Fetch Global Settings for LIVE Override
+            live_overrides = {
+                'trailing_sl': live_conf.get('trailing_sl', 0),
+                'sl_to_entry': live_conf.get('sl_to_entry', 0),
+                'exit_multiplier': live_conf.get('exit_multiplier', 1),
+                'sl_points': live_sl_points,
+                'target_controls': live_controls,
+                'ratios': live_ratios,
+                'custom_targets': [] # <--- FORCE EMPTY TARGETS TO USE RATIOS
+            }
+            
+            # Live = Silent (no channels) + Global Settings Override
+            print("[DEBUG MAIN] calling execute('LIVE')...")
+            res_live = execute("LIVE", live_qty, [], overrides=live_overrides)
+            
+            if res_live['status'] != 'success':
+                flash(f"❌ Shadow Failed: LIVE Execution Error ({res_live['message']})")
+                return redirect('/')
+            
+            # 3. Wait for DB Safety (1s to ensure ID separation)
+            print("[DEBUG MAIN] LIVE Success. Waiting 1s...")
+            time.sleep(1)
+            
+            # 4. Execute PAPER
+            paper_mult = app_settings['modes']['PAPER'].get('qty_mult', 1)
+            paper_qty = input_qty * paper_mult
+            
+            # Paper = Notifier + Form Settings (No Override)
+            print("[DEBUG MAIN] calling execute('PAPER')...")
+            res_paper = execute("PAPER", paper_qty, target_channels)
+            
+            if res_paper['status'] == 'success':
+                flash(f"👻 Shadow Executed: ✅ LIVE | ✅ PAPER")
+            else:
+                flash(f"⚠️ Shadow Partial: ✅ LIVE | ❌ PAPER Failed ({res_paper['message']})")
+
         else:
-            flash(f"❌ Error: {res['message']}")
+            # Standard Execution (PAPER or LIVE)
+            print(f"[DEBUG MAIN] Entering STANDARD Logic Block (Mode: {mode_input})...")
+            
+            can_trade, reason = common.can_place_order(mode_input)
+            if not can_trade:
+                flash(f"⛔ Trade Blocked: {reason}")
+                return redirect('/')
+            
+            # Calculate Qty based on mode multiplier
+            mult = app_settings['modes'][mode_input].get('qty_mult', 1)
+            final_qty = input_qty * mult
+            
+            res = execute(mode_input, final_qty, target_channels)
+            
+            if res['status'] == 'success':
+                flash(f"✅ Order Placed: {final_sym}")
+            else:
+                flash(f"❌ Error: {res['message']}")
             
     except Exception as e:
+        print(f"[DEBUG MAIN] Exception: {e}")
         flash(f"Error: {e}")
     return redirect('/')
 

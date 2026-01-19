@@ -116,7 +116,7 @@
 </div>
 
 <div class="modal fade" id="settingsModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">⚙️ Global Settings</h5>
@@ -131,6 +131,18 @@
                 </ul>
                 <div class="tab-content" id="settingTabsContent">
                     <div class="tab-pane fade show active" id="tab-general">
+                        <h6 class="text-primary">Watchlist</h6>
+                        <div class="input-group mb-3">
+                            <input type="text" id="new_watch_sym" class="form-control" placeholder="Symbol (e.g. RELIANCE)">
+                            <button class="btn btn-outline-secondary" type="button" onclick="addToWatchlist('#new_watch_sym')">Add</button>
+                        </div>
+                        <div class="mb-3">
+                            <select id="remove_watch_sym" class="form-select" onchange="removeFromWatchlist('remove_watch_sym')">
+                                <option value="">Select to Remove...</option>
+                            </select>
+                        </div>
+                        <hr>
+
                         <h6 class="mb-2">Active Exchanges (For Search)</h6>
                         <div class="d-flex flex-wrap gap-2 mb-3">
                             <div class="form-check"><input class="form-check-input" type="checkbox" name="exch_select" value="NSE" id="exch_NSE"><label class="form-check-label" for="exch_NSE">NSE</label></div>
@@ -157,28 +169,30 @@
                                 <label class="form-check-label fw-bold small" for="def_z2h">Z2H</label>
                             </div>
                         </div>
+
+                        <h6 class="mb-2 text-primary border-top pt-2">Startup Configuration</h6>
+                        
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="first_trade_toggle">
+                            <label class="form-check-label fw-bold" for="first_trade_toggle">1st Trade: Force Shadow & Free Only</label>
+                            <div class="form-text small">If enabled, the first trade of the day will default to Shadow Mode and Free Channel only.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Default Trade Mode</label>
+                            <select id="def_trade_mode" class="form-select">
+                                <option value="PAPER">Paper Trading</option>
+                                <option value="SHADOW">Shadow Trading</option>
+                                <option value="LIVE">Live Trading</option>
+                            </select>
+                            <div class="form-text">This mode will be auto-selected when you open the dashboard.</div>
+                        </div>
                     </div>
 
                     <div class="tab-pane fade" id="tab-paper">
                         <h6 class="mb-2 text-warning">Paper Trade Config</h6>
                         <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <label class="pos-grid-label">Default Order Type</label>
-                                <select id="paper_order_type" class="form-select">
-                                    <option value="MARKET">MARKET</option>
-                                    <option value="LIMIT">LIMIT</option>
-                                </select>
-                            </div>
-                            <div class="col-6">
-                                <label class="pos-grid-label">Trail Limit Default</label>
-                                <select id="paper_trail_limit" class="form-select">
-                                    <option value="0">Unlimited</option>
-                                    <option value="1">Up-to Entry</option>
-                                    <option value="2">Up-to T1</option>
-                                    <option value="3">Up-to T2</option>
-                                    <option value="4">Up-to T3</option>
-                                </select>
-                            </div>
+                            <div class="col-6"><label class="pos-grid-label">Default Order Type</label><select id="paper_order_type" class="form-select"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option></select></div>
+                            <div class="col-6"><label class="pos-grid-label">Trail Limit Default</label><select id="paper_trail_limit" class="form-select"><option value="0">Unlimited</option><option value="1">Up-to Entry</option><option value="2">Up-to T1</option><option value="3">Up-to T2</option><option value="4">Up-to T3</option></select></div>
                         </div>
                         <div class="row g-2 mb-2">
                             <div class="col-6"><label class="pos-grid-label">Default Trailing (Pts)</label><input type="number" step="0.5" id="paper_def_trail" class="form-control" placeholder="0"></div>
@@ -196,7 +210,6 @@
                             <span class="input-group-text">Lock</span><input type="number" id="paper_pl_min" class="form-control" placeholder="1000">
                             <span class="input-group-text">Trail</span><input type="number" id="paper_pl_trail" class="form-control" placeholder="500">
                         </div>
-
                         <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="paper_qty_mult" class="form-control mb-2" value="1" min="1">
                         <label class="pos-grid-label">Target Config (Ratio | Active | Lots | Full | Cost)</label>
                         <div class="input-group mb-1"> <span class="input-group-text">T1</span><input type="number" step="0.1" id="paper_r1" class="form-control">
@@ -218,13 +231,7 @@
                         <div class="input-group mb-2"><input type="text" id="paper_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="paper_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('PAPER')">Add</button></div>
                         <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
                             <table class="table table-bordered table-sm mt-2 sl-table">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Symbol</th>
-                                        <th>SL</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
+                                <thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead>
                                 <tbody id="paper_sl_table_body"></tbody>
                             </table>
                         </div>
@@ -233,23 +240,8 @@
                     <div class="tab-pane fade" id="tab-live">
                         <h6 class="mb-2 text-danger">Live Trade Config</h6>
                         <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <label class="pos-grid-label">Default Order Type</label>
-                                <select id="live_order_type" class="form-select">
-                                    <option value="MARKET">MARKET</option>
-                                    <option value="LIMIT">LIMIT</option>
-                                </select>
-                            </div>
-                            <div class="col-6">
-                                <label class="pos-grid-label">Trail Limit Default</label>
-                                <select id="live_trail_limit" class="form-select">
-                                    <option value="0">Unlimited</option>
-                                    <option value="1">Up-to Entry</option>
-                                    <option value="2">Up-to T1</option>
-                                    <option value="3">Up-to T2</option>
-                                    <option value="4">Up-to T3</option>
-                                </select>
-                            </div>
+                            <div class="col-6"><label class="pos-grid-label">Default Order Type</label><select id="live_order_type" class="form-select"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option></select></div>
+                            <div class="col-6"><label class="pos-grid-label">Trail Limit Default</label><select id="live_trail_limit" class="form-select"><option value="0">Unlimited</option><option value="1">Up-to Entry</option><option value="2">Up-to T1</option><option value="3">Up-to T2</option><option value="4">Up-to T3</option></select></div>
                         </div>
                         <div class="row g-2 mb-2">
                             <div class="col-6"><label class="pos-grid-label">Default Trailing (Pts)</label><input type="number" step="0.5" id="live_def_trail" class="form-control" placeholder="0"></div>
@@ -267,7 +259,6 @@
                             <span class="input-group-text">Lock</span><input type="number" id="live_pl_min" class="form-control" placeholder="1000">
                             <span class="input-group-text">Trail</span><input type="number" id="live_pl_trail" class="form-control" placeholder="500">
                         </div>
-
                         <label class="pos-grid-label">Quantity Multiplier</label><input type="number" id="live_qty_mult" class="form-control mb-2" value="1" min="1">
                         <label class="pos-grid-label">Target Config (Ratio | Active | Lots | Full | Cost)</label>
                         <div class="input-group mb-1"> <span class="input-group-text">T1</span><input type="number" step="0.1" id="live_r1" class="form-control">
@@ -289,13 +280,7 @@
                         <div class="input-group mb-2"><input type="text" id="live_set_sym" class="form-control" placeholder="Symbol"><input type="number" id="live_set_sl" class="form-control" placeholder="SL Pts"><button class="btn btn-primary" onclick="saveSymSL('LIVE')">Add</button></div>
                         <div class="table-responsive mb-3" style="max-height: 150px; overflow-y: auto;">
                             <table class="table table-bordered table-sm mt-2 sl-table">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Symbol</th>
-                                        <th>SL</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
+                                <thead class="table-light"><tr><th>Symbol</th><th>SL</th><th>Action</th></tr></thead>
                                 <tbody id="live_sl_table_body"></tbody>
                             </table>
                         </div>
@@ -349,6 +334,160 @@
                             </div>
                         </div>
 
+                        <hr>
+                        <h6 class="text-primary mb-3">📝 Message Customization</h6>
+                        
+                        <script>
+                            function insertAtCursor(myFieldId, myValue) {
+                                var myField = document.getElementById(myFieldId);
+                                if (document.selection) {
+                                    myField.focus(); sel = document.selection.createRange(); sel.text = myValue;
+                                } else if (myField.selectionStart || myField.selectionStart == '0') {
+                                    var startPos = myField.selectionStart; var endPos = myField.selectionEnd;
+                                    myField.value = myField.value.substring(0, startPos) + myValue + myField.value.substring(endPos, myField.value.length);
+                                } else { myField.value += myValue; }
+                            }
+                            function setActiveTpl(id) { window.activeTplId = id; }
+                            function insTpl(val) { if(window.activeTplId) insertAtCursor(window.activeTplId, val); }
+                        </script>
+                        <div class="d-flex gap-1 mb-2 flex-wrap">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('<b>')"><b>B</b></button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('<i>')"><i>I</i></button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('<code>')">Code</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('{symbol}')">{Sym}</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('{time}')">{Time}</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('🚀')">🚀</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('🟢')">🟢</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="insTpl('🔴')">🔴</button>
+                        </div>
+
+                        <div class="accordion mb-3" id="tgTemplatesAccordion">
+                             <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFreeH">
+                                        Free Channel Header (1st Message)
+                                    </button>
+                                </h2>
+                                <div id="collapseFreeH" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                        <textarea id="tpl_free_header" class="form-control" rows="3" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_free_header')"></textarea>
+                                        <div class="form-text small">Global Placeholders: {symbol}, {time}, {entry_time}, {date}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNew">
+                                        New Trade Alert
+                                    </button>
+                                </h2>
+                                <div id="collapseNew" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                        <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_new" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_new" class="form-control" rows="6" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_new')"></textarea>
+                                        <div class="form-text small">
+                                            <b>Global:</b> {symbol}, {mode}, {order_type}, {qty}, {entry}, {sl}, {targets}, {time}, {icon}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAct">
+                                        Order Activated
+                                    </button>
+                                </h2>
+                                <div id="collapseAct" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_active" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_active" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_active')"></textarea>
+                                        <div class="form-text small">Specific: {price} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTgt">
+                                        Target Hit
+                                    </button>
+                                </h2>
+                                <div id="collapseTgt" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_tgt" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_tgt" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_tgt')"></textarea>
+                                        <div class="form-text small">Specific: {t_num}, {price}, {pot_pnl} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSL">
+                                        Stop Loss Hit
+                                    </button>
+                                </h2>
+                                <div id="collapseSL" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_sl" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_sl" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_sl')"></textarea>
+                                        <div class="form-text small">Specific: {exit_price}, {pnl} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                             <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseHigh">
+                                        New High Made
+                                    </button>
+                                </h2>
+                                <div id="collapseHigh" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_high" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_high" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_high')"></textarea>
+                                        <div class="form-text small">Specific: {price}, {pot_pnl} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                             <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseUpd">
+                                        Trade Update
+                                    </button>
+                                </h2>
+                                <div id="collapseUpd" class="accordion-collapse collapse" data-bs-parent="#tgTemplatesAccordion">
+                                    <div class="accordion-body p-2">
+                                         <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="tg_evt_update" checked>
+                                            <label class="form-check-label fw-bold">Enable this Alert</label>
+                                        </div>
+                                        <textarea id="tpl_update" class="form-control" rows="4" style="font-family: monospace; font-size: 0.8rem;" onfocus="setActiveTpl('tpl_update')"></textarea>
+                                        <div class="form-text small">Specific: {update_text} | Global: {symbol}, {time}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                        
                         <hr>
                         <button class="btn btn-outline-primary w-100" onclick="testTelegram()">📩 Send Test Message (To Main)</button>
                     </div>

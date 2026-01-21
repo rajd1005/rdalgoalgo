@@ -379,47 +379,59 @@ def send_manual_summary(mode):
 def check_global_exit_conditions(kite, mode, mode_settings):
     """
     Checks and executes global risk rules:
-    1. Universal Square-off Time (e.g., 15:25)
+    1. Universal Square-off Time (e.g., 15:25) -> NOW SEND REPORT ALWAYS (ONCE)
     2. Profit Locking (Global PnL Trailing)
     """
     with TRADE_LOCK:
         trades = load_trades()
         now = datetime.now(IST)
         exit_time_str = mode_settings.get('universal_exit_time', "15:25")
+        today_str = now.strftime("%Y-%m-%d")
         
-        # --- 1. TIME BASED EXIT ---
+        # Load State to check if we already ran EOD today
+        state = get_risk_state(mode)
+        
+        # --- 1. TIME BASED EXIT & REPORT ---
         try:
             exit_dt = datetime.strptime(exit_time_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
             exit_dt = IST.localize(exit_dt.replace(tzinfo=None))
             
             # Trigger within 2 minutes of the time
             if now >= exit_dt and (now - exit_dt).seconds < 120:
-                 active_mode = [t for t in trades if t['mode'] == mode]
                  
-                 if active_mode:
-                     for t in active_mode:
-                         # Determine if it's ACTIVE or PENDING
-                         exit_reason = "TIME_EXIT"
-                         exit_price = t.get('current_ltp', 0)
-                         
-                         if t['status'] == 'PENDING':
-                             exit_reason = "NOT_ACTIVE"
-                             exit_price = t['entry_price'] # Force 0 PnL for pending
-                         
-                         if t['mode'] == "LIVE" and t['status'] != 'PENDING':
-                            manage_broker_sl(kite, t, cancel_completely=True)
-                            try: 
-                                kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
-                            except: pass
-                         
-                         move_to_history(t, exit_reason, exit_price)
+                 # Check if already done for today to prevent spam
+                 if state.get('last_eod_date') != today_str:
                      
-                     # Save remaining trades (those not in the current mode)
-                     remaining = [t for t in trades if t['mode'] != mode]
-                     save_trades(remaining)
+                     # 1. Close Active Trades (If Any)
+                     active_mode = [t for t in trades if t['mode'] == mode]
+                     if active_mode:
+                         for t in active_mode:
+                             # Determine if it's ACTIVE or PENDING
+                             exit_reason = "TIME_EXIT"
+                             exit_price = t.get('current_ltp', 0)
+                             
+                             if t['status'] == 'PENDING':
+                                 exit_reason = "NOT_ACTIVE"
+                                 exit_price = t['entry_price']
+                             
+                             if t['mode'] == "LIVE" and t['status'] != 'PENDING':
+                                manage_broker_sl(kite, t, cancel_completely=True)
+                                try: 
+                                    kite.place_order(variety=kite.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
+                                except: pass
+                             
+                             move_to_history(t, exit_reason, exit_price)
+                         
+                         # Save remaining trades
+                         remaining = [t for t in trades if t['mode'] != mode]
+                         save_trades(remaining)
                      
-                     # --- TRIGGER EOD REPORT ---
+                     # 2. Send EOD Report (ALWAYS, triggers once)
                      send_eod_report(mode)
+                     
+                     # 3. Mark as Done
+                     state['last_eod_date'] = today_str
+                     save_risk_state(mode, state)
                      
                      return
         except Exception as e: 
@@ -442,16 +454,14 @@ def check_global_exit_conditions(kite, mode, mode_settings):
                 if t['status'] != 'PENDING':
                     current_total_pnl += (t.get('current_ltp', t['entry_price']) - t['entry_price']) * t['quantity']
 
-            state = get_risk_state(mode)
-            
             # Activation: Reach minimum threshold
-            if not state['active'] and current_total_pnl >= pnl_start:
+            if not state.get('active') and current_total_pnl >= pnl_start:
                 state['active'] = True
                 state['high_pnl'] = current_total_pnl
                 state['global_sl'] = float(mode_settings.get('profit_min', 0))
                 save_risk_state(mode, state)
             
-            if state['active']:
+            if state.get('active'):
                 # Trail the Global SL up
                 if current_total_pnl > state['high_pnl']:
                     diff = current_total_pnl - state['high_pnl']

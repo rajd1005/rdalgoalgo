@@ -1,6 +1,6 @@
 $(document).ready(function() {
     // --- CONFIGURATION ---
-    const REFRESH_INTERVAL = 500; // Update Interval in milliseconds (1000ms = 1 second)
+    const REFRESH_INTERVAL = 3000; // 3 Seconds Refresh for Stability
     // ---------------------
 
     renderWatchlist();
@@ -31,6 +31,7 @@ $(document).ready(function() {
     // Bind Search Logic
     bindSearch('#sym', '#sym_list'); 
     bindSearch('#imp_sym', '#sym_list'); 
+    bindSearch('#new_watch_sym', '#sym_list'); // Added binding for settings
 
     // Chain & input Bindings
     $('#sym').change(() => loadDetails('#sym', '#exp', 'input[name="type"]:checked', '#qty', '#sl_pts'));
@@ -51,6 +52,19 @@ $(document).ready(function() {
     $('#imp_price').on('input', function() { calcImpFromPts(); }); 
     $('#imp_sl_pts').on('input', calcImpFromPts);
     $('#imp_sl_price').on('input', calcImpFromPrice);
+    
+    // --- NEW: Import Modal "Full" Checkbox Listeners ---
+    ['t1', 't2', 't3'].forEach(k => {
+        $(`#imp_${k}_full`).change(function() {
+            if($(this).is(':checked')) {
+                $(`#imp_${k}_lots`).val(1000).prop('readonly', true);
+            } else {
+                $(`#imp_${k}_lots`).prop('readonly', false);
+                // Optional: restore default lots? For now just unlock.
+                if($(`#imp_${k}_lots`).val() == 1000) $(`#imp_${k}_lots`).val(0); 
+            }
+        });
+    });
 
     // Auto-Remove Floating Notifications
     setTimeout(function() {
@@ -136,16 +150,53 @@ function calcImpFromPrice() {
         calculateImportTargets(entry, pts);
     }
 }
+
+// --- UPDATED: Calculate Import Targets with Symbol Overrides ---
 function calculateImportTargets(entry, pts) {
     if(!entry || !pts) return;
-    let ratios = settings.modes.PAPER.ratios || [0.5, 1.0, 1.5];
-    $('#imp_t1').val((entry + (pts * ratios[0])).toFixed(2));
-    $('#imp_t2').val((entry + (pts * ratios[1])).toFixed(2));
-    $('#imp_t3').val((entry + (pts * ratios[2])).toFixed(2));
     
-    // Visual update for full exit checkboxes
+    // Default Ratios from Paper Settings
+    let ratios = settings.modes.PAPER.ratios || [0.5, 1.0, 1.5];
+    let t1_pts = pts * ratios[0];
+    let t2_pts = pts * ratios[1];
+    let t3_pts = pts * ratios[2];
+
+    // --- CHECK FOR SYMBOL SPECIFIC OVERRIDE ---
+    let sVal = $('#imp_sym').val();
+    if(sVal) {
+        // Normalize symbol (remove expiry/exchange parts)
+        // Use global normalize function if available, else simple split
+        let normS = (typeof normalizeSymbol === 'function') 
+            ? normalizeSymbol(sVal) 
+            : sVal.split(':')[0].trim().toUpperCase();
+        
+        let paperSettings = settings.modes.PAPER;
+        if(paperSettings && paperSettings.symbol_sl && paperSettings.symbol_sl[normS]) {
+            let sData = paperSettings.symbol_sl[normS];
+            
+            // Check if object structure exists and has targets (Points)
+            if (typeof sData === 'object' && sData.targets && sData.targets.length === 3) {
+                // Use specific points defined in global settings for this symbol
+                // Override the ratio-based points
+                t1_pts = sData.targets[0];
+                t2_pts = sData.targets[1];
+                t3_pts = sData.targets[2];
+            }
+        }
+    }
+    // ------------------------------------------
+
+    $('#imp_t1').val((entry + t1_pts).toFixed(2));
+    $('#imp_t2').val((entry + t2_pts).toFixed(2));
+    $('#imp_t3').val((entry + t3_pts).toFixed(2));
+    
+    // Visual & Readonly update for full exit checkboxes
     ['t1', 't2', 't3'].forEach(k => {
-        if ($(`#imp_${k}_full`).is(':checked')) $(`#imp_${k}_lots`).val(1000);
+        if ($(`#imp_${k}_full`).is(':checked')) {
+            $(`#imp_${k}_lots`).val(1000).prop('readonly', true);
+        } else {
+            $(`#imp_${k}_lots`).prop('readonly', false);
+        }
     });
 }
 
@@ -184,6 +235,9 @@ function submitImport() {
         price: parseFloat($('#imp_price').val()),
         sl: parseFloat($('#imp_sl_price').val()), // Send SL Price to Backend
         
+        // Broadcast Channel
+        target_channel: $('input[name="imp_channel"]:checked').val() || 'main',
+
         // New Settings
         trailing_sl: parseFloat($('#imp_trail_sl').val()) || 0,
         sl_to_entry: parseInt($('#imp_trail_limit').val()) || 0,
@@ -237,5 +291,9 @@ function renderWatchlist() {
     let opts = '<option value="">📺 Select</option>';
     wl.forEach(w => { opts += `<option value="${w}">${w}</option>`; });
     $('#trade_watch').html(opts);
-    $('#imp_watch').html(opts); 
+    $('#imp_watch').html(opts);
+    
+    let remOpts = '<option value="">Select to Remove...</option>';
+    wl.forEach(w => { remOpts += `<option value="${w}">${w}</option>`; });
+    if($('#remove_watch_sym').length) $('#remove_watch_sym').html(remOpts);
 }

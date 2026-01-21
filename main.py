@@ -229,10 +229,13 @@ def api_settings_load():
     # Load base settings
     s = settings.load_settings()
     
-    # --- NEW FEATURE: 1st Trade Logic Injection ---
-    # Calculates if there are ZERO trades for the current day
+    # --- FIXED: 1st Trade Logic using IST Timezone ---
     try:
-        today_str = time.strftime("%Y-%m-%d")
+        from managers.common import IST
+        from datetime import datetime
+        
+        # Fetch current date in IST instead of server local time
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
         
         # Load Trades & History to count today's trades
         trades = persistence.load_trades()

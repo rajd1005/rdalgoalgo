@@ -71,6 +71,12 @@ def send_eod_report(mode):
             # Use made_high if available, else exit price, else entry
             made_high = t.get('made_high', t.get('exit_price', entry))
             
+            # --- TRACKING TAG LOGIC ---
+            # 🔴 = Virtual SL Hit (Tracking Stopped) | 🟢 = Still Tracking
+            track_tag = "🟢"
+            if t.get('virtual_sl_hit'):
+                track_tag = "🔴"
+            
             # Suppress Potential for Direct SL
             if is_direct_sl:
                 made_high = entry 
@@ -106,7 +112,7 @@ def send_eod_report(mode):
                 f"SL: {sl}\n"
                 f"Targets: {targets}\n"
                 f"Status: {display_status}\n" 
-                f"High Made: {made_high}\n"
+                f"High Made: {made_high} {track_tag}\n"
                 f"Potential Target: {pot_target}\n"
                 f"Max Potential: {max_pot_val:.2f}\n"
                 f"----------------"
@@ -180,6 +186,11 @@ def send_manual_trade_status(mode):
             
             made_high = t.get('made_high', t.get('exit_price', entry))
             
+            # --- TRACKING TAG LOGIC ---
+            track_tag = "🟢"
+            if t.get('virtual_sl_hit'):
+                track_tag = "🔴"
+
             # Suppress Potential for Direct SL
             if is_direct_sl:
                 made_high = entry 
@@ -201,7 +212,7 @@ def send_manual_trade_status(mode):
                 f"SL: {sl}\n"
                 f"Targets: {targets}\n"
                 f"Status: {display_status}\n" 
-                f"High Made: {made_high}\n"
+                f"High Made: {made_high} {track_tag}\n"
                 f"Potential Target: {pot_target}\n"
                 f"Max Potential: {max_pot_val:.2f}\n"
                 f"----------------"
@@ -255,6 +266,11 @@ def send_manual_trade_report(trade_id):
         # Use made_high if available, else exit price, else entry
         made_high = trade.get('made_high', trade.get('exit_price', entry))
         
+        # --- TRACKING TAG LOGIC ---
+        track_tag = "🟢"
+        if trade.get('virtual_sl_hit'):
+            track_tag = "🔴"
+        
         # --- FIX: Suppress Potential for Direct SL ---
         if is_direct_sl:
             made_high = entry 
@@ -278,7 +294,7 @@ def send_manual_trade_report(trade_id):
             f"SL: {sl}\n"
             f"Targets: {targets}\n"
             f"Status: {display_status}\n"
-            f"High Made: {made_high}\n"
+            f"High Made: {made_high} {track_tag}\n"
             f"Potential Target: {pot_target}\n"
             f"Max Potential: {max_pot_val:.2f}"
         )
@@ -688,18 +704,32 @@ def update_risk_engine(kite):
         history_updated = False
         try:
             for t in todays_closed:
-                # Skip tracker if SL was hit AFTER hitting some targets (logic: trade was successful partially, no need to track infinite potential)
-                if t['status'] == 'SL_HIT' and t.get('targets_hit_indices'):
+                # 1. Skip if already marked as Virtual SL Hit
+                if t.get('virtual_sl_hit', False):
                     continue
 
                 inst_key = f"{t['exchange']}:{t['symbol']}"
                 if inst_key in live_prices:
                     ltp = live_prices[inst_key]['last_price']
                     
-                    # --- FIX: Update LTP Always for Visibility ---
+                    # Update LTP for visibility
                     t['current_ltp'] = ltp
 
-                    # Check if current price is higher than the recorded high
+                    # 2. Check Virtual SL (If LTP touches SL, stop tracking)
+                    # Handle Direction: BUY (Entry > SL) vs SELL (Entry < SL)
+                    is_dead = False
+                    if t['entry_price'] > t['sl']: # BUY
+                         if ltp <= t['sl']: is_dead = True
+                    else: # SELL
+                         if ltp >= t['sl']: is_dead = True
+                    
+                    if is_dead:
+                        t['virtual_sl_hit'] = True
+                        db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                        history_updated = True
+                        continue
+
+                    # 3. Check High Made (Only if alive)
                     current_high = t.get('made_high', t['entry_price'])
                     if ltp > current_high:
                         t['made_high'] = ltp

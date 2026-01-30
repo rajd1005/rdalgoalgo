@@ -1,10 +1,37 @@
+// Global Socket Object
+var socket = null;
+
 $(document).ready(function() {
     // --- CONFIGURATION ---
-    const REFRESH_INTERVAL = 3000; // 3 Seconds Refresh for Stability
+    const REFRESH_INTERVAL = 1000; // 1 Seconds for Background Sync (Indices/Login State)
     // ---------------------
 
+    // --- WEBSOCKET INITIALIZATION ---
+    // This connects to the SocketIO server started in main.py
+    socket = io();
+
+    socket.on('connect', function() {
+        console.log("✅ Frontend Connected to WebSocket!");
+        // Visual confirmation of live connection
+        $('#status-badge').attr('class', 'badge bg-success shadow-sm').html('<i class="fas fa-wifi"></i> Live Feed');
+    });
+
+    socket.on('disconnect', function() {
+        console.log("❌ Frontend Disconnected");
+        $('#status-badge').attr('class', 'badge bg-danger shadow-sm').html('Socket Lost');
+    });
+
+    // Listen for Real-Time Trade Updates from Risk Engine
+    socket.on('trade_update', function(data) {
+        // 'data' is the fresh list of active trades from Python
+        if(typeof renderActivePositions === 'function') {
+            renderActivePositions(data);
+        }
+    });
+    // ---------------------------------
+
     renderWatchlist();
-    loadSettings();
+    if(typeof loadSettings === 'function') loadSettings();
     
     // Date Logic
     let now = new Date(); 
@@ -44,7 +71,16 @@ $(document).ready(function() {
     $('#imp_exp').change(() => fillChain('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_str'));
     
     // 3. Bind Strike Change to fetch LTP (New Feature)
-    $('#imp_str').change(fetchLTP);
+    $('#imp_str').change(function() {
+    fetchLTP();      // Update the UI/Logic placeholders
+    updateData();    // <--- FORCE IMMEDIATE FETCH from Backend
+});
+
+// Also apply to Symbol and Expiry if needed:
+$('#imp_sym, #imp_exp, input[name="imp_type"]').change(function() {
+    // ... existing logic ...
+    setTimeout(updateData, 100); // Small delay to allow UI to settle, then fetch
+});
 
     $('input[name="imp_type"]').change(() => loadDetails('#imp_sym', '#imp_exp', 'input[name="imp_type"]:checked', '#imp_qty', '#imp_sl_pts'));
     
@@ -76,7 +112,8 @@ $(document).ready(function() {
     // Loops
     setInterval(updateClock, 1000); updateClock();
     
-    // Trade Data Update Loop (Uses Configured Interval)
+    // Background Sync Loop (Indices, Login Status)
+    // Trades are now pushed via Socket, so this can be slower (3s) to save bandwidth
     setInterval(updateData, REFRESH_INTERVAL); updateData();
 });
 

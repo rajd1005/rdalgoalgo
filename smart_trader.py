@@ -7,16 +7,17 @@ import re
 IST = pytz.timezone('Asia/Kolkata')
 
 instrument_dump = None 
-symbol_map = {} # FAST LOOKUP CACHE
+symbol_map = {} 
+criteria_map = {} # <--- NEW GLOBAL CACHE
 
 def fetch_instruments(kite):
     """
-    Downloads the master instrument list, optimizes dates, and builds a fast lookup map.
+    Downloads the master instrument list, optimizes dates, and builds fast lookup maps.
     Prioritizes specific exchanges (NFO > MCX > NSE) to handle duplicate symbols.
     """
-    global instrument_dump, symbol_map
+    global instrument_dump, symbol_map, criteria_map
     
-    # If already loaded and map exists, skip to save bandwidth
+    # If already loaded and maps exist, skip to save bandwidth
     if instrument_dump is not None and not instrument_dump.empty and symbol_map: 
         return
 
@@ -34,25 +35,38 @@ def fetch_instruments(kite):
             instrument_dump['expiry_str'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.strftime('%Y-%m-%d')
             instrument_dump['expiry_date'] = pd.to_datetime(instrument_dump['expiry'], errors='coerce').dt.date
         
-        # --- CRITICAL FIX: Handle Duplicates for Hash Map ---
         print("⚡ Building Fast Lookup Cache...")
         
         # Create a copy to sort and deduplicate without affecting the main search dump
         temp_df = instrument_dump.copy()
         
         # Prioritize exchanges: NFO > MCX > CDS > NSE > BSE
-        # This ensures 'RELIANCE' maps to NSE, not BSE
         exchange_priority = {'NFO': 0, 'MCX': 1, 'CDS': 2, 'NSE': 3, 'BSE': 4, 'BFO': 5}
         temp_df['priority'] = temp_df['exchange'].map(exchange_priority).fillna(99)
         
         # Sort by priority so the "best" exchange comes first
         temp_df.sort_values('priority', inplace=True)
         
-        # Drop duplicates on tradingsymbol, keeping the first (highest priority)
+        # Drop duplicates on tradingsymbol
         unique_symbols = temp_df.drop_duplicates(subset=['tradingsymbol'])
         
-        # NOW it is safe to set index
+        # 1. Build Symbol Map (Existing)
         symbol_map = unique_symbols.set_index('tradingsymbol').to_dict('index')
+        
+        # 2. Build Criteria Map (NEW OPTIMIZATION)
+        # This enables O(1) lookup for: get_exact_symbol(NIFTY, 2024-01-25, 21500, CE)
+        criteria_map = {}
+        # Filter for relevant rows to speed up iteration (Options/Futures have expiry)
+        subset = unique_symbols.dropna(subset=['name', 'expiry_str', 'instrument_type'])
+        
+        for _, row in subset.iterrows():
+            try:
+                # Key: (NAME, EXPIRY, TYPE, STRIKE)
+                # Strike is stored as float to handle mismatches (21500 vs 21500.0)
+                s_val = float(row['strike']) if row['strike'] else 0.0
+                key = (row['name'], row['expiry_str'], row['instrument_type'], s_val)
+                criteria_map[key] = row['tradingsymbol']
+            except: continue
         
         print(f"✅ Instruments Downloaded & Indexed. Count: {len(instrument_dump)}")
         
@@ -62,6 +76,7 @@ def fetch_instruments(kite):
         if instrument_dump is None:
              instrument_dump = pd.DataFrame()
         symbol_map = {}
+        criteria_map = {}
 
 def get_exchange_name(symbol):
     """
@@ -310,11 +325,28 @@ def get_chain_data(symbol, expiry_date, option_type, ltp):
     return res
 
 def get_exact_symbol(symbol, expiry, strike, option_type):
-    global instrument_dump
+    """
+    Finds the exact tradingsymbol (e.g. NIFTY24JAN21500CE) using optimized lookup.
+    """
+    global instrument_dump, criteria_map
+    
     if instrument_dump is None or instrument_dump.empty: return None
     if option_type == "EQ": return symbol
     clean = get_zerodha_symbol(symbol)
     
+    # --- NEW: FAST LOOKUP CACHE (O(1)) ---
+    # This prevents scanning 194k rows every time the user selects a strike
+    if criteria_map:
+        try:
+            s_val = float(strike) if strike else 0.0
+            # Key must match the tuple structure created in fetch_instruments
+            key = (clean, expiry, option_type, s_val)
+            if key in criteria_map:
+                return criteria_map[key]
+        except: pass
+    # -------------------------------------
+
+    # Fallback to DataFrame Filter (Slower, but safe if cache misses)
     if 'expiry_str' not in instrument_dump.columns: return None
 
     if option_type == "FUT":
@@ -344,7 +376,6 @@ def get_specific_ltp(kite, symbol, expiry, strike, inst_type):
         return kite.quote(f"{exch}:{ts}")[f"{exch}:{ts}"]['last_price']
     except: return 0
 
-# --- NEW FUNCTIONS FOR IMPORT/BACKTEST ---
 def get_instrument_token(tradingsymbol, exchange):
     global instrument_dump
     if instrument_dump is None or instrument_dump.empty: return None

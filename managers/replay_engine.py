@@ -244,6 +244,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             
             record = {
                 "id": int(time.time()), 
+                "instrument_token": token,
                 "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
                 "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
                 "order_type": "MARKET", "status": final_status, 
@@ -261,12 +262,19 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             }
             trades = load_trades(); trades.append(record); save_trades(trades)
             
-            return {
-                "status": "success", 
-                "message": f"Simulation Complete. Trade Still Active as {final_status}.",
-                "notification_queue": notification_queue,
-                "trade_ref": record
-            }
+            # FORCE Subscription Update
+            try:
+                # Import inside function to avoid circular dependency issues
+                import managers.risk_engine as re
+                if re.kws and re.kws.is_connected():
+                    re.update_subscriptions()
+                    print(f"🔄 Triggered Subscription Update for {symbol}")
+                else:
+                    print("⚠️ Ticker not connected yet, subscription queued.")
+            except Exception as e:
+                print(f"❌ Failed to update subscriptions: {e}")
+
+            return { "status": "success", "message": f"Simulation Complete. Trade Still Active as {final_status}.", "notification_queue": notification_queue, "trade_ref": record }
             
         else:
             last_time = logs[-1].split(']')[0].replace('[', '')
@@ -275,6 +283,7 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
 
             record = {
                 "id": int(time.time()), 
+                "instrument_token": token,
                 "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
                 "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
                 "order_type": "MARKET", "status": final_status, 
@@ -291,12 +300,12 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
             }
             move_to_history(record, exit_reason, final_exit_price)
             
-            return {
-                "status": "success", 
-                "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}",
-                "notification_queue": notification_queue,
-                "trade_ref": record
-            }
+            try:
+                from managers import risk_engine
+                risk_engine.update_subscriptions()
+            except: pass
+            
+            return { "status": "success", "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}", "notification_queue": notification_queue, "trade_ref": record }
 
     except Exception as e: 
         return {"status": "error", "message": str(e)}

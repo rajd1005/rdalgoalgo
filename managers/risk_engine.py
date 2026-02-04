@@ -17,6 +17,9 @@ kite_client = None  # Reference to KiteConnect instance for placing orders
 flask_app = None    # Reference to Flask App for DB Context
 socket_io_server = None # Reference to SocketIO Server for emitting events
 
+# Global timer for periodic subscription checks (Self-Healing)
+last_sub_check = 0
+
 # --- REPORTING FUNCTIONS ---
 
 def send_eod_report(mode):
@@ -420,11 +423,17 @@ def check_global_exit_conditions(kite, mode, mode_settings):
 def on_ticks(ws, ticks):
     """
     Triggered whenever a price update is received from Zerodha.
-    Handles Active Trades and Closed Trades (Virtual SL).
+    Handles Active Trades and Closed Trades (Virtual SL & Monitoring).
     """
-    global kite_client, flask_app, socket_io_server
+    global kite_client, flask_app, socket_io_server, last_sub_check
     
     if not flask_app: return
+
+    # --- 0. AUTO-RESUBSCRIBE CHECK (Every 5 Seconds) ---
+    # This ensures newly closed trades (like Replay or Live SL Hit) are watched.
+    if time.time() - last_sub_check > 5:
+        subscribe_active_trades(ws)
+        last_sub_check = time.time()
 
     # Use App Context for DB operations inside this thread
     with flask_app.app_context():
@@ -446,6 +455,7 @@ def on_ticks(ws, ticks):
         # --- 1. PROCESS ACTIVE TRADES ---
         for t in active_trades:
             token = t.get('instrument_token')
+            if token: token = int(token) # Force INT to match tick_map keys
             
             # If no update for this trade, keep as is
             if not token or token not in tick_map:
@@ -574,13 +584,13 @@ def on_ticks(ws, ticks):
                                 t['quantity'] -= qty_to_exit
                                 log_event(t, f"Target {i+1} Hit. Exited {qty_to_exit}")
                                 if t['mode'] == 'LIVE' and kite_client:
-                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite_client.ORDER_TYPE_MARKET, product=kite_client.PRODUCT_MIS)
+                                    try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=qty_to_exit, order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                                     except: pass
 
                 if exit_triggered:
                     if t['mode'] == "LIVE" and kite_client:
                         manage_broker_sl(kite_client, t, cancel_completely=True)
-                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite_client.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite_client.ORDER_TYPE_MARKET, product=kite_client.PRODUCT_MIS)
+                        try: kite_client.place_order(variety=kite_client.VARIETY_REGULAR, tradingsymbol=t['symbol'], exchange=t['exchange'], transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=t['quantity'], order_type=kite.ORDER_TYPE_MARKET, product=kite.PRODUCT_MIS)
                         except: pass
                     
                     final_price = t['sl'] if exit_reason=="SL_HIT" else (t['targets'][-1] if exit_reason=="TARGET_HIT" else ltp)
@@ -594,52 +604,68 @@ def on_ticks(ws, ticks):
         
         if updated:
             save_trades(active_list)
-            # [NEW] Emit real-time update to Frontend via SocketIO
+            # Emit real-time update to Frontend for Active Trades
             if socket_io_server:
                 try:
                     socket_io_server.emit('trade_update', active_list)
                 except Exception as e:
                     print(f"Socket Emit Error: {e}")
 
-        # --- 2. PROCESS CLOSED TRADES (Virtual SL Tracking) ---
+        # --- 2. PROCESS CLOSED TRADES (Modified for Live LTP & Virtual SL) ---
         history_updated = False
+        live_closed_updates = []  # List to store live updates for frontend
+
         try:
             for t in todays_closed:
-                if t.get('virtual_sl_hit', False): continue
-                
                 token = t.get('instrument_token')
-                if not token or token not in tick_map: continue
+                if not token: continue
+                token = int(token) # Force INT casting
+                
+                if token not in tick_map: continue
                 
                 ltp = tick_map[token]
                 t['current_ltp'] = ltp
                 
-                # Check Virtual SL (Entry vs SL direction)
-                is_dead = False
-                if t['entry_price'] > t['sl']: # BUY
-                     if ltp <= t['sl']: is_dead = True
-                else: # SELL
-                     if ltp >= t['sl']: is_dead = True
+                # Always add to update list so Frontend gets the live price
+                live_closed_updates.append(t) 
                 
-                if is_dead:
-                    t['virtual_sl_hit'] = True
-                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
-                    history_updated = True
-                    continue
+                # Only run the "Logic" (Virtual SL / High Made) if not already dead
+                if not t.get('virtual_sl_hit', False):
+                    
+                    # Check Virtual SL (Entry vs SL direction)
+                    is_dead = False
+                    if t['entry_price'] > t['sl']: # BUY
+                         if ltp <= t['sl']: is_dead = True
+                    else: # SELL
+                         if ltp >= t['sl']: is_dead = True
+                    
+                    if is_dead:
+                        t['virtual_sl_hit'] = True
+                        db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                        history_updated = True
+                        continue # Skip High Check if just died
 
-                # Check High Made
-                current_high = t.get('made_high', t['entry_price'])
-                if ltp > current_high:
-                    t['made_high'] = ltp
-                    try: telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
-                    except: pass
-                    db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
-                    history_updated = True
+                    # Check High Made
+                    current_high = t.get('made_high', t['entry_price'])
+                    if ltp > current_high:
+                        t['made_high'] = ltp
+                        try: telegram_bot.notify_trade_event(t, "HIGH_MADE", ltp)
+                        except: pass
+                        db.session.merge(TradeHistory(id=t['id'], data=json.dumps(t)))
+                        history_updated = True
                     
         except Exception as e:
             print(f"Error in History Tracker: {e}")
         
         if history_updated:
             db.session.commit()
+
+        # Emit Real-Time Closed Trade Updates to Frontend
+        if socket_io_server and live_closed_updates:
+            try:
+                socket_io_server.emit('closed_trade_update', live_closed_updates)
+            except Exception as e:
+                print(f"Socket Emit Error (Closed): {e}")
 
 def on_connect(ws, response):
     print("✅ WebSocket Connected! Resubscribing...")
@@ -666,7 +692,7 @@ def subscribe_active_trades(ws):
         if all_tokens:
             ws.subscribe(all_tokens)
             ws.set_mode(ws.MODE_FULL, all_tokens)
-            print(f"📡 Subscribed to {len(all_tokens)} tokens (Active + Closed).")
+            # print(f"📡 Subscribed to {len(all_tokens)} tokens (Active + Closed).") # Reduced spam
 
 def start_ticker(api_key, access_token, kite_inst, app_inst, socket_inst=None):
     """

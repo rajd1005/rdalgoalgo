@@ -99,7 +99,7 @@ def cleanup_old_data(days=7):
     try:
         # Calculate the threshold timestamp (IDs in this DB are timestamp-based)
         # 86400 seconds = 1 day
-        threshold_id = int((time.time() - (days * 86400)) * 1000) 
+        threshold_id = int(time.time() - (days * 86400)) 
         
         # 1. Delete associated Telegram messages first (Foreign Key/Reference cleanup)
         # We fetch trade IDs that are about to be deleted

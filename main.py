@@ -123,7 +123,7 @@ def background_monitor():
                 # --- NEW: AUTO-DELETE OLD DATA (Runs once every 24 hours) ---
                 current_time = time.time()
                 if current_time - last_cleanup_time > 86400: # 86400s = 24h
-                    persistence.cleanup_old_data(days=7)
+                    persistence.cleanup_old_data(days=365)
                     last_cleanup_time = current_time
                 # 1. Active Bot Check
                 if bot_active:

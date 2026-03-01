@@ -262,6 +262,10 @@ function calculateImportRisk() {
 }
 
 function submitImport() {
+    // --- FIX: Disable Button to prevent Double-Click ---
+    let btn = $('#importModal .btn-primary');
+    btn.prop('disabled', true).html('⏳ Importing...');
+
     let d = {
         symbol: $('#imp_sym').val(),
         expiry: $('#imp_exp').val(),
@@ -270,47 +274,34 @@ function submitImport() {
         entry_time: $('#imp_time').val(),
         qty: parseInt($('#imp_qty').val()),
         price: parseFloat($('#imp_price').val()),
-        sl: parseFloat($('#imp_sl_price').val()), // Send SL Price to Backend
-        
-        // Broadcast Channel
+        sl: parseFloat($('#imp_sl_price').val()), 
         target_channel: $('input[name="imp_channel"]:checked').val() || 'main',
-
-        // New Settings
         trailing_sl: parseFloat($('#imp_trail_sl').val()) || 0,
         sl_to_entry: parseInt($('#imp_trail_limit').val()) || 0,
         exit_multiplier: parseInt($('#imp_exit_mult').val()) || 1,
-        
         targets: [
             parseFloat($('#imp_t1').val())||0,
             parseFloat($('#imp_t2').val())||0,
             parseFloat($('#imp_t3').val())||0
         ],
-        
         target_controls: [
-            { 
-                enabled: $('#imp_t1_active').is(':checked'), 
-                lots: $('#imp_t1_full').is(':checked') ? 1000 : (parseInt($('#imp_t1_lots').val()) || 0),
-                trail_to_entry: $('#imp_t1_cost').is(':checked')
-            },
-            { 
-                enabled: $('#imp_t2_active').is(':checked'), 
-                lots: $('#imp_t2_full').is(':checked') ? 1000 : (parseInt($('#imp_t2_lots').val()) || 0),
-                trail_to_entry: $('#imp_t2_cost').is(':checked')
-            },
-            { 
-                enabled: $('#imp_t3_active').is(':checked'), 
-                lots: $('#imp_t3_full').is(':checked') ? 1000 : (parseInt($('#imp_t3_lots').val()) || 0),
-                trail_to_entry: $('#imp_t3_cost').is(':checked')
-            }
+            { enabled: $('#imp_t1_active').is(':checked'), lots: $('#imp_t1_full').is(':checked') ? 1000 : (parseInt($('#imp_t1_lots').val()) || 0), trail_to_entry: $('#imp_t1_cost').is(':checked') },
+            { enabled: $('#imp_t2_active').is(':checked'), lots: $('#imp_t2_full').is(':checked') ? 1000 : (parseInt($('#imp_t2_lots').val()) || 0), trail_to_entry: $('#imp_t2_cost').is(':checked') },
+            { enabled: $('#imp_t3_active').is(':checked'), lots: $('#imp_t3_full').is(':checked') ? 1000 : (parseInt($('#imp_t3_lots').val()) || 0), trail_to_entry: $('#imp_t3_cost').is(':checked') }
         ]
     };
     
-    if(!d.symbol || !d.entry_time || !d.price) { alert("Please fill all fields"); return; }
+    if(!d.symbol || !d.entry_time || !d.price) { 
+        alert("Please fill all fields"); 
+        btn.prop('disabled', false).html('📥 Check & Import'); // Re-enable
+        return; 
+    }
     
     $.ajax({
         type: "POST", url: '/api/import_trade', 
         data: JSON.stringify(d), contentType: "application/json",
         success: function(r) {
+            btn.prop('disabled', false).html('📥 Check & Import'); // Re-enable
             if(r.status === 'success') {
                 alert(r.message);
                 $('#importModal').modal('hide');
@@ -318,6 +309,10 @@ function submitImport() {
             } else {
                 alert("Error: " + r.message);
             }
+        },
+        error: function(err) {
+            btn.prop('disabled', false).html('📥 Check & Import'); // Re-enable
+            alert("Network Error");
         }
     });
 }

@@ -5,6 +5,8 @@ import settings
 from managers.common import IST, log_event, get_time_str
 from managers.persistence import load_trades, save_trades, load_history
 from managers.broker_ops import move_to_history
+import threading
+_import_lock = threading.Lock()
 
 # Helper to ensure exchange is resolved correctly
 def get_exchange(symbol):
@@ -230,82 +232,95 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                                 })
                 break 
 
-        # 4. Finalize & Save
-        # removed TRADE_LOCK context
-        current_ltp = entry_price
-        
-        # Use final_status here
-        if final_status in ["OPEN", "PENDING"]:
-            try: 
-                q = kite.quote(f"{exchange}:{symbol}")
-                current_ltp = q[f"{exchange}:{symbol}"]['last_price']
-            except: 
-                if hist_data: current_ltp = hist_data[-1]['close']
+# 4. Finalize & Save
+        with _import_lock:
+            current_ltp = entry_price
             
-            record = {
-                "id": int(time.time()), 
-                "instrument_token": token,
-                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
-                "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
-                "order_type": "MARKET", "status": final_status, 
-                "entry_price": entry_price, 
-                "quantity": current_qty if final_status == "OPEN" else qty,
-                "sl": current_sl, "targets": t_list, 
-                "target_controls": target_controls,
-                "lot_size": smart_trader.get_lot_size(symbol), 
-                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
-                "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
-                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-                "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs,
-                "is_replay": True, "last_update_time": hist_data[-1]['date'] if hist_data else get_time_str(),
-                "target_channels": target_channels 
-            }
-            trades = load_trades(); trades.append(record); save_trades(trades)
+            # --- FIX: Duplicate Check & Unique ID Generation ---
+            current_ts = int(time.time())
+            trades = load_trades()
             
-            # FORCE Subscription Update
-            try:
-                # Import inside function to avoid circular dependency issues
-                import managers.risk_engine as re
-                if re.kws and re.kws.is_connected():
-                    re.update_subscriptions()
-                    print(f"🔄 Triggered Subscription Update for {symbol}")
-                else:
-                    print("⚠️ Ticker not connected yet, subscription queued.")
-            except Exception as e:
-                print(f"❌ Failed to update subscriptions: {e}")
+            # Prevent double-click duplicates
+            for t in trades:
+                if t['symbol'] == symbol and t['quantity'] == qty and (current_ts - t['id']) < 5:
+                    return {"status": "error", "message": "Duplicate Import Blocked (Please wait a few seconds)"}
+                    
+            new_id = current_ts
+            existing_ids = [t['id'] for t in trades] + [t['id'] for t in load_history()]
+            if existing_ids:
+                max_id = max(existing_ids)
+                if new_id <= max_id:
+                    new_id = max_id + 1
+            # ---------------------------------------------------
+            
+            # Use final_status here
+            if final_status in ["OPEN", "PENDING"]:
+                try: 
+                    q = kite.quote(f"{exchange}:{symbol}")
+                    current_ltp = q[f"{exchange}:{symbol}"]['last_price']
+                except: 
+                    if hist_data: current_ltp = hist_data[-1]['close']
+                
+                record = {
+                    "id": new_id, # <--- Uses Unique ID
+                    "instrument_token": token,
+                    "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                    "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
+                    "order_type": "MARKET", "status": final_status, 
+                    "entry_price": entry_price, 
+                    "quantity": current_qty if final_status == "OPEN" else qty,
+                    "sl": current_sl, "targets": t_list, 
+                    "target_controls": target_controls,
+                    "lot_size": smart_trader.get_lot_size(symbol), 
+                    "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                    "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
+                    "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                    "current_ltp": current_ltp, "trigger_dir": trigger_dir, "logs": logs,
+                    "is_replay": True, "last_update_time": hist_data[-1]['date'] if hist_data else get_time_str(),
+                    "target_channels": target_channels 
+                }
+                trades.append(record)
+                save_trades(trades)
+                
+                # FORCE Subscription Update
+                try:
+                    import managers.risk_engine as re
+                    if re.kws and re.kws.is_connected():
+                        re.update_subscriptions()
+                except: pass
 
-            return { "status": "success", "message": f"Simulation Complete. Trade Still Active as {final_status}.", "notification_queue": notification_queue, "trade_ref": record }
-            
-        else:
-            last_time = logs[-1].split(']')[0].replace('[', '')
-            if "Closed:" not in logs[-1]:
-                logs.append(f"[{last_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {realized_pnl:.2f}")
+                return { "status": "success", "message": f"Simulation Complete. Trade Still Active as {final_status}.", "notification_queue": notification_queue, "trade_ref": record }
+                
+            else:
+                last_time = logs[-1].split(']')[0].replace('[', '')
+                if "Closed:" not in logs[-1]:
+                    logs.append(f"[{last_time}] Closed: {final_status} @ {final_exit_price} | P/L ₹ {realized_pnl:.2f}")
 
-            record = {
-                "id": int(time.time()), 
-                "instrument_token": token,
-                "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
-                "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
-                "order_type": "MARKET", "status": final_status, 
-                "entry_price": entry_price, "quantity": qty,
-                "sl": current_sl, "targets": t_list, 
-                "target_controls": target_controls,
-                "lot_size": smart_trader.get_lot_size(symbol), 
-                "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
-                "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
-                "highest_ltp": highest_ltp, "made_high": highest_ltp, 
-                "current_ltp": final_exit_price, "trigger_dir": trigger_dir, 
-                "logs": logs, "is_replay": True, "pnl": realized_pnl,
-                "target_channels": target_channels
-            }
-            move_to_history(record, exit_reason, final_exit_price)
-            
-            try:
-                from managers import risk_engine
-                risk_engine.update_subscriptions()
-            except: pass
-            
-            return { "status": "success", "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}", "notification_queue": notification_queue, "trade_ref": record }
+                record = {
+                    "id": new_id, # <--- Uses Unique ID
+                    "instrument_token": token,
+                    "entry_time": entry_time.strftime("%Y-%m-%d %H:%M:%S"), 
+                    "symbol": symbol, "exchange": exchange, "mode": "PAPER", 
+                    "order_type": "MARKET", "status": final_status, 
+                    "entry_price": entry_price, "quantity": qty,
+                    "sl": current_sl, "targets": t_list, 
+                    "target_controls": target_controls,
+                    "lot_size": smart_trader.get_lot_size(symbol), 
+                    "trailing_sl": float(trailing_sl), "sl_to_entry": int(sl_to_entry), "exit_multiplier": int(exit_multiplier), 
+                    "sl_order_id": None, "targets_hit_indices": targets_hit_indices, 
+                    "highest_ltp": highest_ltp, "made_high": highest_ltp, 
+                    "current_ltp": final_exit_price, "trigger_dir": trigger_dir, 
+                    "logs": logs, "is_replay": True, "pnl": realized_pnl,
+                    "target_channels": target_channels
+                }
+                move_to_history(record, exit_reason, final_exit_price)
+                
+                try:
+                    from managers import risk_engine
+                    risk_engine.update_subscriptions()
+                except: pass
+                
+                return { "status": "success", "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}", "notification_queue": notification_queue, "trade_ref": record }
 
     except Exception as e: 
         return {"status": "error", "message": str(e)}

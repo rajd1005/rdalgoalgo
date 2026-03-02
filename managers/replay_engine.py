@@ -6,6 +6,7 @@ from managers.common import IST, log_event, get_time_str
 from managers.persistence import load_trades, save_trades, load_history
 from managers.broker_ops import move_to_history
 import threading
+
 _import_lock = threading.Lock()
 
 # Helper to ensure exchange is resolved correctly
@@ -17,233 +18,239 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
     Simulates a trade based on historical data.
     Collects notification events (NEW_TRADE, ACTIVE, TARGET_HIT, SL_HIT) into a queue for sequential sending.
     """
-    try:
-        # 1. Parse Input & Initialize Data
-        # HTML datetime-local input is naive (no timezone). We treat it as IST.
+    # --- MOVED LOCK TO THE VERY TOP TO PREVENT DOUBLE-CLICKS RUNNING SIMULTANEOUSLY ---
+    with _import_lock:
         try:
-            entry_time = datetime.strptime(entry_dt_str, "%Y-%m-%dT%H:%M") 
-            entry_time = IST.localize(entry_time)
-        except Exception as e:
-            return {"status": "error", "message": f"Date Parse Error: {e}"}
-
-        try:
-            s_cfg = settings.load_settings()
-            exit_time_conf = s_cfg['modes']['PAPER'].get('universal_exit_time', "15:25")
-            exit_H, exit_M = map(int, exit_time_conf.split(':'))
-        except: exit_H, exit_M = 15, 25
-
-        now = datetime.now(IST)
-        exchange = get_exchange(symbol)
-        
-        token = smart_trader.get_instrument_token(symbol, exchange)
-        if not token: 
-            return {"status": "error", "message": "Symbol Token not found"}
-        
-        # Fetch Data
-        hist_data = smart_trader.fetch_historical_data(kite, token, entry_time, now, "minute")
-        if not hist_data: 
-            return {"status": "error", "message": "No historical data found"}
-        
-        first_open = hist_data[0]['open']
-        trigger_dir = "ABOVE" if first_open < entry_price else "BELOW"
-
-        status = "PENDING"
-        final_status = "PENDING" # Default for DB
-        current_sl = float(sl_price)
-        current_qty = int(qty)
-        highest_ltp = float(entry_price)
-        targets_hit_indices = []
-        t_list = [float(x) for x in targets]
-        realized_pnl = 0.0 
-        
-        logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Replay Import Started. Entry: {entry_price}. Trigger: {trigger_dir}"]
-        
-        # --- Notification Queue ---
-        notification_queue = []
-        # Create a base object for the initial notification
-        initial_trade_data = {
-            "symbol": symbol, "mode": "PAPER", "order_type": "MARKET",
-            "quantity": qty, "entry_price": entry_price, "sl": sl_price, "targets": t_list,
-            "target_channels": target_channels # Store selected channels
-        }
-        notification_queue.append({'event': 'NEW_TRADE', 'data': initial_trade_data})
-
-        exit_reason = ""
-        final_exit_price = 0.0
-        
-        # 3. Candle-by-Candle Simulation
-        for idx, candle in enumerate(hist_data):
-            c_date_str = candle['date']
+            # --- NEW: Duplicate Check BEFORE Simulation ---
+            current_ts = int(time.time())
             
-            # Universal Time Exit
+            # Check both Active AND History to catch instant-SL trades or double clicks
+            all_trades = load_trades() + load_history()
+            for t in all_trades:
+                # If same symbol, same qty, and created less than 15 seconds ago -> Block
+                if t.get('symbol') == symbol and int(t.get('quantity', 0)) == int(qty) and (current_ts - int(t.get('id', 0))) < 15:
+                    return {"status": "error", "message": "Duplicate Import Blocked (Please wait 15 seconds)"}
+
+            # 1. Parse Input & Initialize Data
+            # HTML datetime-local input is naive (no timezone). We treat it as IST.
             try:
-                c_dt = datetime.strptime(c_date_str, "%Y-%m-%d %H:%M:%S")
-                if c_dt.hour > exit_H or (c_dt.hour == exit_H and c_dt.minute >= exit_M):
-                    if status == "OPEN":
-                        final_status = "TIME_EXIT"; exit_reason = "TIME_EXIT"; final_exit_price = candle['open']
-                        pnl_here = (final_exit_price - entry_price) * current_qty
-                        realized_pnl += pnl_here
-                        logs.append(f"[{c_date_str}] ⏰ Universal Time Exit @ {final_exit_price}")
-                        current_qty = 0
-                        break
-                    elif status == "PENDING":
-                        final_status = "NOT_ACTIVE"
-                        exit_reason = "TIME_EXIT"
-                        final_exit_price = entry_price 
-                        realized_pnl = 0.0
-                        logs.append(f"[{c_date_str}] ⏰ Universal Time Exit (Order Not Triggered)")
-                        current_qty = 0
-                        break
+                entry_time = datetime.strptime(entry_dt_str, "%Y-%m-%dT%H:%M") 
+                entry_time = IST.localize(entry_time)
+            except Exception as e:
+                return {"status": "error", "message": f"Date Parse Error: {e}"}
 
-            except: pass
+            try:
+                s_cfg = settings.load_settings()
+                exit_time_conf = s_cfg['modes']['PAPER'].get('universal_exit_time', "15:25")
+                exit_H, exit_M = map(int, exit_time_conf.split(':'))
+            except: exit_H, exit_M = 15, 25
 
-            O, H, L, C = candle['open'], candle['high'], candle['low'], candle['close']
-            ticks = [O, L, H, C] if C >= O else [O, H, L, C]
-
-            for ltp in ticks:
-                # Activation
-                if status == "PENDING":
-                    activated = False
-                    if trigger_dir == "ABOVE" and ltp >= entry_price: activated = True
-                    elif trigger_dir == "BELOW" and ltp <= entry_price: activated = True
-                    if activated:
-                        # Sync final_status immediately so DB knows it's OPEN
-                        status = "OPEN"; final_status = "OPEN"; 
-                        fill_price = entry_price; highest_ltp = max(fill_price, ltp)
-                        logs.append(f"[{c_date_str}] 🚀 Order ACTIVATED @ {fill_price}")
-                        # Notify Activation
-                        notification_queue.append({'event': 'ACTIVE', 'data': {'price': fill_price, 'time': c_date_str}})
-                        continue 
-
-                # Risk Engine
-                if status == "OPEN":
-                    if ltp > highest_ltp:
-                        highest_ltp = ltp
-                        
-                        # Check for High Made (Only if T3 is hit)
-                        if 2 in targets_hit_indices: 
-                             notification_queue.append({
-                                'event': 'HIGH_MADE', 
-                                'data': {'price': ltp, 'time': c_date_str}
-                            })
-
-                        t_sl = float(trailing_sl) if trailing_sl else 0
-                        if t_sl > 0:
-                            step = t_sl
-                            diff = highest_ltp - (current_sl + step)
-                            if diff >= step:
-                                steps_to_move = int(diff / step)
-                                new_sl = current_sl + (steps_to_move * step)
-                                limit_val = float('inf')
-                                mode = int(sl_to_entry)
-                                if mode == 1: limit_val = entry_price
-                                elif mode == 2 and len(t_list)>0: limit_val = t_list[0]
-                                elif mode == 3 and len(t_list)>1: limit_val = t_list[1]
-                                elif mode == 4 and len(t_list)>2: limit_val = t_list[2]
-                                if mode > 0: new_sl = min(new_sl, limit_val)
-                                if new_sl > current_sl:
-                                    current_sl = new_sl
-                                    logs.append(f"[{c_date_str}] 📈 Trailing SL Moved: {current_sl:.2f} (LTP: {ltp})")
-
-                    # SL Hit
-                    if ltp <= current_sl:
-                        final_status = "SL_HIT"; exit_reason = "SL_HIT"; final_exit_price = current_sl
-                        pnl_here = (current_sl - entry_price) * current_qty
-                        realized_pnl += pnl_here
-                        logs.append(f"[{c_date_str}] 🛑 SL Hit @ {current_sl}. Exited {current_qty} Qty.")
-                        
-                        # Notify SL
-                        sl_snap = initial_trade_data.copy()
-                        sl_snap['exit_price'] = current_sl
-                        notification_queue.append({'event': 'SL_HIT', 'data': {'pnl': pnl_here, 'time': c_date_str}, 'trade': sl_snap})
-                        
-                        current_qty = 0
-                        break
-
-                    # Target Hits
-                    for i, tgt in enumerate(t_list):
-                        if i in targets_hit_indices: continue 
-                        if ltp >= tgt:
-                            targets_hit_indices.append(i)
-                            # Notify Target
-                            notification_queue.append({'event': 'TARGET_HIT', 'data': {'t_num': i+1, 'price': tgt, 'time': c_date_str}})
-                            
-                            conf = target_controls[i]
-                            if conf.get('trail_to_entry') and current_sl < entry_price:
-                                current_sl = entry_price
-                                logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit: SL Trailed to Entry ({current_sl})")
-
-                            if conf['enabled']:
-                                lot_size = smart_trader.get_lot_size(symbol)
-                                exit_qty = conf['lots'] * lot_size
-                                if exit_qty >= current_qty or exit_qty >= 1000:
-                                    final_status = "TARGET_HIT"; exit_reason = f"TARGET_{i+1}_HIT"; final_exit_price = tgt
-                                    pnl_here = (tgt - entry_price) * current_qty
-                                    realized_pnl += pnl_here
-                                    logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit ({tgt}). Full Exit.")
-                                    current_qty = 0
-                                    break 
-                                else:
-                                    pnl_here = (tgt - entry_price) * exit_qty
-                                    realized_pnl += pnl_here
-                                    current_qty -= exit_qty
-                                    logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Rem: {current_qty}")
-                    
-                    if current_qty == 0:
-                         # Force update Status if loop ends
-                         final_status = "TARGET_HIT"
-                         if not exit_reason: exit_reason = "TARGET_HIT"
-                         final_exit_price = ltp
-                         break 
+            now = datetime.now(IST)
+            exchange = get_exchange(symbol)
             
-            # Post-Exit Scan Logic
-            if current_qty == 0:
-                skip_scan = (final_status == "SL_HIT" and len(targets_hit_indices) > 0)
-                if not skip_scan:
-                    remaining_candles = hist_data[idx+1:]
-                    virtual_sl_price = float(sl_price)
-                    
-                    for c in remaining_candles:
-                        c_h = float(c['high'])
-                        c_l = float(c['low'])
-                        c_time = c['date']
-                        
-                        # 1. CHECK VIRTUAL SL (Stop Tracking if hit)
-                        is_dead = False
-                        if entry_price > virtual_sl_price: # BUY Trade Logic
-                            if c_l <= virtual_sl_price: is_dead = True
-                        else: # SELL Trade Logic
-                            if c_h >= virtual_sl_price: is_dead = True
-                        
-                        if is_dead:
-                            logs.append(f"[{c_time}] 🔴 Virtual SL Hit during scan. Tracking Stopped.")
-                            break # STOP SCANNING
+            token = smart_trader.get_instrument_token(symbol, exchange)
+            if not token: 
+                return {"status": "error", "message": "Symbol Token not found"}
+            
+            # Fetch Data
+            hist_data = smart_trader.fetch_historical_data(kite, token, entry_time, now, "minute")
+            if not hist_data: 
+                return {"status": "error", "message": "No historical data found"}
+            
+            first_open = hist_data[0]['open']
+            trigger_dir = "ABOVE" if first_open < entry_price else "BELOW"
 
-                        # 2. CHECK HIGH MADE
-                        if c_h > highest_ltp:
-                            highest_ltp = c_h
-                            logs.append(f"[{c_time}] ℹ️ Post-Exit High Detected: {highest_ltp} 🟢")
+            status = "PENDING"
+            final_status = "PENDING" # Default for DB
+            current_sl = float(sl_price)
+            current_qty = int(qty)
+            highest_ltp = float(entry_price)
+            targets_hit_indices = []
+            t_list = [float(x) for x in targets]
+            realized_pnl = 0.0 
+            
+            logs = [f"[{entry_time.strftime('%Y-%m-%d %H:%M:%S')}] 📋 Replay Import Started. Entry: {entry_price}. Trigger: {trigger_dir}"]
+            
+            # --- Notification Queue ---
+            notification_queue = []
+            # Create a base object for the initial notification
+            initial_trade_data = {
+                "symbol": symbol, "mode": "PAPER", "order_type": "MARKET",
+                "quantity": qty, "entry_price": entry_price, "sl": sl_price, "targets": t_list,
+                "target_channels": target_channels # Store selected channels
+            }
+            notification_queue.append({'event': 'NEW_TRADE', 'data': initial_trade_data})
+
+            exit_reason = ""
+            final_exit_price = 0.0
+            
+            # 3. Candle-by-Candle Simulation
+            for idx, candle in enumerate(hist_data):
+                c_date_str = candle['date']
+                
+                # Universal Time Exit
+                try:
+                    c_dt = datetime.strptime(c_date_str, "%Y-%m-%d %H:%M:%S")
+                    if c_dt.hour > exit_H or (c_dt.hour == exit_H and c_dt.minute >= exit_M):
+                        if status == "OPEN":
+                            final_status = "TIME_EXIT"; exit_reason = "TIME_EXIT"; final_exit_price = candle['open']
+                            pnl_here = (final_exit_price - entry_price) * current_qty
+                            realized_pnl += pnl_here
+                            logs.append(f"[{c_date_str}] ⏰ Universal Time Exit @ {final_exit_price}")
+                            current_qty = 0
+                            break
+                        elif status == "PENDING":
+                            final_status = "NOT_ACTIVE"
+                            exit_reason = "TIME_EXIT"
+                            final_exit_price = entry_price 
+                            realized_pnl = 0.0
+                            logs.append(f"[{c_date_str}] ⏰ Universal Time Exit (Order Not Triggered)")
+                            current_qty = 0
+                            break
+
+                except: pass
+
+                O, H, L, C = candle['open'], candle['high'], candle['low'], candle['close']
+                ticks = [O, L, H, C] if C >= O else [O, H, L, C]
+
+                for ltp in ticks:
+                    # Activation
+                    if status == "PENDING":
+                        activated = False
+                        if trigger_dir == "ABOVE" and ltp >= entry_price: activated = True
+                        elif trigger_dir == "BELOW" and ltp <= entry_price: activated = True
+                        if activated:
+                            # Sync final_status immediately so DB knows it's OPEN
+                            status = "OPEN"; final_status = "OPEN"; 
+                            fill_price = entry_price; highest_ltp = max(fill_price, ltp)
+                            logs.append(f"[{c_date_str}] 🚀 Order ACTIVATED @ {fill_price}")
+                            # Notify Activation
+                            notification_queue.append({'event': 'ACTIVE', 'data': {'price': fill_price, 'time': c_date_str}})
+                            continue 
+
+                    # Risk Engine
+                    if status == "OPEN":
+                        if ltp > highest_ltp:
+                            highest_ltp = ltp
                             
-                            # Only Notify if T3 was previously hit (Moon Move Rule)
-                            if 2 in targets_hit_indices:
-                                notification_queue.append({
+                            # Check for High Made (Only if T3 is hit)
+                            if 2 in targets_hit_indices: 
+                                 notification_queue.append({
                                     'event': 'HIGH_MADE', 
-                                    'data': {'price': highest_ltp, 'time': c_time}
+                                    'data': {'price': ltp, 'time': c_date_str}
                                 })
-                break 
 
-# 4. Finalize & Save
-        with _import_lock:
+                            t_sl = float(trailing_sl) if trailing_sl else 0
+                            if t_sl > 0:
+                                step = t_sl
+                                diff = highest_ltp - (current_sl + step)
+                                if diff >= step:
+                                    steps_to_move = int(diff / step)
+                                    new_sl = current_sl + (steps_to_move * step)
+                                    limit_val = float('inf')
+                                    mode = int(sl_to_entry)
+                                    if mode == 1: limit_val = entry_price
+                                    elif mode == 2 and len(t_list)>0: limit_val = t_list[0]
+                                    elif mode == 3 and len(t_list)>1: limit_val = t_list[1]
+                                    elif mode == 4 and len(t_list)>2: limit_val = t_list[2]
+                                    if mode > 0: new_sl = min(new_sl, limit_val)
+                                    if new_sl > current_sl:
+                                        current_sl = new_sl
+                                        logs.append(f"[{c_date_str}] 📈 Trailing SL Moved: {current_sl:.2f} (LTP: {ltp})")
+
+                        # SL Hit
+                        if ltp <= current_sl:
+                            final_status = "SL_HIT"; exit_reason = "SL_HIT"; final_exit_price = current_sl
+                            pnl_here = (current_sl - entry_price) * current_qty
+                            realized_pnl += pnl_here
+                            logs.append(f"[{c_date_str}] 🛑 SL Hit @ {current_sl}. Exited {current_qty} Qty.")
+                            
+                            # Notify SL
+                            sl_snap = initial_trade_data.copy()
+                            sl_snap['exit_price'] = current_sl
+                            notification_queue.append({'event': 'SL_HIT', 'data': {'pnl': pnl_here, 'time': c_date_str}, 'trade': sl_snap})
+                            
+                            current_qty = 0
+                            break
+
+                        # Target Hits
+                        for i, tgt in enumerate(t_list):
+                            if i in targets_hit_indices: continue 
+                            if ltp >= tgt:
+                                targets_hit_indices.append(i)
+                                # Notify Target
+                                notification_queue.append({'event': 'TARGET_HIT', 'data': {'t_num': i+1, 'price': tgt, 'time': c_date_str}})
+                                
+                                conf = target_controls[i]
+                                if conf.get('trail_to_entry') and current_sl < entry_price:
+                                    current_sl = entry_price
+                                    logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit: SL Trailed to Entry ({current_sl})")
+
+                                if conf['enabled']:
+                                    lot_size = smart_trader.get_lot_size(symbol)
+                                    exit_qty = conf['lots'] * lot_size
+                                    if exit_qty >= current_qty or exit_qty >= 1000:
+                                        final_status = "TARGET_HIT"; exit_reason = f"TARGET_{i+1}_HIT"; final_exit_price = tgt
+                                        pnl_here = (tgt - entry_price) * current_qty
+                                        realized_pnl += pnl_here
+                                        logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit ({tgt}). Full Exit.")
+                                        current_qty = 0
+                                        break 
+                                    else:
+                                        pnl_here = (tgt - entry_price) * exit_qty
+                                        realized_pnl += pnl_here
+                                        current_qty -= exit_qty
+                                        logs.append(f"[{c_date_str}] 🎯 Target {i+1} Hit ({tgt}). Partial Exit {exit_qty} Qty. Rem: {current_qty}")
+                        
+                        if current_qty == 0:
+                             # Force update Status if loop ends
+                             final_status = "TARGET_HIT"
+                             if not exit_reason: exit_reason = "TARGET_HIT"
+                             final_exit_price = ltp
+                             break 
+                
+                # Post-Exit Scan Logic
+                if current_qty == 0:
+                    skip_scan = (final_status == "SL_HIT" and len(targets_hit_indices) > 0)
+                    if not skip_scan:
+                        remaining_candles = hist_data[idx+1:]
+                        virtual_sl_price = float(sl_price)
+                        
+                        for c in remaining_candles:
+                            c_h = float(c['high'])
+                            c_l = float(c['low'])
+                            c_time = c['date']
+                            
+                            # 1. CHECK VIRTUAL SL (Stop Tracking if hit)
+                            is_dead = False
+                            if entry_price > virtual_sl_price: # BUY Trade Logic
+                                if c_l <= virtual_sl_price: is_dead = True
+                            else: # SELL Trade Logic
+                                if c_h >= virtual_sl_price: is_dead = True
+                            
+                            if is_dead:
+                                logs.append(f"[{c_time}] 🔴 Virtual SL Hit during scan. Tracking Stopped.")
+                                break # STOP SCANNING
+
+                            # 2. CHECK HIGH MADE
+                            if c_h > highest_ltp:
+                                highest_ltp = c_h
+                                logs.append(f"[{c_time}] ℹ️ Post-Exit High Detected: {highest_ltp} 🟢")
+                                
+                                # Only Notify if T3 was previously hit (Moon Move Rule)
+                                if 2 in targets_hit_indices:
+                                    notification_queue.append({
+                                        'event': 'HIGH_MADE', 
+                                        'data': {'price': highest_ltp, 'time': c_time}
+                                    })
+                    break 
+
+            # 4. Finalize & Save
             current_ltp = entry_price
             
-            # --- FIX: Duplicate Check & Unique ID Generation ---
+            # --- FIX: Unique ID Generation ---
             current_ts = int(time.time())
             trades = load_trades()
-            
-            # Prevent double-click duplicates
-            for t in trades:
-                if t['symbol'] == symbol and t['quantity'] == qty and (current_ts - t['id']) < 5:
-                    return {"status": "error", "message": "Duplicate Import Blocked (Please wait a few seconds)"}
                     
             new_id = current_ts
             existing_ids = [t['id'] for t in trades] + [t['id'] for t in load_history()]
@@ -322,8 +329,8 @@ def import_past_trade(kite, symbol, entry_dt_str, qty, entry_price, sl_price, ta
                 
                 return { "status": "success", "message": f"Simulation Complete. Closed: {exit_reason} @ {final_exit_price}", "notification_queue": notification_queue, "trade_ref": record }
 
-    except Exception as e: 
-        return {"status": "error", "message": str(e)}
+        except Exception as e: 
+            return {"status": "error", "message": str(e)}
 
 def simulate_trade_scenario(kite, trade_id, scenario_config):
     """
